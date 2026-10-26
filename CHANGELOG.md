@@ -5,6 +5,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Coordenador como agente principal: não pode ser arquivado nem excluído (pela interface ou pela API) e recebe as ferramentas `create_agent` e `delete_agent`.
+- `create_agent` cria agentes com nome, cargo e descrição obrigatórios (instruções, tipo de célula e cor opcionais); recusa nomes repetidos.
+- `delete_agent` exclui um agente e suas conversas somente após aprovação do usuário, conferindo id e nome; nunca exclui o Coordenador.
+- Selo "Agente principal" no painel de detalhes.
+
+### Alterado
+- Campo "Função" passa a se chamar "Cargo" e é obrigatório; a descrição ganhou um texto de exemplo.
+- Migração `0005_master_agent` marca o Coordenador como agente principal.
+
 ## [0.4.0] - 2026-10-26
 
 ### Corrigido

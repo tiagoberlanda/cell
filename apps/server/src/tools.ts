@@ -1,4 +1,5 @@
-import { query,one } from './db.js';
+import { query,one,event } from './db.js';
+import { agentInput,shapes } from '../../../packages/shared/src/index.js';
 import { routerRequest } from './router.js';
 import { mcpCall } from './mcp.js';
 import { saveFile } from './files.js';
@@ -22,7 +23,30 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
   {name:'propose_routine',description:'Cria proposta de rotina desativada para confirmação do usuário. daily=HH:mm, weekly=dia HH:mm, once=ISO, cron=5 campos.',parameters:object({name:str,prompt:str,kind:{type:'string',enum:['once','daily','weekly','cron']},schedule:str},['name','prompt','kind','schedule']),write:false,execute:async(a,r,c)=>{const x=z.object({name:z.string().min(1).max(120),prompt:z.string().min(1).max(10000),kind:z.enum(['once','daily','weekly','cron']),schedule:z.string().max(100)}).parse(a);const next=nextOccurrence(x.kind,x.schedule,c.timezone);const routine=await one('INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,next_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[r.agent_id,x.name,x.prompt,x.kind,x.schedule,c.timezone,next]);return JSON.stringify({...routine,status:'Proposta salva. O usuário precisa ativá-la em Rotinas.'});}}
  ];
  const result=native.filter(t=>enabled.includes(t.name));
+ // The master agent always manages the team, regardless of its enabled tool list.
+ if((await one('SELECT is_master FROM agents WHERE id=$1',[run.agent_id]))?.is_master)result.push(...masterTools);
  for(const c of await query('SELECT * FROM connections WHERE status=\'connected\''))for(const t of c.tools){const name=`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64);if(!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
  return result;
 }
+const palette=['#258cff','#18b99c','#fcad24','#9b6bff','#fc733f','#df8da9','#b3efbc','#9c713f'];
+const pick=<T,>(list:readonly T[])=>list[Math.floor(Math.random()*list.length)];
+export async function deleteAgent(agentId:string){
+ const agent=await one('SELECT name,is_master FROM agents WHERE id=$1',[agentId]);if(!agent)throw new Error('Agente não encontrado.');
+ if(agent.is_master)throw new Error('O Coordenador é o agente principal e não pode ser excluído.');
+ if(await one("SELECT id FROM runs WHERE agent_id=$1 AND state IN('running','queued','waiting_agent','waiting_approval')",[agentId]))throw new Error('Cancele as execuções antes de excluir o agente.');
+ await query('DELETE FROM agents WHERE id=$1',[agentId]);await event('agent',{id:agentId});return agent.name as string;
+}
+const masterTools:Tool[]=[
+ {name:'create_agent',description:'Cria um novo agente na equipe. Informe nome, cargo (função curta, ex.: "Analista de Dados") e descrição do que ele faz. Instruções, tipo de célula e cor são opcionais.',parameters:object({name:str,role:{type:'string',description:'Cargo do agente'},description:str,instructions:str,shape:{type:'string',enum:[...shapes]},color:{type:'string',description:'Hexadecimal #RRGGBB'}},['name','role','description']),write:false,execute:async a=>{
+  const x=z.object({name:z.string().trim().min(1).max(60),role:z.string().trim().min(1).max(120),description:z.string().trim().min(1).max(1000),instructions:z.string().max(16000).optional(),shape:z.enum(shapes).optional(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/).optional()}).parse(a);
+  // Retried tool calls must not duplicate the agent.
+  if(await one('SELECT id FROM agents WHERE lower(name)=lower($1) AND NOT archived',[x.name]))throw new Error(`Já existe um agente chamado ${x.name}.`);
+  const d=agentInput.parse({...x,instructions:x.instructions||`Você é ${x.name}, ${x.role}. ${x.description}`,color:x.color||pick(palette),shape:x.shape||pick(shapes),tools:nativeToolNames});
+  const created=await one('INSERT INTO agents(name,role,description,instructions,color,shape,section,tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,role',[d.name,d.role,d.description,d.instructions,d.color,d.shape,d.section,JSON.stringify(d.tools)]);
+  await event('agent',{id:created.id});return JSON.stringify({...created,status:'Agente criado.'});}},
+ {name:'delete_agent',description:'Exclui permanentemente um agente e suas conversas. Exige aprovação do usuário. Informe o id e o nome exato do agente (use list_agents). O Coordenador não pode ser excluído.',parameters:object({agentId:str,name:str},['agentId','name']),write:true,target:'Cell — excluir agente e suas conversas permanentemente',execute:async a=>{
+  const x=z.object({agentId:z.string().uuid(),name:z.string()}).parse(a);const agent=await one('SELECT name FROM agents WHERE id=$1',[x.agentId]);
+  if(!agent)throw new Error('Agente não encontrado.');if(agent.name!==x.name)throw new Error(`O id informado pertence a ${agent.name}, não a ${x.name}.`);
+  return JSON.stringify({deleted:await deleteAgent(x.agentId)});}}
+];
 export const nativeToolNames=['web_search','web_fetch','list_files','read_file','write_file','list_agents','delegate','propose_routine'];

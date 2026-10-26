@@ -15,7 +15,7 @@ import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
 import { storage,saveFile,fileData,deleteFile } from './files.js';
 import { contained,allowedOrigin } from './security.js';
 import { discover,finishOAuth } from './mcp.js';
-import { nativeToolNames } from './tools.js';
+import { nativeToolNames,deleteAgent } from './tools.js';
 import { nextOccurrence } from './schedule.js';
 import { readFileSync } from 'node:fs';
 const {version}=JSON.parse(readFileSync(new URL('../../../package.json',import.meta.url),'utf8'));
@@ -56,8 +56,8 @@ export async function buildApp(){
  app.post('/api/agents',async req=>{const d=agentInput.parse(req.body);const a=await one(`INSERT INTO agents(${agentColumns.join(',')}) VALUES(${agentColumns.map((_,i)=>'$'+(i+1)).join(',')}) RETURNING *`,values(d));await event('agent',{id:a.id});return a;});
  app.put('/api/agents/:id',async req=>{const d=agentInput.parse(req.body);const a=await one(`UPDATE agents SET ${agentColumns.map((k,i)=>`${k}=$${i+2}`).join(',')} WHERE id=$1 RETURNING *`,[id(req),...values(d)]);await event('agent',{id:id(req)});return a;});
  app.post('/api/agents/:id/pin',async req=>{const {pinned}=z.object({pinned:z.boolean()}).parse(req.body);await query('UPDATE agents SET pinned=$2 WHERE id=$1',[id(req),pinned]);await event('agent',{id:id(req)});return {ok:true};});
- app.post('/api/agents/:id/archive',async req=>{const {archived}=z.object({archived:z.boolean()}).parse(req.body);await query('UPDATE agents SET archived=$2 WHERE id=$1',[id(req),archived]);return {ok:true};});
- app.delete('/api/agents/:id',async req=>{if(await one("SELECT id FROM runs WHERE agent_id=$1 AND state IN('running','queued','waiting_agent','waiting_approval')",[id(req)]))throw new Error('Cancele as execuções antes de excluir o agente.');await query('DELETE FROM agents WHERE id=$1',[id(req)]);return {ok:true};});
+ app.post('/api/agents/:id/archive',async req=>{const {archived}=z.object({archived:z.boolean()}).parse(req.body);if(archived&&(await one('SELECT is_master FROM agents WHERE id=$1',[id(req)]))?.is_master)throw new Error('O Coordenador é o agente principal e não pode ser arquivado.');await query('UPDATE agents SET archived=$2 WHERE id=$1',[id(req),archived]);return {ok:true};});
+ app.delete('/api/agents/:id',async req=>{await deleteAgent(id(req));return {ok:true};});
  app.get('/api/agents/:id/conversations',async req=>query('SELECT * FROM conversations WHERE agent_id=$1 ORDER BY created_at DESC',[id(req)]));
  app.post('/api/agents/:id/conversations',async req=>one('INSERT INTO conversations(agent_id,title) VALUES($1,$2) RETURNING *',[id(req),z.object({title:z.string().max(120).default('Nova conversa')}).parse(req.body||{}).title]));
  app.get('/api/conversations/:id',async req=>{await query('UPDATE conversations SET seen_at=now() WHERE id=$1',[id(req)]);return {conversation:await one('SELECT * FROM conversations WHERE id=$1',[id(req)]),messages:await query('SELECT * FROM messages WHERE conversation_id=$1 ORDER BY created_at,id',[id(req)]),runs:await query('SELECT id,agent_id,conversation_id,parent_id,state,model,steps,error,output,partial_output,usage,created_at,updated_at FROM runs WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),calls:await query('SELECT t.*,a.id AS approval_id,a.status AS approval_status FROM tool_calls t JOIN runs r ON r.id=t.run_id LEFT JOIN approvals a ON a.call_id=t.id WHERE r.conversation_id=$1 ORDER BY t.created_at',[id(req)])};});
@@ -99,5 +99,5 @@ export async function buildApp(){
  });
  return app;
 }
-export async function seed(){if(await one('SELECT id FROM agents LIMIT 1'))return;const templates=[['Coordenador','Organiza o trabalho da equipe','#f1f0e9','animal',true],['Pesquisador','Investiga e verifica fontes','#18b99c','euglena',false],['Redator','Transforma ideias em textos','#fcad24','paramecio',false],['Revisor','Revisa qualidade e precisão','#9b6bff','vegetal',false]];for(const [name,role,color,shape,pinned] of templates)await query('INSERT INTO agents(name,role,color,shape,pinned,tools,instructions) VALUES($1,$2,$3,$4,$5,$6,$7)',[name,role,color,shape,pinned,JSON.stringify(nativeToolNames),`Você é ${name}. ${role}. Trabalhe com clareza, confirme fatos e entregue resultados verificáveis.`]);}
+export async function seed(){if(await one('SELECT id FROM agents LIMIT 1'))return;const templates=[['Coordenador','Organiza o trabalho da equipe','#f1f0e9','animal',true],['Pesquisador','Investiga e verifica fontes','#18b99c','euglena',false],['Redator','Transforma ideias em textos','#fcad24','paramecio',false],['Revisor','Revisa qualidade e precisão','#9b6bff','vegetal',false]];for(const [name,role,color,shape,pinned] of templates)await query('INSERT INTO agents(name,role,color,shape,pinned,tools,instructions,is_master) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[name,role,color,shape,pinned,JSON.stringify(nativeToolNames),`Você é ${name}. ${role}. Trabalhe com clareza, confirme fatos e entregue resultados verificáveis.`,name==='Coordenador']);}
 if(process.argv[1]?.endsWith('api.ts')){await migrate();await startQueue();await seed();const app=await buildApp();await app.listen({host:'0.0.0.0',port:Number(process.env.PORT||3001)});for(const s of ['SIGTERM','SIGINT'])process.on(s,async()=>{await app.close();await boss.stop();await pool.end();process.exit(0);});}
