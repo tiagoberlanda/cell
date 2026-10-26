@@ -1,0 +1,61 @@
+name: cell
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cell
+      POSTGRES_DB: cell
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cell -d cell"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    build: {context: ., target: server}
+    restart: unless-stopped
+    environment: &server-env
+      DATABASE_URL: postgres://cell:${POSTGRES_PASSWORD}@db:5432/cell
+      SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY}
+      NINEROUTER_BASE_URL: ${NINEROUTER_BASE_URL:-http://192.168.0.200:20128/v1}
+      NINEROUTER_API_KEY: ${NINEROUTER_API_KEY:-}
+      NINEROUTER_DEFAULT_MODEL: ${NINEROUTER_DEFAULT_MODEL:-}
+      # Comma-separated list: every address the browser may use (e.g. https://192.168.0.200,https://localhost).
+      APP_ORIGIN: ${APP_ORIGIN:-https://localhost}
+      COOKIE_SECURE: "true"
+      WORKSPACE_PATH: /data
+      PORT: "3001"
+    volumes: ["workspace:/data"]
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  worker:
+    build: {context: ., target: server}
+    restart: unless-stopped
+    command: ["node", "--import", "tsx", "apps/server/src/worker.ts"]
+    environment: *server-env
+    volumes: ["workspace:/data"]
+    depends_on:
+      api: {condition: service_healthy}
+  web:
+    build: {context: ., target: web}
+    restart: unless-stopped
+    environment:
+      CELL_HOST: ${CELL_HOST:-localhost}
+      CELL_DEFAULT_SNI: ${CELL_DEFAULT_SNI:-localhost}
+    ports: ["443:443", "80:80"]
+    volumes: ["caddy_data:/data", "caddy_config:/config"]
+    depends_on:
+      api: {condition: service_healthy}
+volumes:
+  postgres:
+  workspace:
+  caddy_data:
+  caddy_config:

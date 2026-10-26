@@ -1,0 +1,13 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {encrypt,decrypt,contained,approvalFingerprint,validateEndpoint,safeEqual,allowedOrigin} from '../apps/server/src/security.js';
+import {nextOccurrence} from '../apps/server/src/schedule.js';
+import {agentInput,messageInput} from '../packages/shared/src/index.js';
+process.env.SECRET_KEY='ab'.repeat(32);
+test('segredos criptografados, autenticados e sem plaintext',()=>{const value=encrypt({token:'private-test-token'});assert.ok(!value.includes('private-test-token'));assert.deepEqual(decrypt(value),{token:'private-test-token'});const tampered=Buffer.from(value,'base64');tampered[20]^=1;assert.throws(()=>decrypt(tampered.toString('base64')));});
+test('workspace impede traversal',()=>{assert.throws(()=>contained('/workspace','../../private'));assert.ok(contained('/workspace','files/a.txt').endsWith('a.txt'));});
+test('aprovação vincula parâmetros e destino',()=>{assert.notEqual(approvalFingerprint('send',{to:'a'},'server-a'),approvalFingerprint('send',{to:'b'},'server-a'));assert.notEqual(approvalFingerprint('send',{to:'a'},'server-a'),approvalFingerprint('send',{to:'a'},'server-b'));assert.equal(safeEqual('a','aa'),false);});
+test('endpoints só aceitam HTTP sem credenciais embutidas',()=>{assert.throws(()=>validateEndpoint('file:///etc/passwd'));assert.throws(()=>validateEndpoint('https://user:pass@example.com'));assert.equal(validateEndpoint('http://192.168.0.200:20128/v1/'),'http://192.168.0.200:20128/v1');});
+test('rotinas respeitam horário de São Paulo e não recriam datas passadas',()=>{assert.equal(nextOccurrence('daily','08:00','America/Sao_Paulo',new Date('2026-10-26T10:00:00Z'))?.toISOString(),'2026-10-26T11:00:00.000Z');assert.equal(nextOccurrence('once','2026-01-01T00:00:00Z','UTC',new Date('2026-10-26')),null);assert.throws(()=>nextOccurrence('daily','99:80','UTC'));});
+test('contratos validam cor, forma e limite de anexos',()=>{assert.equal(agentInput.safeParse({name:'Teste',color:'red',shape:'unknown'}).success,false);assert.equal(messageInput.safeParse({content:'Olá',files:Array(6).fill('2ea52a65-9e8c-4057-abf9-3889ff43b61b')}).success,false);});
+test('origens permitidas aceitam lista separada por vírgula',()=>{process.env.APP_ORIGIN='https://192.168.0.200, https://localhost/';assert.ok(allowedOrigin('https://192.168.0.200'));assert.ok(allowedOrigin('https://localhost'));assert.equal(allowedOrigin('https://evil.example'),false);assert.equal(allowedOrigin('http://192.168.0.200'),false);});

@@ -1,0 +1,18 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { decrypt,encrypt,validateEndpoint,appOrigins } from './security.js';
+import { query,one } from './db.js';
+import { randomBytes } from 'node:crypto';
+export async function mcpClient(connection:any){
+ const headers=connection.auth?decrypt<Record<string,string>>(connection.auth):{};
+ const oauth=connection.oauth?decrypt<any>(connection.oauth):{};
+ if(!oauth.state){oauth.state=randomBytes(32).toString('hex');await query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]);}
+ const provider:any={get redirectUrl(){return `${appOrigins()[0]}/api/connections/${connection.id}/oauth/callback`;},get clientMetadata(){return {redirect_uris:[this.redirectUrl],client_name:'Cell',grant_types:['authorization_code','refresh_token'],response_types:['code'],token_endpoint_auth_method:'none'};},clientInformation:()=>oauth.client,saveClientInformation:async(v:any)=>{oauth.client=v;await save();},tokens:()=>oauth.tokens,saveTokens:async(v:any)=>{oauth.tokens=v;await save();},redirectToAuthorization:async(url:URL)=>{oauth.authorizationUrl=url.toString();await save();},saveCodeVerifier:async(v:string)=>{oauth.verifier=v;await save();},codeVerifier:()=>oauth.verifier,state:()=>oauth.state,invalidateCredentials:async()=>{delete oauth.tokens;await save();}};
+ async function save(){await query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]);}
+ const transport=new StreamableHTTPClientTransport(new URL(validateEndpoint(connection.url)),{requestInit:{headers},authProvider:provider});
+ const client=new Client({name:'cell',version:'0.1.0'},{capabilities:{}});
+ try{await client.connect(transport);return {client,transport};}catch(e){await client.close().catch(()=>{});throw e;}
+}
+export async function discover(connection:any){const {client}=await mcpClient(connection);try{let cursor:string|undefined;const tools:any[]=[];do{const page=await client.listTools({cursor});tools.push(...page.tools);cursor=page.nextCursor;if(tools.length>300)throw new Error('Limite de 300 ferramentas por conexão.');}while(cursor);await query("UPDATE connections SET tools=$1,status='connected' WHERE id=$2",[JSON.stringify(tools),connection.id]);return tools;}finally{await client.close();}}
+export async function mcpCall(connectionId:string,name:string,args:any){const connection=await one('SELECT * FROM connections WHERE id=$1',[connectionId]);if(!connection)throw new Error('Conexão removida.');const {client}=await mcpClient(connection);try{const result=await client.callTool({name,arguments:args},undefined,{timeout:60000});return JSON.stringify(result).slice(0,30000);}finally{await client.close();}}
+export async function finishOAuth(connection:any,code:string){const headers=connection.auth?decrypt<Record<string,string>>(connection.auth):{},oauth=connection.oauth?decrypt<any>(connection.oauth):{};const provider:any={redirectUrl:`${appOrigins()[0]}/api/connections/${connection.id}/oauth/callback`,clientMetadata:{redirect_uris:[`${appOrigins()[0]}/api/connections/${connection.id}/oauth/callback`]},clientInformation:()=>oauth.client,tokens:()=>oauth.tokens,saveTokens:async(t:any)=>{oauth.tokens=t;delete oauth.authorizationUrl;await query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]);},codeVerifier:()=>oauth.verifier};const transport=new StreamableHTTPClientTransport(new URL(connection.url),{requestInit:{headers},authProvider:provider});await transport.finishAuth(code);await transport.close();}

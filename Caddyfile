@@ -1,0 +1,24 @@
+{
+ # Browsers send no SNI when the site is opened by IP; this picks the certificate in that case.
+ default_sni {$CELL_DEFAULT_SNI:localhost}
+}
+{$CELL_HOST:localhost} {
+ tls internal
+ encode zstd gzip
+ header {
+  X-Content-Type-Options nosniff
+  Referrer-Policy same-origin
+  X-Frame-Options DENY
+  Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+ }
+ handle /api/* {
+  reverse_proxy api:3001 {
+   flush_interval -1
+  }
+ }
+ handle {
+  root * /srv
+  try_files {path} /index.html
+  file_server
+ }
+}
