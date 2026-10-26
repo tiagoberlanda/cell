@@ -1,5 +1,6 @@
 import { z } from 'zod';
-export const shapes = ['circular','oval','capsula','gota','triangular','hexagonal','nuvem','ameba'] as const;
+// Agent icons are cell types; the web draws each one in CellAvatar.
+export const shapes = ['animal','vegetal','bacilo','coco','neuronio','hemacia','ameba','paramecio','euglena','diatomacea','levedura','leucocito'] as const;
 export const states = ['queued','running','waiting_approval','waiting_agent','completed','failed','cancelled'] as const;
 export type RunState = typeof states[number];
 export const agentInput = z.object({ name:z.string().trim().min(1).max(60), role:z.string().max(120).default(''), description:z.string().max(1000).default(''), instructions:z.string().max(16000).default(''), color:z.string().regex(/^#[0-9a-fA-F]{6}$/), shape:z.enum(shapes), model:z.string().max(200).nullable().default(null), pinned:z.boolean().default(false), section:z.string().max(60).default('Equipe'), memory:z.string().max(20000).default(''), tools:z.array(z.string().max(180)).max(100).default([]), skills:z.array(z.string().uuid()).max(100).default([]) });

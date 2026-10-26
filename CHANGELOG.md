@@ -5,6 +5,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Novos ícones dos agentes inspirados em tipos de células: Animal, Vegetal, Bacilo, Coco, Neurônio, Hemácia, Ameba, Paramécio, Euglena, Diatomácea, Levedura e Leucócito. Membrana e organelas acompanham a cor escolhida.
+- Fixar e desafixar agentes direto pela lista lateral (ícone de alfinete) e pelo painel de detalhes; só os fixados aparecem no topo.
+- Atalho "Célula e cor" no painel de detalhes abre o editor na aba de aparência.
+
+### Alterado
+- Agentes padrão de novas instalações: só o Coordenador vem fixado.
+- Migração `0004_cell_types` converte as formas antigas (circular, oval, cápsula…) para os novos tipos de célula.
+
 ## [0.2.0] - 2026-10-26
 
 ### Corrigido
