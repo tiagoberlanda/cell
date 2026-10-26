@@ -36,4 +36,4 @@ writeFileSync(lockUrl, JSON.stringify(lock, null, 2) + '\n');
 git('add', '--', 'CHANGELOG.md', 'package-lock.json', ...manifests);
 git('commit', '-m', `release: v${next}`);
 git('tag', '-a', `v${next}`, '-m', `Cell v${next}`);
-console.log(`Versão v${next} criada. Para publicar no Docker: .\scripts\deploy.ps1`);
+console.log(`Versão v${next} criada. Para publicar no Docker: ./scripts/deploy.ps1`);
