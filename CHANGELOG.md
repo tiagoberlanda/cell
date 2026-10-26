@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.3.0] - 2026-10-26
+
 ### Adicionado
 - Novos ícones dos agentes inspirados em tipos de células: Animal, Vegetal, Bacilo, Coco, Neurônio, Hemácia, Ameba, Paramécio, Euglena, Diatomácea, Levedura e Leucócito. Membrana e organelas acompanham a cor escolhida.
 - Fixar e desafixar agentes direto pela lista lateral (ícone de alfinete) e pelo painel de detalhes; só os fixados aparecem no topo.
