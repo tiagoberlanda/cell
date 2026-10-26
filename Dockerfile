@@ -9,6 +9,8 @@ COPY . .
 RUN npm run check && npm run build
 
 FROM node:24-bookworm-slim AS server
+ARG CELL_VERSION=dev
+LABEL org.opencontainers.image.title=cell org.opencontainers.image.version=$CELL_VERSION
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app /app
@@ -17,5 +19,7 @@ USER node
 CMD ["node","--import","tsx","apps/server/src/api.ts"]
 
 FROM caddy:2-alpine AS web
+ARG CELL_VERSION=dev
+LABEL org.opencontainers.image.title=cell-web org.opencontainers.image.version=$CELL_VERSION
 COPY --from=build /app/apps/web/dist /srv
 COPY Caddyfile /etc/caddy/Caddyfile

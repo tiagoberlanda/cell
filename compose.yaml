@@ -15,7 +15,8 @@ services:
       timeout: 3s
       retries: 20
   api:
-    build: {context: ., target: server}
+    image: cell-server:${CELL_VERSION:-dev}
+    build: {context: ., target: server, args: {CELL_VERSION: "${CELL_VERSION:-dev}"}}
     restart: unless-stopped
     environment: &server-env
       DATABASE_URL: postgres://cell:${POSTGRES_PASSWORD}@db:5432/cell
@@ -37,7 +38,8 @@ services:
       timeout: 5s
       retries: 10
   worker:
-    build: {context: ., target: server}
+    image: cell-server:${CELL_VERSION:-dev}
+    build: {context: ., target: server, args: {CELL_VERSION: "${CELL_VERSION:-dev}"}}
     restart: unless-stopped
     command: ["node", "--import", "tsx", "apps/server/src/worker.ts"]
     environment: *server-env
@@ -45,7 +47,8 @@ services:
     depends_on:
       api: {condition: service_healthy}
   web:
-    build: {context: ., target: web}
+    image: cell-web:${CELL_VERSION:-dev}
+    build: {context: ., target: web, args: {CELL_VERSION: "${CELL_VERSION:-dev}"}}
     restart: unless-stopped
     environment:
       CELL_HOST: ${CELL_HOST:-localhost}

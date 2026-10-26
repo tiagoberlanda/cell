@@ -9,7 +9,8 @@
     "api": "node --import tsx apps/server/src/api.ts",
     "worker": "node --import tsx apps/server/src/worker.ts",
     "migrate": "node --import tsx apps/server/src/migrate.ts",
-    "admin": "node --import tsx apps/server/src/admin.ts"
+    "admin": "node --import tsx apps/server/src/admin.ts",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2", "@fastify/multipart": "^9.3.0", "@fastify/rate-limit": "^10.3.0",

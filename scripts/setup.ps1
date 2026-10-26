@@ -21,9 +21,12 @@ COOKIE_SECURE=true
     [IO.File]::WriteAllText((Join-Path (Get-Location) '.env'), $content)
     Write-Host '.env criado com segredos aleatorios. Configure o token 9router pela interface ou no arquivo.'
 }
+$env:CELL_VERSION = (Get-Content -Raw package.json | ConvertFrom-Json).version
 docker compose up -d --build --wait
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao iniciar os containers.' }
-$secure = Read-Host 'Senha inicial (minimo 12 caracteres)' -AsSecureString
+# Prompt via Write-Host: Read-Host with a prompt rejects input starting with '!' as a prompt command.
+Write-Host 'Senha inicial (minimo 12 caracteres): ' -NoNewline
+$secure = Read-Host -AsSecureString
 $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 try {
     $env:CELL_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)

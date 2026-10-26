@@ -17,6 +17,8 @@ import { contained,allowedOrigin } from './security.js';
 import { discover,finishOAuth } from './mcp.js';
 import { nativeToolNames } from './tools.js';
 import { nextOccurrence } from './schedule.js';
+import { readFileSync } from 'node:fs';
+const {version}=JSON.parse(readFileSync(new URL('../../../package.json',import.meta.url),'utf8'));
 export async function buildApp(){
  key();const app=Fastify({logger:{level:'info',redact:['req.headers.authorization','req.headers.cookie','res.headers.set-cookie']},bodyLimit:1024*1024});
  await app.register(cookie);await app.register(multipart,{limits:{fileSize:25*1024*1024,files:1}});await app.register(rateLimit,{max:300,timeWindow:'1 minute'});
@@ -32,7 +34,7 @@ export async function buildApp(){
    if(req.headers.origin&&!allowedOrigin(req.headers.origin))return reply.code(403).send({error:'Origem não permitida.'});
   }
  });
- app.get('/api/health',async()=>{await query('SELECT 1');return {ok:true};});
+ app.get('/api/health',async()=>{await query('SELECT 1');return {ok:true,version};});
  app.post('/api/login',{config:{rateLimit:{max:8,timeWindow:'1 minute'}}},async(req,reply)=>{
   if(req.headers.origin&&!allowedOrigin(req.headers.origin))return reply.code(403).send({error:'Origem não permitida.'});
   const input=z.object({username:z.string().max(100),password:z.string().max(1000)}).parse(req.body),u=await one('SELECT * FROM users WHERE username=$1',[input.username]);
