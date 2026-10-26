@@ -5,6 +5,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Avisos de erro apareciam sempre no fim da conversa, parecendo recentes. Agora ficam logo após a mensagem que os causou, com data e hora.
+
+### Adicionado
+- Excluir avisos de erro (lixeira no aviso; `DELETE /api/runs/:id`, só para execuções com erro ou canceladas).
+- Excluir mensagens da conversa (lixeira nas ações da mensagem, com confirmação; `DELETE /api/messages/:id`). Mensagens excluídas deixam de entrar no contexto do agente.
+
 ## [0.3.0] - 2026-10-26
 
 ### Adicionado
