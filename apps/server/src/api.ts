@@ -27,7 +27,8 @@ export async function buildApp(){
  // Unknown users still pay for an argon2 verify, so response time does not reveal which usernames exist.
  const dummyHash=await argon2.hash(randomBytes(16).toString('hex'));
  const app=Fastify({logger:{level:'info',redact:['req.headers.authorization','req.headers.cookie','res.headers.set-cookie']},bodyLimit:1024*1024});
- await app.register(cookie);await app.register(multipart,{limits:{fileSize:25*1024*1024,files:1}});await app.register(rateLimit,{max:300,timeWindow:'1 minute',keyGenerator:clientIp});
+ await app.register(cookie);await app.register(multipart,{limits:{fileSize:25*1024*1024,files:1}});// Signed-in use (live updates, activity center) needs headroom; anonymous traffic gets a tight cap. Login has its own limit.
+ await app.register(rateLimit,{max:(req:any)=>req.cookies?.[sessionCookie]?1200:120,timeWindow:'1 minute',keyGenerator:clientIp});
  const id=(req:any)=>z.string().uuid().parse(req.params.id);
  app.setErrorHandler((err:any,req,reply)=>{const status=err instanceof ZodError?400:err.statusCode||400,sql=typeof err.code==='string'&&/^[0-9A-Z]{5}$/.test(err.code);if(sql||status>=500)req.log.error({err},'falha na requisição');reply.code(status>=500?500:status).send({error:err instanceof ZodError?'Dados inválidos: '+err.issues.map((x:any)=>x.path.join('.')+': '+x.message).join('; '):sql?(err.code.startsWith('23')?'Operação incompatível com os dados existentes.':'Operação inválida.'):status>=500?'Falha interna. Tente novamente.':safeError(err)});});
  app.addHook('onRequest',async(req,reply)=>{
