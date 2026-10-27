@@ -227,3 +227,39 @@ test('agente: opção de responder com áudio e logotipos dos aplicativos', asyn
   await expect(dialog.locator('.app-card', { hasText: 'Canva' }).locator('.app-logo:not(.brand)')).toHaveText('C');
   await page.screenshot({ path: `test-results/logos-${page.viewportSize()!.width}.png` });
 });
+
+test('rotinas: ativar e desativar no interruptor e excluir', async ({ page }) => {
+  const name = 'Relatório ' + page.viewportSize()!.width;
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Pesquisador' }).click();
+  await page.getByLabel('Detalhes do agente').click();
+  await page.locator('.details-panel').getByRole('button', { name: 'Rotinas' }).click();
+  const card = page.locator('.routine-card', { hasText: name });
+  const toggle = card.getByRole('switch');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await expect(card).toContainText('Pausada');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await expect(card).toContainText('Ativa');
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: 'test-results/rotinas-' + page.viewportSize()!.width + '.png' });
+  await card.getByLabel('Excluir a rotina ' + name).click();
+  await page.locator('.swal2-confirm').click();
+  await expect(card).toHaveCount(0);
+});
+
+test('campo de mensagem volta ao tamanho original depois de enviar', async ({ page }) => {
+  // The send itself is stubbed so the shared test data stays as seeded.
+  await page.route('**/api/conversations/*/messages', route => route.request().method() === 'POST' ? route.fulfill({ json: { id: 'stub', state: 'queued' } }) : route.continue());
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  const box = page.locator('#composer');
+  const original = (await box.boundingBox())!.height;
+  await box.fill('Analise o mercado.\nCompare as taxas.\nGere um PDF.\nInclua projeções.\nResuma no fim.');
+  expect((await box.boundingBox())!.height).toBeGreaterThan(original + 20);
+  await page.getByLabel('Enviar mensagem').click();
+  await expect(box).toHaveValue('');
+  await expect.poll(async () => (await box.boundingBox())!.height).toBeLessThanOrEqual(original + 1);
+});

@@ -5,6 +5,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Rotinas: interruptor para ativar ou desativar direto no cartão (no lugar do ícone de pausar) e botão de excluir com confirmação. Ativar recusa rotinas cujo horário já passou.
+
+### Corrigido
+- O campo de mensagem ficava grande enquanto o agente trabalhava: ao enviar uma mensagem longa, o texto era limpo mas a altura não voltava. Agora o campo se ajusta a cada mudança, inclusive ao enviar.
+- Nas ferramentas usadas, o selo "Concluído" saía do cartão no celular quando o nome da ferramenta era longo. O nome agora quebra linha, o selo fica no lugar e as ferramentas de aplicativos aparecem sem o prefixo interno (`notion-fetch` em vez de `mcp_<id>_notion-fetch`; o nome completo fica na dica).
+
+### Como foi verificado
+- Testes de navegador em cinco larguras: interruptor liga e desliga e o estado persiste, exclusão com confirmação remove o cartão; campo volta à altura original depois de enviar uma mensagem de cinco linhas. Selo e nome da ferramenta medidos em 360 px com o CSS real.
+
 ## [0.16.0] - 2026-10-27
 
 ### Adicionado

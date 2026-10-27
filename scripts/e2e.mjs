@@ -57,6 +57,8 @@ async function seed() {
   await run('Revisor', review, 'failed', { error: 'O modelo não retornou resposta.' });
   await q("UPDATE conversations SET summary='Decisão: lançar em março.' WHERE id=$1", [coord]);
   await q("INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,enabled,next_at,conversation_id) VALUES($1,'Bom dia','Pergunte se preciso de algo','daily','08:00','America/Sao_Paulo',false,now()+interval '1 day',$2)", [agents['Coordenador'], coord]);
+  // One routine per viewport: the routines test toggles and deletes its own.
+  for (const w of [360, 390, 768, 1024, 1440]) await q("INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,enabled,next_at) VALUES($1,$2,'Resuma as novidades','daily','09:00','America/Sao_Paulo',true,now()+interval '1 day')", [agents['Pesquisador'], 'Relatório ' + w]);
   await q("INSERT INTO messages(conversation_id,role,content,created_at) VALUES($1,'user','[Rotina agendada: Bom dia] Pergunte se preciso de algo',now()-interval '1 minute')", [coord]);
   await q("INSERT INTO connections(name,url,catalog_key,all_agents,status,tools,read_tools) VALUES('Todoist','https://ai.todoist.net/mcp','todoist',true,'connected','[{\"name\":\"find_tasks\"},{\"name\":\"add_task\"}]','[\"find_tasks\"]')");
   const voiceCv = await conv('Revisor', 'Conversa por voz');

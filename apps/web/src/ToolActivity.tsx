@@ -21,6 +21,9 @@ const statusLabels: Record<string, string> = {
   waiting: 'Aguardando'
 };
 
+// MCP tools are namespaced by connection id (mcp_<32 hex>_name); the id means nothing to the reader.
+const toolLabel = (tool: string) => tool.replace(/^mcp_[0-9a-f]{32}_/, '');
+
 export function ToolActivityCard({
   calls,
   defaultOpen = false,
@@ -43,7 +46,7 @@ export function ToolActivityCard({
         {calls.map((c) => (
           <div className="tool-item" key={c.id}>
             <div className="tool-header">
-              <strong className="tool-name">{c.tool}</strong>
+              <strong className="tool-name" title={c.tool}>{toolLabel(c.tool)}</strong>
               <small className={`tool-status ${c.status || ''}`}>
                 {statusLabels[c.status] || c.status}
               </small>
