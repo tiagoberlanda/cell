@@ -10,3 +10,5 @@ test-results/
 playwright-report/
 *.log
 *.tsbuildinfo
+# Exported local CA certificate (scripts/export-cert.ps1)
+*.crt
