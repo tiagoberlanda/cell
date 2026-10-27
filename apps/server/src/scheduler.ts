@@ -3,6 +3,15 @@ import {createRun} from './runtime.js';
 import {nextOccurrence} from './schedule.js';
 import {safeError} from './security.js';
 
+// A routine that fires late (server or PC was off at the scheduled time) still runs once within this window; older ones are missed.
+export const ROUTINE_GRACE_MS=2*60*60*1000;
+// Prefix that marks the triggering message as coming from a routine (the UI labels it instead of "Você").
+export const routineMessage=(name:string,prompt:string)=>`[Rotina agendada: ${name}] ${prompt}`;
+// Answers go to the conversation the routine was proposed in, if it still exists for this agent and is not archived.
+export async function routineConversation(tx:import('pg').PoolClient,r:any):Promise<string>{
+ const kept=r.conversation_id&&(await tx.query('SELECT id FROM conversations WHERE id=$1 AND agent_id=$2 AND archived_at IS NULL',[r.conversation_id,r.agent_id])).rows[0]?.id;
+ return kept||(await tx.query('INSERT INTO conversations(agent_id,title) VALUES($1,$2) RETURNING id',[r.agent_id,`Rotina: ${r.name}`])).rows[0].id;
+}
 // Claim, create and advance together. A crash rolls back all three, including the user message.
 export async function dispatchRoutine(id:string):Promise<string|undefined>{
  let created:string|undefined;
@@ -11,7 +20,7 @@ export async function dispatchRoutine(id:string):Promise<string|undefined>{
   const at=new Date(r.next_at);
   let h=(await tx.query('SELECT * FROM routine_history WHERE routine_id=$1 AND scheduled_at=$2 FOR UPDATE',[id,at])).rows[0];
   const recovering=!!h&&h.status==='dispatching';
-  if(!h)h=(await tx.query('INSERT INTO routine_history(routine_id,status,scheduled_at) VALUES($1,$2,$3) RETURNING *',[id,Date.now()-at.getTime()>120000?'missed':'dispatching',at])).rows[0];
+  if(!h)h=(await tx.query('INSERT INTO routine_history(routine_id,status,scheduled_at) VALUES($1,$2,$3) RETURNING *',[id,Date.now()-at.getTime()>ROUTINE_GRACE_MS?'missed':'dispatching',at])).rows[0];
   if(h.status==='dispatching'){
    // Also recovers pre-v0.11 dispatch records. A recorded run is never created again.
    const previous=h.run_id||(await tx.query('SELECT id FROM runs WHERE routine_history_id=$1',[h.id])).rows[0]?.id;
@@ -20,12 +29,13 @@ export async function dispatchRoutine(id:string):Promise<string|undefined>{
     // Older versions could create a run but crash before linking it. Require review in that ambiguous case.
     const legacy=recovering&&(await tx.query("SELECT r.id FROM runs r JOIN conversations c ON c.id=r.conversation_id WHERE r.agent_id=$1 AND c.title=$2 AND r.created_at>=$3 AND r.routine_history_id IS NULL LIMIT 1",[r.agent_id,`Rotina: ${r.name}`,h.created_at])).rows[0];
     if(legacy){await tx.query("UPDATE routine_history SET status='review_required' WHERE id=$1",[h.id]);await tx.query('UPDATE routines SET enabled=false WHERE id=$1',[id]);return;}
-    const cv=(await tx.query('INSERT INTO conversations(agent_id,title) VALUES($1,$2) RETURNING id',[r.agent_id,`Rotina: ${r.name}`])).rows[0];
-    const run=await createRun(r.agent_id,cv.id,r.prompt,[],undefined,undefined,undefined,{client:tx,routineHistoryId:h.id});runId=created=run.id;
+    const cv=await routineConversation(tx,r);
+    const run=await createRun(r.agent_id,cv,routineMessage(r.name,r.prompt),[],undefined,undefined,undefined,{client:tx,routineHistoryId:h.id});runId=created=run.id;
    }
    await tx.query("UPDATE routine_history SET status='started',run_id=$2 WHERE id=$1",[h.id,runId]);
   }
-  const next=nextOccurrence(r.kind,r.schedule,r.timezone);
+  // A one-time routine is finished once it fires, whatever its stored schedule says.
+  const next=r.kind==='once'?null:nextOccurrence(r.kind,r.schedule,r.timezone);
   await tx.query('UPDATE routines SET last_at=$2,next_at=$3,enabled=$4 WHERE id=$1',[id,at,next,!!next]);
  });}catch(e){
   // The dispatch rolled back. Record the failure and pause the routine so it is not retried every tick.

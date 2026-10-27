@@ -90,3 +90,19 @@ test('reconexão com o servidor', async ({ page }) => {
   await page.unroute('**/api/events');
   await expect(page.locator('.connection-bar')).toHaveCount(0, { timeout: 20_000 });
 });
+
+test('rotina proposta aparece na conversa e é ativada', async ({ page }) => {
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Coordenador' }).click();
+  if (mobile(page)) await expect(page.locator('.sidebar.open')).toHaveCount(0);
+  await expect(page.locator('.routine-tag')).toContainText('Rotina agendada · Bom dia');
+  const card = page.locator('.routine-card', { hasText: 'ROTINA PROPOSTA' });
+  await expect(card).toContainText('Bom dia');
+  await noHorizontalScroll(page);
+  await page.waitForTimeout(300); // drawer slide-out animation
+  await page.screenshot({ path: `test-results/rotina-${page.viewportSize()!.width}.png` });
+  await card.getByRole('button', { name: 'Ativar rotina' }).click();
+  await expect(page.locator('.routine-card.active')).toContainText('Rotina ativa: Bom dia');
+  await page.locator('.routine-card.active').getByRole('button', { name: 'Pausar' }).click();
+  await expect(page.locator('.routine-card', { hasText: 'ROTINA PROPOSTA' })).toBeVisible();
+});
