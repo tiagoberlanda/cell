@@ -9,7 +9,7 @@ import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/st
 import {z} from 'zod';
 
 test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_URL,timeout:360000},async t=>{
- process.env.DATABASE_URL=process.env.TEST_DATABASE_URL;process.env.SECRET_KEY='ca'.repeat(32);process.env.COOKIE_SECURE='false';process.env.APP_ORIGIN='http://localhost:5173';process.env.WORKSPACE_PATH='./.cache/integration-data';
+ process.env.ALLOW_HTTP_PUSH='1';process.env.PUSH_DELAY_MS='800';process.env.DATABASE_URL=process.env.TEST_DATABASE_URL;process.env.SECRET_KEY='ca'.repeat(32);process.env.COOKIE_SECURE='false';process.env.APP_ORIGIN='http://localhost:5173';process.env.WORKSPACE_PATH='./.cache/integration-data';
  const {query,one,pool}=await import('../apps/server/src/db.js');
  const {migrate}=await import('../apps/server/src/migrate.js');
  const {buildApp,seed}=await import('../apps/server/src/api.js');
@@ -20,6 +20,10 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');let imageCalls:any[]=[];
  fake.get('/v1/models/image',async()=>({data:[{id:'test/image'}]}));
  fake.post('/v1/images/generations',async(req:any,reply)=>{imageCalls.push({query:req.query,body:req.body});if(req.body.size)return reply.code(400).send({error:{message:'size not allowed'}});return reply.type('image/png').send(png);});
+ // Fake push service: records encrypted Web Push deliveries; '/push/gone' answers 410 like an expired subscription.
+ const pushes:{id:string;headers:any;body:Buffer}[]=[];
+ fake.addContentTypeParser('application/octet-stream',{parseAs:'buffer'},(_req:any,body:any,done:any)=>done(null,body));
+ fake.post('/push/:id',async(req:any,reply)=>{pushes.push({id:req.params.id,headers:req.headers,body:req.body});return reply.code(req.params.id==='gone'?410:201).send();});
  fake.get('/v1/models/web',async()=>({data:[{id:'test/search',kind:'webSearch'},{id:'test/fetch',kind:'webFetch'}]}));
  fake.post('/v1/search',async()=>({results:[{title:'Fonte de teste',url:'https://example.com',snippet:'Resultado controlado.'}]}));
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
@@ -235,6 +239,27 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal((await one('SELECT enabled FROM routines WHERE id=$1',[out.id])).enabled,false,'rotina única se desativa depois de rodar');
   const past=JSON.parse(await propose.execute({name:'Vencida',prompt:'x',kind:'once',schedule:new Date(Date.now()-3600e3).toISOString()},{agent_id:agent.id,conversation_id:cv.id},await config()));
   await assert.rejects(request('POST',`/routines/${past.id}/enabled`,{enabled:true}),/já passou/);
+ });
+ await t.test('notificação push quando o agente responde fora da conversa',async()=>{
+  const {createECDH,randomBytes}=await import('node:crypto');const keys=()=>{const e=createECDH('prime256v1');e.generateKeys();return {p256dh:e.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url'),ecdh:e};};
+  delete process.env.ALLOW_HTTP_PUSH;await assert.rejects(request('POST','/push/subscribe',{endpoint:base+'/push/phone',keys:keys()}),/inválido/);process.env.ALLOW_HTTP_PUSH='1';
+  assert.ok((await request('GET','/push')).publicKey.length>80,'chave VAPID pública');
+  const phone=keys();await request('POST','/push/subscribe',{endpoint:base+'/push/phone',keys:{p256dh:phone.p256dh,auth:phone.auth},label:'Android · Chrome'});await request('POST','/push/subscribe',{endpoint:base+'/push/gone',keys:keys()});
+  pushes.length=0;const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
+  const r=await request('POST',`/conversations/${cv.id}/messages`,{content:'Mensagem para notificar'});await poll(r.id,'completed');
+  for(let i=0;i<50&&!pushes.some(x=>x.id==='phone');i++)await sleep(200);
+  const p=pushes.find(x=>x.id==='phone');assert.ok(p,'notificação enviada');assert.equal(p.headers['content-encoding'],'aes128gcm');assert.match(String(p.headers.authorization),/^vapid t=.+, k=/);
+  assert.ok(p.body.length>0&&!p.body.toString('latin1').includes('Resultado'),'conteúdo cifrado');
+  // Decrypt as the device would (same ECE library web-push uses) and check what the notification shows.
+  const ece=(await import('http_ece' as any)).default;const shown=JSON.parse(ece.decrypt(p.body,{version:'aes128gcm',privateKey:phone.ecdh,authSecret:Buffer.from(phone.auth,'base64url')}).toString());
+  assert.equal(shown.title,agent.name);assert.match(shown.body,/Resultado concluído/);assert.equal(shown.url,`/?agent=${agent.id}&conversation=${cv.id}`);assert.equal(shown.tag,`conv-${cv.id}`);
+  for(let i=0;i<20&&(await query("SELECT id FROM push_subscriptions WHERE endpoint LIKE '%/push/gone'")).length;i++)await sleep(200);
+  assert.equal((await query("SELECT id FROM push_subscriptions WHERE endpoint LIKE '%/push/gone'")).length,0,'assinatura expirada removida');
+  pushes.length=0;const r2=await request('POST',`/conversations/${cv.id}/messages`,{content:'Segunda mensagem'});await poll(r2.id,'completed');await request('GET','/conversations/'+cv.id);
+  await sleep(2000);assert.equal(pushes.length,0,'conversa aberta não notifica');
+  assert.equal((await request('POST','/push/test')).sent,1);
+  await request('POST','/push/unsubscribe',{endpoint:base+'/push/phone'});assert.equal((await request('GET','/push')).devices.length,0);
+  await assert.rejects(request('POST','/push/test'),/Nenhum aparelho/);
  });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });

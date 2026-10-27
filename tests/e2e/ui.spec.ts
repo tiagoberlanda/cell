@@ -106,3 +106,15 @@ test('rotina proposta aparece na conversa e é ativada', async ({ page }) => {
   await page.locator('.routine-card.active').getByRole('button', { name: 'Pausar' }).click();
   await expect(page.locator('.routine-card', { hasText: 'ROTINA PROPOSTA' })).toBeVisible();
 });
+
+test('notificações: painel de ativação por aparelho', async ({ page }) => {
+  await openAgents(page);
+  if (tablet(page)) await page.locator('.profile').click(); else await page.getByRole('button', { name: /e2e/ }).click();
+  await page.getByRole('menuitem', { name: 'Notificações' }).click();
+  const panel = page.locator('.notifications');
+  await expect(panel.getByRole('heading', { name: 'Notificações' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: /Ativar notificações neste aparelho/ })).toBeVisible();
+  await expect(panel.getByText('Nenhum aparelho inscrito.')).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `test-results/notificacoes-${page.viewportSize()!.width}.png` });
+});

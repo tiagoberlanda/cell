@@ -5,6 +5,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Notificações push (Web Push) no celular e no computador: avisam quando um agente ou uma rotina envia mensagem e quando uma ação precisa de aprovação. Tocar no aviso abre o Cell direto na conversa (ou traz o app aberto para a frente).
+- Configurações → Notificações: ativar e desativar por aparelho, enviar teste e ver ou remover os aparelhos inscritos. Sair da conta desativa o aparelho.
+- O aviso só sai se a mensagem continuar sem leitura 10 segundos depois; com a conversa aberta em algum aparelho, nada é enviado.
+- Chaves VAPID geradas uma vez por instalação (privada cifrada com a `SECRET_KEY`); inscrições expiradas (404/410) ou com falhas repetidas são removidas.
+- Ícone monocromático para a barra de status do Android.
+- Migração `0013_web_push`.
+
+### Como foi verificado
+- **Simulado:** teste de integração com um serviço de push falso que recebe a entrega real gerada pela biblioteca `web-push`; a notificação é decifrada com a chave do "aparelho" e conferida (título, texto, link e etiqueta), além de VAPID, assinatura expirada removida, conversa aberta sem aviso e recusa de endereços sem HTTPS. Testes de navegador do painel em cinco larguras.
+- **Não verificado:** a entrega pelo serviço de push real do Google até um celular. O Chrome controlado por automação recusa a inscrição ("permission denied"), então essa etapa depende do botão **Enviar teste** em um aparelho de verdade.
+
 ## [0.12.0] - 2026-10-27
 
 ### Corrigido

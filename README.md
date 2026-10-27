@@ -91,6 +91,14 @@ Pela rede local (`https://192.168.0.200`), o Android só permite instalar depois
 
 Se perder o celular: Configurações → Conta → **Sair de todos os outros dispositivos**, e troque a senha.
 
+### Notificações no celular
+
+Em cada aparelho: menu do usuário → **Notificações** → **Ativar notificações neste aparelho**, aceite a permissão e toque em **Enviar teste**. O aparelho passa a avisar quando um agente ou uma rotina enviar mensagem e quando uma ação precisar da sua aprovação; tocar no aviso abre a conversa. Se a conversa estiver aberta em algum aparelho, o aviso não é enviado (o Cell espera 10 segundos e só notifica o que ainda não foi lido).
+
+- Funciona no Chrome do Android, no navegador ou no app instalado, pelo domínio público (o HTTPS precisa ser confiável). No iPhone, só com o Cell instalado na tela inicial.
+- O conteúdo vai cifrado de ponta a ponta até o aparelho (padrão Web Push); o serviço de push do navegador (Google, no Chrome) só repassa.
+- Sair da conta desativa as notificações daquele aparelho. A lista de aparelhos inscritos fica na mesma tela, com a opção de remover.
+
 ## Backup e restauração
 
 ```powershell

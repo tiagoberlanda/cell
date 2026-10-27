@@ -18,6 +18,7 @@ import { discover,finishOAuth } from './mcp.js';
 import { nativeToolNames,deleteAgent } from './tools.js';
 import { nextOccurrence } from './schedule.js';
 import { registerInsights } from './insights.js';
+import { registerPush } from './push.js';
 import { routineConversation,routineMessage } from './scheduler.js';
 import { readFileSync } from 'node:fs';
 const {version}=JSON.parse(readFileSync(new URL('../../../package.json',import.meta.url),'utf8'));
@@ -125,7 +126,7 @@ export async function buildApp(){
   reply.hijack();reply.raw.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no'});reply.raw.write(': connected\n\n');let busy=false;
   const interval=setInterval(async()=>{if(busy||reply.raw.destroyed)return;busy=true;try{const valid=await one('SELECT 1 FROM sessions WHERE id=$1 AND expires_at>now()',[(req as any).session.id]);if(!valid){reply.raw.end();return;}for(const e of await query('SELECT * FROM events WHERE id>$1 ORDER BY id LIMIT 200',[cursor])){reply.raw.write(`id: ${e.id}\ndata: ${JSON.stringify({type:e.type,...e.payload})}\n\n`);cursor=Number(e.id);}reply.raw.write(': heartbeat\n\n');}catch{reply.raw.end();}finally{busy=false;}},400);reply.raw.on('close',()=>clearInterval(interval));
  });
- registerInsights(app);
+ registerInsights(app);registerPush(app);
  return app;
 }
 export async function seed(){if(await one('SELECT id FROM agents LIMIT 1'))return;const templates=[['Coordenador','Organiza o trabalho da equipe','#f1f0e9','animal',true],['Pesquisador','Investiga e verifica fontes','#18b99c','euglena',false],['Redator','Transforma ideias em textos','#fcad24','paramecio',false],['Revisor','Revisa qualidade e precisão','#9b6bff','vegetal',false]];await ensureSection('Equipe');for(const [name,role,color,shape,pinned] of templates)await query('INSERT INTO agents(name,role,color,shape,pinned,tools,instructions,is_master) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[name,role,color,shape,pinned,JSON.stringify(nativeToolNames),`Você é ${name}. ${role}. Trabalhe com clareza, confirme fatos e entregue resultados verificáveis.`,name==='Coordenador']);}
