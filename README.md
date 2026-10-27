@@ -79,7 +79,9 @@ Use um **Cloudflare Tunnel** (`cloudflared`). Assim nenhuma porta do roteador pr
 4. Em **Speed → Optimization**, desative **Rocket Loader**, em **Scrape Shield** desative **Email Address Obfuscation** e, em **Analytics & Logs → Web Analytics**, desative a injeção automática para este domínio. Todos injetam scripts que a política de segurança (CSP) do Cell bloqueia.
 5. Recomendado: proteja o domínio com **Cloudflare Access** (Zero Trust → Access → Applications, política "e-mails permitidos" com código por e-mail). É uma segunda camada de login antes de a página do Cell sequer carregar.
 
-O limite de tentativas de login (10 a cada 15 minutos) é contado por IP real do visitante: o Cell lê o `CF-Connecting-IP` apenas quando a requisição chega por um endereço local (o `cloudflared`), então ele não pode ser falsificado pela internet.
+6. Recomendado: faça só o túnel informar o IP real do visitante. Gere um segredo (`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`), coloque-o no `.env` como `CELL_PROXY_SECRET=...` e, na Cloudflare, crie **Rules → Transform Rules → Modify Request Header** para o hostname do Cell definindo o cabeçalho `X-Cell-Proxy-Secret` com esse valor. Depois rode `.\scripts\deploy.ps1`.
+
+O limite de tentativas de login (10 a cada 15 minutos) é contado por IP real do visitante. Com `CELL_PROXY_SECRET`, o `CF-Connecting-IP` só é aceito em requisições que trazem o segredo, então nem a internet nem a rede local conseguem falsificá-lo. Sem ele, o cabeçalho é aceito de redes privadas (ou só dos endereços em `TRUSTED_PROXIES`, lista de CIDRs); no Docker Desktop toda a rede local chega pelo mesmo gateway, por isso o segredo é a opção segura. O estado atual aparece em Configurações → Diagnóstico.
 
 ## Instalar no Android (PWA)
 
@@ -96,7 +98,22 @@ Se perder o celular: Configurações → Conta → **Sair de todos os outros dis
 .\scripts\restore.ps1 -Backup .\backups\20261026-120000
 ```
 
-O backup para a API, o worker e a web por alguns segundos, exporta o banco e os arquivos e depois os reinicia. Guarde o `.env` separadamente: a restauração exige a mesma `SECRET_KEY`, pois os tokens e as credenciais são criptografados com ela.
+O backup para a API, o worker e a web por alguns segundos, exporta o banco e os arquivos (com as contagens de registros no `manifest.json`) e depois os reinicia. Guarde o `.env` separadamente: a restauração exige a mesma `SECRET_KEY`, pois os tokens e as credenciais são criptografados com ela.
+
+**Verifique cada backup** antes de confiar nele:
+
+```powershell
+npm run backup:verify -- backups\20261026-120000
+```
+
+O comando restaura o backup num PostgreSQL temporário e isolado (com os mesmos parâmetros do `restore.ps1`), confere as migrações, compara as contagens com o manifesto e checa se todo arquivo citado no banco está na pasta `files/`. Nada de produção é tocado; o container temporário é removido no fim. Sai com código 0 e `"ok": true` quando o backup está íntegro.
+
+## Acompanhamento e diagnóstico
+
+- **Central de atividade** (ícone de atividade no cabeçalho ou menu do usuário): todas as execuções de todos os agentes, com filtros por estado e agente, resumo do que está trabalhando, na fila, aguardando aprovação ou com falha. Cada execução mostra modelo, duração, tokens, ferramentas, documentos usados, arquivos e a árvore de delegações, com os botões de aprovar, negar e cancelar.
+- **Diagnóstico** (Configurações → Diagnóstico): saúde do worker (sinal a cada 10 s), banco, fila, execuções paradas (sem sinal há mais de 2 minutos), 9router, conexões MCP e a confiança no IP do proxy. Nenhum segredo é exibido.
+- **Memória e resumo** (painel do agente → "Ver e editar memória e resumo"): edite a memória do agente e o resumo da conversa; cada versão fica no histórico com a origem (usuário, editor do agente ou resumo automático).
+- **Modo `/plan`**: a execução fica marcada como plano e o servidor só libera ferramentas de pesquisa e leitura, mesmo que o modelo tente outras.
 
 ## Versionamento
 
@@ -129,7 +146,9 @@ npm run dev     # Vite em http://127.0.0.1:5173 (proxy /api → 127.0.0.1:3101)
 
 Diálogos da interface: use sempre os helpers de `apps/web/src/dialogs.ts` (SweetAlert2 / `Swal.fire`). Nunca use `alert`, `confirm` ou `prompt` nativos.
 
-Testes (`npm run test:db` sobe um PostgreSQL temporário no Docker, roda tudo e remove o container; para usar um banco próprio, ele precisa terminar em `_test`):
+Testes de navegador: `npm run test:e2e` sobe uma pilha isolada (PostgreSQL temporário, API e build da interface com agentes em todos os estados) e roda o Playwright no Google Chrome instalado em 360, 390, 768, 1024 e 1440 px. Capturas ficam em `test-results/`.
+
+Testes de integração (`npm run test:db` sobe um PostgreSQL temporário no Docker, roda tudo e remove o container; para usar um banco próprio, ele precisa terminar em `_test`):
 
 ```powershell
 $env:TEST_DATABASE_URL = 'postgres://cell:cell-test-only@127.0.0.1:55439/cell_test'; npm test

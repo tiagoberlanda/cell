@@ -5,6 +5,36 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+Plano de confiabilidade e acompanhamento dos agentes (iniciado pelo Codex, revisado e concluído nesta versão).
+
+### Corrigido
+- Contexto montado quando a execução começa: mensagens enviadas em sequência agora veem as respostas anteriores já concluídas, e anexos de mensagens anteriores voltam ao contexto dentro dos limites de texto, imagens e capacidade do modelo.
+- Rotinas interrompidas durante o despacho são retomadas sem duplicar a tarefa; uma rotina cujo despacho falha (ex.: agente arquivado) registra a falha e é pausada, em vez de ser tentada a cada 10 segundos.
+- Ferramentas pendentes são executadas mesmo ao atingir o limite de etapas; a última chamada ao modelo vai sem ferramentas, para fechar a resposta.
+- Conclusão e cancelamento não se sobrescrevem mais: a conclusão só vale se a execução ainda estiver rodando, e o evento enviado à interface sai na mesma transação.
+- Delegações simultâneas cruzadas (A → B e B → A) não travam mais a fila.
+- Erro explícito retornado por uma ferramenta MCP encerra a chamada como erro, sem pedir nova aprovação; só resultados desconhecidos (queda, timeout) exigem revisão.
+- Modo `/plan` persistido em cada execução e restrito no servidor a pesquisa e leitura; a instrução de planejamento não se repete mais ao retomar.
+- O painel do agente mostra o mesmo estado real do cabeçalho e da lista.
+- Uma falha temporária (limite de requisições, servidor reiniciando) não leva mais à tela de login; só "não autenticado" encerra a sessão.
+
+### Segurança
+- `CF-Connecting-IP` só é aceito do proxy autorizado: com `CELL_PROXY_SECRET` (cabeçalho injetado por regra da Cloudflare) ou dos endereços em `TRUSTED_PROXIES`.
+- Limite geral de requisições: 1200/min com sessão, 120/min sem sessão (o login segue em 10 a cada 15 min).
+
+### Adicionado
+- Central de atividade com execuções, fila, aprovações e falhas; filtros por agente e estado; detalhes com modelo, duração, tokens, ferramentas, documentos, arquivos e árvore de delegações; aprovar, negar e cancelar.
+- Configurações → Diagnóstico: worker, banco, fila, execuções paradas, 9router, MCP e confiança no proxy, sem segredos. Heartbeat do worker e das execuções.
+- Memória do agente e resumo da conversa editáveis, com histórico de versões e origem; o resumo automático preserva as decisões anteriores.
+- "Documentos usados" sob cada resposta.
+- `npm run backup:verify`: restauração isolada e verificação de integridade do backup; `backup.ps1` grava as contagens no manifesto.
+- `npm run test:e2e`: testes de navegador em 360, 390, 768, 1024 e 1440 px.
+- Migração `0011_reliability`.
+
+### Como foi verificado
+- **Simulado:** 47 testes de integração com 9router e servidor MCP simulados e PostgreSQL temporário (interrupção do agendador, mensagens consecutivas, limite de uma etapa, delegações simultâneas, cancelamento durante a conclusão, erro MCP, restrições do `/plan`, cabeçalhos de IP falsificados, anexos entre mensagens, atualização de resumo); 27 testes de navegador em pilha isolada com dados semeados.
+- **Real:** backup da produção restaurado em banco isolado e conferido (contagens e arquivos), além de cópias adulteradas recusadas; após o deploy, migração e endpoints novos conferidos no servidor e no domínio público.
+
 ## [0.10.0] - 2026-10-27
 
 ### Corrigido
