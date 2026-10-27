@@ -1,0 +1,13 @@
+ALTER TABLE runs ADD COLUMN mode text NOT NULL DEFAULT 'execute' CHECK(mode IN ('execute','plan'));
+ALTER TABLE runs ADD COLUMN input_message_id uuid REFERENCES messages ON DELETE SET NULL;
+ALTER TABLE runs ADD COLUMN context_ready boolean NOT NULL DEFAULT true;
+ALTER TABLE runs ADD COLUMN documents jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE runs ADD COLUMN started_at timestamptz;
+ALTER TABLE runs ADD COLUMN finished_at timestamptz;
+ALTER TABLE runs ADD COLUMN heartbeat_at timestamptz;
+ALTER TABLE runs ADD COLUMN routine_history_id uuid UNIQUE REFERENCES routine_history ON DELETE SET NULL;
+CREATE TABLE worker_health(id text PRIMARY KEY, heartbeat_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE memory_revisions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agent_id uuid REFERENCES agents ON DELETE CASCADE,conversation_id uuid REFERENCES conversations ON DELETE CASCADE,kind text NOT NULL CHECK(kind IN('memory','summary')),body text NOT NULL,source text NOT NULL,source_run_id uuid REFERENCES runs ON DELETE SET NULL,created_at timestamptz NOT NULL DEFAULT now());
+INSERT INTO memory_revisions(agent_id,kind,body,source) SELECT id,'memory',memory,'Origem anterior não registrada' FROM agents WHERE memory<>'';
+INSERT INTO memory_revisions(conversation_id,kind,body,source) SELECT id,'summary',summary,'Origem anterior não registrada' FROM conversations WHERE summary<>'';
+CREATE INDEX runs_activity ON runs(created_at DESC,id DESC);

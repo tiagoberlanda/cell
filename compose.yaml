@@ -27,6 +27,9 @@ services:
       # Comma-separated list: every address the browser may use (e.g. https://192.168.0.200,https://localhost).
       APP_ORIGIN: ${APP_ORIGIN:-https://localhost}
       COOKIE_SECURE: "true"
+      # Optional: secret header added by a Cloudflare transform rule, so only the tunnel can set the client IP.
+      CELL_PROXY_SECRET: ${CELL_PROXY_SECRET:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       WORKSPACE_PATH: /data
       PORT: "3001"
     volumes: ["workspace:/data"]

@@ -27,7 +27,7 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  // The master agent always manages the team, regardless of its enabled tool list.
  if((await one('SELECT is_master FROM agents WHERE id=$1',[run.agent_id]))?.is_master)result.push(...masterTools);
  for(const c of await query('SELECT * FROM connections WHERE status=\'connected\''))for(const t of c.tools){const name=`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64);if(!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
- return result;
+ return run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents'].includes(t.name)||(t.name.startsWith('mcp_')&&!t.write)):result;
 }
 const palette=['#258cff','#18b99c','#fcad24','#9b6bff','#fc733f','#df8da9','#b3efbc','#9c713f'];
 const pick=<T,>(list:readonly T[])=>list[Math.floor(Math.random()*list.length)];

@@ -13,7 +13,12 @@ export function safeError(e:unknown){const raw=e instanceof Error?e.message:'Fal
 export const appOrigins=()=>(process.env.APP_ORIGIN||'').split(',').map(x=>x.trim().replace(/\/$/,'')).filter(Boolean);
 export const allowedOrigin=(origin:string)=>appOrigins().includes(origin);
 // Behind Caddy every request arrives from the proxy, so rate limits need the real client address.
-// Caddy replaces X-Forwarded-For with its direct peer. Cloudflare's CF-Connecting-IP is trusted only when that peer is a
-// private address (cloudflared on this host or LAN); internet clients reaching Caddy directly cannot spoof it.
-const privateIp=(ip:string)=>/^(::ffff:)?(10\.|127\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(ip)||ip==='::1'||/^f[cd]/i.test(ip);
-export function clientIp(req:{headers:Record<string,any>;ip:string}){const peer=String(req.headers['x-forwarded-for']||'').split(',').pop()!.trim()||req.ip;const cf=String(req.headers['cf-connecting-ip']||'').trim();return cf&&privateIp(peer)?cf:peer;}
+// Caddy replaces X-Forwarded-For with its direct peer. Cloudflare's CF-Connecting-IP is trusted only from the authorized proxy:
+// with CELL_PROXY_SECRET set, the request must carry X-Cell-Proxy-Secret (added by a Cloudflare transform rule), which a LAN
+// client cannot forge; otherwise the peer must match TRUSTED_PROXIES (CIDRs; default: private networks, where cloudflared runs).
+const v4=(ip:string)=>{const m=/^(?:::ffff:)?(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);return m?((+m[1]<<24)>>>0)+(+m[2]<<16)+(+m[3]<<8)+ +m[4]:null;};
+export function inCidr(ip:string,cidr:string){const [base,bits]=cidr.trim().split('/');const a=v4(ip),b=v4(base);if(a===null||b===null)return ip===base;const n=bits===undefined?32:Number(bits);const mask=n===0?0:(~0<<(32-n))>>>0;return ((a&mask)>>>0)===((b&mask)>>>0);}
+const defaultProxies='127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1';
+export function proxyTrust(){const secret=process.env.CELL_PROXY_SECRET||'';const proxies=(process.env.TRUSTED_PROXIES||defaultProxies).split(',').map(x=>x.trim()).filter(Boolean);return {mode:secret?'secret':process.env.TRUSTED_PROXIES?'proxies':'private-networks',secret,proxies};}
+export function clientIp(req:{headers:Record<string,any>;ip:string}){const peer=String(req.headers['x-forwarded-for']||'').split(',').pop()!.trim()||req.ip;const cf=String(req.headers['cf-connecting-ip']||'').trim();if(!cf)return peer;
+ const t=proxyTrust();const trusted=t.secret?safeEqual(String(req.headers['x-cell-proxy-secret']||''),t.secret):t.proxies.some(c=>inCidr(peer,c));return trusted?cf:peer;}

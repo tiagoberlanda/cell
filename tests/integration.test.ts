@@ -15,7 +15,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  const {buildApp,seed}=await import('../apps/server/src/api.js');
  const {startQueue,boss,enqueue}=await import('../apps/server/src/runtime.js');
  const fake=Fastify();let writes=0,reads=0,worker:ChildProcess|undefined;let workerErrors='';
- let targetAgent='';let mcpName='';
+ let targetAgent='';let mcpName='';let mcpFailName='';const summaryRequests:any[]=[];
  fake.get('/v1/models',async(req,reply)=>req.headers.authorization==='Bearer test-secret'?{data:[{id:'cell-test',name:'Modelo de teste'}]}:reply.code(401).send({error:'unauthorized'}));
  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');let imageCalls:any[]=[];
  fake.get('/v1/models/image',async()=>({data:[{id:'test/image'}]}));
@@ -25,13 +25,15 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
  fake.post('/v1/chat/completions',async(req,reply)=>{
   const b=req.body as any;if(req.headers.authorization!=='Bearer test-secret')return reply.code(401).send({error:'bad token'});
+  if(String(b.messages?.[0]?.content||'').startsWith('Atualize o resumo'))summaryRequests.push(b);
   if(!b.stream)return {choices:[{message:{content:'Imagem recebida.',tool_calls:[{id:'probe',type:'function',function:{name:'cell_probe',arguments:'{"ok":true}'}}]}}]};
   const last=b.messages.at(-1),text=typeof last.content==='string'?last.content:JSON.stringify(last.content);let tool:string|undefined,args:any={};
   if(last.role==='user'){
    if(text.includes('MAKE_FILE')){tool='write_file';args={name:'resultado.md',content:'# Entrega\nArquivo produzido.'};}
    if(text.includes('SEARCH_WEB')){tool='web_search';args={query:'teste'};}
    if(text.includes('CALL_MCP')){tool=mcpName;args={value:'resultado'};}
-   if(text.includes('DELEGATE')){tool='delegate';args={agentId:targetAgent,task:'Responda como especialista.'};}
+   if(text.includes('DELEGATE')){tool='delegate';args={agentId:/DELEGATE_TO:([0-9a-f-]{36})/.exec(text)?.[1]||targetAgent,task:'Responda como especialista.'};}
+   if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
   }
   reply.hijack();reply.raw.writeHead(200,{'Content-Type':'text/event-stream'});
   const packet=(p:any)=>reply.raw.write('data: '+JSON.stringify(p)+'\n\n');
@@ -40,7 +42,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   else{packet({choices:[{delta:{content:'Resultado '}}]});await sleep(20);packet({choices:[{delta:{content:'concluído com evidências.'}}]});}
   packet({choices:[],usage:{prompt_tokens:15,completion_tokens:9}});if(!text.includes('BROKEN_STREAM'))reply.raw.write('data: [DONE]\n\n');reply.raw.end();
  });
- fake.post('/mcp',async(req,reply)=>{if(req.headers.authorization!=='Bearer mcp-secret')return reply.code(401).send({error:'unauthorized'});const server=new McpServer({name:'cell-test',version:'1.0.0'});server.registerTool('read_public',{description:'Leitura controlada',inputSchema:{value:z.string()}},async a=>{reads++;return {content:[{type:'text',text:a.value}]};});server.registerTool('write_external',{description:'Escrita controlada',inputSchema:{value:z.string()}},async a=>{writes++;return {content:[{type:'text',text:a.value}]};});const transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});await server.connect(transport);reply.hijack();await transport.handleRequest(req.raw,reply.raw,req.body);reply.raw.on('close',()=>{transport.close();server.close();});});
+ fake.post('/mcp',async(req,reply)=>{if(req.headers.authorization!=='Bearer mcp-secret')return reply.code(401).send({error:'unauthorized'});const server=new McpServer({name:'cell-test',version:'1.0.0'});server.registerTool('read_public',{description:'Leitura controlada',inputSchema:{value:z.string()}},async a=>{reads++;return {content:[{type:'text',text:a.value}]};});server.registerTool('write_external',{description:'Escrita controlada',inputSchema:{value:z.string()}},async a=>{writes++;return {content:[{type:'text',text:a.value}]};});server.registerTool('fail_external',{description:'Escrita que falha',inputSchema:{value:z.string()}},async()=>({isError:true,content:[{type:'text',text:'Serviço recusou a operação.'}]}));const transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});await server.connect(transport);reply.hijack();await transport.handleRequest(req.raw,reply.raw,req.body);reply.raw.on('close',()=>{transport.close();server.close();});});
  await fake.listen({host:'127.0.0.1',port:0});const base=`http://127.0.0.1:${(fake.server.address() as any).port}`;
  process.env.NINEROUTER_BASE_URL=base+'/v1';process.env.NINEROUTER_API_KEY='test-secret';process.env.NINEROUTER_DEFAULT_MODEL='cell-test';
  // TEST_DATABASE_URL must point at a disposable test database; never production.
@@ -65,7 +67,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  await t.test('streaming completo e recuperação de histórico',async()=>{const r=await task('Olá');await poll(r.id,'completed');const run=await one('SELECT * FROM runs WHERE id=$1',[r.id]);const view=await request('GET','/conversations/'+run.conversation_id);assert.equal(view.messages.at(-1).content,'Resultado concluído com evidências.');assert.ok(!JSON.stringify(view).includes('test-secret'));assert.equal(view.runs[0].usage.prompt_tokens,15);});
  await t.test('arquivo produzido e pesquisa web reais pelo adaptador',async()=>{const r=await task('MAKE_FILE');await poll(r.id,'completed');assert.equal((await request('GET','/files'))[0].name,'resultado.md');const search=await task('SEARCH_WEB');await poll(search.id,'completed');assert.ok((await one('SELECT result FROM tool_calls WHERE run_id=$1',[search.id])).result.includes('Fonte de teste'));});
  let connectionId='';
- await t.test('MCP descobre ferramentas; escrita espera aprovação',async()=>{const c=await request('POST','/connections',{name:'MCP teste',url:base+'/mcp',headers:{Authorization:'Bearer mcp-secret'},readTools:['read_public']});connectionId=c.id;const discovery=await request('POST',`/connections/${c.id}/test`);assert.equal(discovery.tools.length,2);mcpName=(await request('GET','/tools')).find((x:any)=>x.label.includes('write_external')).name;agent.tools.push(mcpName);await request('PUT','/agents/'+agent.id,agent);const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');assert.equal(writes,0);const approval=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+approval.id,{decision:'approved'});await poll(r.id,'completed');assert.equal(writes,1);await enqueue(r.id);await sleep(500);assert.equal(writes,1);});
+ await t.test('MCP descobre ferramentas; escrita espera aprovação',async()=>{const c=await request('POST','/connections',{name:'MCP teste',url:base+'/mcp',headers:{Authorization:'Bearer mcp-secret'},readTools:['read_public']});connectionId=c.id;const discovery=await request('POST',`/connections/${c.id}/test`);assert.equal(discovery.tools.length,3);mcpName=(await request('GET','/tools')).find((x:any)=>x.label.includes('write_external')).name;agent.tools.push(mcpName);await request('PUT','/agents/'+agent.id,agent);const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');assert.equal(writes,0);const approval=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+approval.id,{decision:'approved'});await poll(r.id,'completed');assert.equal(writes,1);await enqueue(r.id);await sleep(500);assert.equal(writes,1);});
  await t.test('negar uma chamada impede escrita externa',async()=>{const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');const a=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+a.id,{decision:'denied'});await poll(r.id,'completed');assert.equal(writes,1);});
  await t.test('mudança de parâmetros invalida a aprovação',async()=>{const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');const a=await one('SELECT a.id,a.call_id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await query('UPDATE tool_calls SET args=$2 WHERE id=$1',[a.call_id,JSON.stringify({value:'changed'})]);await request('POST','/approvals/'+a.id,{decision:'approved'});await poll(r.id,'failed');assert.equal(writes,1);});
  await t.test('delegação volta ao pai sem bloquear a fila',async()=>{const r=await task('DELEGATE');await poll(r.id,'completed',50000);const child=await one('SELECT * FROM runs WHERE parent_id=$1',[r.id]);assert.equal(child.state,'completed');assert.equal(child.agent_id,targetAgent);});
@@ -112,6 +114,105 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   const r=await request('POST','/account/logout-others');assert.ok(r.ended>=1);
   assert.equal((await app.inject({method:'GET',url:'/api/me',headers:{cookie:otherCookie}})).statusCode,401,'outra sessão encerrada');
   await request('GET','/me');
+ });
+ await t.test('rotina interrompida no despacho é retomada sem duplicar',async()=>{
+  const {dispatchRoutine}=await import('../apps/server/src/scheduler.js');
+  const rt=await request('POST','/routines',{agentId:agent.id,name:'Despacho interrompido',prompt:'Olá rotina',kind:'daily',schedule:'08:00',timezone:'America/Sao_Paulo',enabled:false});
+  const at=new Date(Date.now()-30000);
+  // Simulates a crash after claiming the slot: a 'dispatching' record without a run.
+  const h=await one("INSERT INTO routine_history(routine_id,status,scheduled_at) VALUES($1,'dispatching',$2) RETURNING id",[rt.id,at]);
+  await query('UPDATE routines SET enabled=true,next_at=$2 WHERE id=$1',[rt.id,at]);
+  const ids=(await Promise.all([dispatchRoutine(rt.id),dispatchRoutine(rt.id)])).filter(Boolean) as string[];
+  for(const runId of ids)await enqueue(runId);
+  const runs=await query('SELECT id FROM runs WHERE routine_history_id=$1',[h.id]);assert.equal(runs.length,1,'uma única execução');
+  assert.equal((await one('SELECT status,run_id FROM routine_history WHERE id=$1',[h.id])).run_id,runs[0].id);
+  assert.ok(new Date((await one('SELECT next_at FROM routines WHERE id=$1',[rt.id])).next_at)>new Date(),'próximo horário avançou');
+  await poll(runs[0].id,'completed');
+ });
+ await t.test('rotina com agente indisponível falha uma vez e pausa',async()=>{
+  const {dispatchRoutine}=await import('../apps/server/src/scheduler.js');
+  const ghost=await request('POST','/agents',{name:'Agente arquivado',role:'Teste',color:'#18b99c',shape:'coco'});await request('POST',`/agents/${ghost.id}/archive`,{archived:true});
+  const rt=await request('POST','/routines',{agentId:ghost.id,name:'Rotina órfã',prompt:'Olá',kind:'daily',schedule:'08:00',timezone:'America/Sao_Paulo',enabled:false});
+  await query("UPDATE routines SET enabled=true,next_at=now()-interval '5 seconds' WHERE id=$1",[rt.id]);
+  assert.equal(await dispatchRoutine(rt.id),undefined);assert.equal(await dispatchRoutine(rt.id),undefined);
+  const hist=await query('SELECT status FROM routine_history WHERE routine_id=$1',[rt.id]);assert.deepEqual(hist.map(x=>x.status),['failed']);
+  assert.equal((await one('SELECT enabled FROM routines WHERE id=$1',[rt.id])).enabled,false);
+ });
+ await t.test('mensagens consecutivas veem a resposta anterior',async()=>{
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
+  await request('POST',`/conversations/${cv.id}/messages`,{content:'Primeira pergunta'});const r2=await request('POST',`/conversations/${cv.id}/messages`,{content:'Segunda pergunta'});
+  await poll(r2.id,'completed');const ctx=(await one('SELECT context FROM runs WHERE id=$1',[r2.id])).context;
+  const answer=ctx.findIndex((m:any)=>m.role==='assistant'&&String(m.content).includes('Resultado concluído')),question=ctx.findIndex((m:any)=>m.role==='user'&&String(m.content).includes('Segunda pergunta'));
+  assert.ok(answer>0&&answer<question,'resposta anterior entra antes da nova pergunta');
+ });
+ await t.test('limite de uma etapa executa a ferramenta pendente e conclui',async()=>{
+  const {hasToken,...base}=await request('GET','/settings');await request('PUT','/settings',{...base,maxSteps:1});
+  try{const r=await task('SEARCH_WEB etapa única');await poll(r.id,'completed');const calls=await query('SELECT status FROM tool_calls WHERE run_id=$1',[r.id]);assert.equal(calls.length,1);assert.equal(calls[0].status,'done');}
+  finally{await request('PUT','/settings',{...base,maxSteps:20});}
+ });
+ await t.test('delegações simultâneas cruzadas não travam',async()=>{
+  const cvB=await request('POST',`/agents/${targetAgent}/conversations`,{});
+  const [a,b]=await Promise.all([task(`DELEGATE_TO:${targetAgent}`),request('POST',`/conversations/${cvB.id}/messages`,{content:`DELEGATE_TO:${agent.id}`})]);
+  await Promise.all([poll(a.id,'completed',60000),poll(b.id,'completed',60000)]);
+  for(const r of [a,b])assert.equal((await one('SELECT state FROM runs WHERE parent_id=$1',[r.id])).state,'completed');
+ });
+ await t.test('cancelamento não é revertido pela conclusão',async()=>{
+  const {setState}=await import('../apps/server/src/runtime.js');
+  const r=await task('SLOW_TEST cancelamento');await poll(r.id,'running');await request('POST','/runs/'+r.id+'/cancel');
+  await setState(r.id,'completed');await setState(r.id,'failed','tarde demais');await sleep(3500);
+  const row=await one('SELECT state,finished_at FROM runs WHERE id=$1',[r.id]);assert.equal(row.state,'cancelled');assert.ok(row.finished_at);
+  assert.equal((await query('SELECT id FROM messages WHERE run_id=$1',[r.id])).length,0);
+  const ev=await query("SELECT payload FROM events WHERE type='run' AND payload->>'id'=$1 ORDER BY id",[r.id]);assert.equal(ev.at(-1).payload.state,'cancelled');
+ });
+ await t.test('erro explícito do MCP falha a chamada sem pedir nova aprovação',async()=>{
+  mcpFailName=(await request('GET','/tools')).find((x:any)=>x.label.includes('fail_external')).name;agent.tools.push(mcpFailName);await request('PUT','/agents/'+agent.id,agent);
+  const r=await task('CALL_MCP_FAIL');await poll(r.id,'waiting_approval');const ap=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);
+  await request('POST','/approvals/'+ap.id,{decision:'approved'});await poll(r.id,'completed');
+  const call=await one('SELECT t.status,t.result,a.status AS approval FROM tool_calls t JOIN approvals a ON a.call_id=t.id WHERE t.run_id=$1',[r.id]);
+  assert.equal(call.status,'error');assert.match(call.result,/Serviço recusou a operação/);assert.equal(call.approval,'approved');
+ });
+ await t.test('/plan restringe ferramentas no backend',async()=>{
+  const {toolsFor}=await import('../apps/server/src/tools.js');
+  const all=['web_search','web_fetch','generate_image','list_files','read_file','write_file','list_agents','delegate','propose_routine'];
+  assert.deepEqual((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:all}})).map((x:any)=>x.name).sort(),['list_agents','list_files','read_file','web_fetch','web_search']);
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
+  const ok=await request('POST',`/conversations/${cv.id}/messages`,{content:'Planeje a migração',mode:'plan'});await poll(ok.id,'completed');
+  const run=await one('SELECT mode,context FROM runs WHERE id=$1',[ok.id]);assert.equal(run.mode,'plan');assert.equal((run.context[0].content.match(/Modo planejamento/g)||[]).length,1);
+  const blocked=await request('POST',`/conversations/${cv.id}/messages`,{content:'/plan MAKE_FILE agora',mode:'execute'});await poll(blocked.id,'failed');
+  assert.equal((await one('SELECT mode FROM runs WHERE id=$1',[blocked.id])).mode,'plan','comando /plan também ativa o modo');
+  assert.equal((await query("SELECT id FROM tool_calls WHERE run_id=$1",[blocked.id])).length,0,'escrita recusada pelo backend');
+ });
+ await t.test('anexos de mensagens anteriores continuam disponíveis',async()=>{
+  const {saveFile}=await import('../apps/server/src/files.js');const f=await saveFile('nota.txt',Buffer.from('Código combinado: AZUL-42'));
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
+  await request('POST',`/conversations/${cv.id}/messages`,{content:'Guarde esta nota',files:[f.id]});const r2=await request('POST',`/conversations/${cv.id}/messages`,{content:'Qual era o código?'});
+  await poll(r2.id,'completed');const run=await one('SELECT context,documents FROM runs WHERE id=$1',[r2.id]);
+  assert.match(JSON.stringify(run.context),/AZUL-42/);assert.equal(run.documents.find((d:any)=>d.id===f.id)?.status,'included');
+ });
+ await t.test('resumo automático preserva o anterior e registra a origem',async()=>{
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});await query("UPDATE conversations SET summary='Decisão: usar PostgreSQL.' WHERE id=$1",[cv.id]);
+  for(let i=0;i<28;i++)await query("INSERT INTO messages(conversation_id,role,content,created_at) VALUES($1,$2,$3,now()-make_interval(secs=>$4))",[cv.id,i%2?'assistant':'user',`Mensagem antiga ${i}`,600-i]);
+  summaryRequests.length=0;const r=await request('POST',`/conversations/${cv.id}/messages`,{content:'Nova mensagem'});await poll(r.id,'completed');
+  for(let i=0;i<50&&!summaryRequests.length;i++)await sleep(200);await sleep(500);
+  assert.ok(summaryRequests.length>=1,'resumo foi atualizado');assert.match(JSON.stringify(summaryRequests[0].messages),/Decisão: usar PostgreSQL/);
+  const rev=await one("SELECT source,source_run_id FROM memory_revisions WHERE conversation_id=$1 AND kind='summary' ORDER BY created_at DESC LIMIT 1",[cv.id]);
+  assert.equal(rev.source,'Resumo automático da conversa');assert.equal(rev.source_run_id,r.id);
+ });
+ await t.test('central de atividade, detalhes e diagnóstico',async()=>{
+  const page=await request('GET','/activity?limit=2');assert.equal(page.items.length,2);assert.ok(page.next);
+  const page2=await request('GET','/activity?limit=2&before='+encodeURIComponent(page.next));assert.ok(!page2.items.some((i:any)=>page.items.some((j:any)=>j.id===i.id)),'páginas sem repetição');
+  const done=await request('GET',`/activity?state=completed&agentId=${agent.id}`);assert.ok(done.items.length>0&&done.items.every((i:any)=>i.state==='completed'&&i.agent_id===agent.id));
+  const parent=await one('SELECT parent_id FROM runs WHERE parent_id IS NOT NULL LIMIT 1');const d=await request('GET','/runs/'+parent.parent_id);
+  assert.ok(d.tree.length>=2,'árvore de delegações');assert.ok(d.calls.some((c:any)=>c.tool==='delegate'));assert.equal(d.run.config,undefined);
+  const s=await request('GET','/activity/summary');assert.equal(typeof s.failed24h,'number');
+  const diag=await request('GET','/diagnostics');assert.equal(diag.database.ok,true);assert.equal(diag.worker.ok,true,JSON.stringify(diag.worker));assert.equal(diag.router.ok,true);assert.equal(diag.router.hasToken,true);
+  assert.ok(!/test-secret|mcp-secret/.test(JSON.stringify(diag)),'diagnóstico sem segredos');
+ });
+ await t.test('memória e resumo editáveis com histórico de origem',async()=>{
+  await request('PUT',`/agents/${agent.id}/memory`,{memory:'Prefere tabelas.'});const m=await request('GET',`/agents/${agent.id}/memory`);
+  assert.equal(m.memory,'Prefere tabelas.');assert.equal(m.revisions[0].source,'Editada pelo usuário');agent.memory='Prefere tabelas.';
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});await request('PUT',`/conversations/${cv.id}/summary`,{summary:'Resumo manual'});
+  const s=await request('GET',`/conversations/${cv.id}/summary`);assert.equal(s.summary,'Resumo manual');assert.equal(s.revisions[0].source,'Editado pelo usuário');
  });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });
