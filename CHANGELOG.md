@@ -5,6 +5,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- A Cloudflare guardava o `sw.js` em cache por até 4 horas, atrasando atualizações do app e das notificações nos aparelhos. O Caddy agora envia `Cache-Control: no-cache` para `sw.js` e `manifest.webmanifest`.
+
 ## [0.13.0] - 2026-10-27
 
 ### Adicionado

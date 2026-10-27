@@ -19,6 +19,9 @@
   X-Robots-Tag "noindex, nofollow"
   Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
  }
+ # The service worker and manifest must never be served stale by Cloudflare or the browser, or app updates and push fixes lag for hours.
+ @fresh path /sw.js /manifest.webmanifest
+ header @fresh Cache-Control "no-cache"
  handle /api/* {
   request_body {
    max_size 30MB
