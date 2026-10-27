@@ -20,7 +20,9 @@ try {
   // Same flags as scripts/restore.ps1, so this exercises the real restore procedure.
   const restore = docker('exec', name, 'pg_restore', '-U', 'cell', '-d', 'cell', '--clean', '--if-exists', '--no-owner', '--exit-on-error', '/tmp/restore.dump');
   if (restore.status !== 0) throw new Error('pg_restore falhou: ' + restore.stderr.slice(0, 500));
-  const c = new pg.Client({ connectionString: `postgres://cell:verify-only@127.0.0.1:${port}/cell` }); await c.connect();
+  // The published port can lag behind pg_isready inside the container; retry the first connection.
+  let c;
+  for (let i = 1; ; i++) { c = new pg.Client({ connectionString: `postgres://cell:verify-only@127.0.0.1:${port}/cell`, connectionTimeoutMillis: 4000 }); try { await c.connect(); break; } catch (e) { await c.end().catch(() => {}); if (i >= 15) throw e; await sleep(1000); } }
   const q = async (sql) => (await c.query(sql)).rows;
   const migrations = (await q('SELECT name FROM migrations ORDER BY name')).map(r => r.name);
   report.migrations = migrations.length; report.lastMigration = migrations.at(-1);
