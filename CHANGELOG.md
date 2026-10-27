@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.12.0] - 2026-10-27
+
 ### Corrigido
 - Rotinas propostas por um agente ficavam desativadas sem que isso ficasse visível: a ativação existia só na aba Rotinas do painel do agente. Agora a proposta aparece como um cartão na própria conversa, com **Ativar rotina** e **Descartar**; depois de ativada, o cartão mostra a próxima mensagem e permite **Pausar**.
 - A rotina respondia numa conversa nova ("Rotina: …") mesmo quando o pedido era "me mande uma mensagem aqui". Agora ela responde na conversa em que foi proposta (se ainda existir e não estiver arquivada) e o disparo aparece como "Rotina agendada", não como mensagem sua. A execução manual segue a mesma regra.
