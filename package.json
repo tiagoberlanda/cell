@@ -1,5 +1,5 @@
 {
-  "name": "cell", "private": true, "version": "0.6.2", "type": "module",
+  "name": "cell", "private": true, "version": "0.7.0", "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "npm run dev -w @cell/web",

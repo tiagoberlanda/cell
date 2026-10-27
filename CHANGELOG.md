@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.7.0] - 2026-10-27
+
 ### Adicionado
 - Botão "Arquivar conversa" no cabeçalho: a conversa atual fica salva no histórico e uma nova conversa começa do zero (sem o contexto da anterior). Pede confirmação e fica desativado durante tarefas em andamento.
 - Ícone de histórico lista as conversas ativas e, em seção própria, as arquivadas, com data do arquivamento e número de mensagens.
