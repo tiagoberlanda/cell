@@ -76,7 +76,7 @@ Use um **Cloudflare Tunnel** (`cloudflared`). Assim nenhuma porta do roteador pr
 3. No túnel (Zero Trust → Networks → Tunnels → Public Hostname), aponte `cell.seudominio.com` para `https://192.168.0.200:443` (ou `https://localhost:443` se o `cloudflared` roda nesta máquina), com:
    - **Origin Server Name**: `cell.seudominio.com`
    - **No TLS Verify**: ativado. O Caddy usa um certificado local (`tls internal`); o trecho Cloudflare → navegador continua com o certificado público da Cloudflare.
-4. Em **Speed → Optimization**, desative **Rocket Loader**, e em **Scrape Shield** desative **Email Address Obfuscation**. Os dois injetam scripts que a política de segurança (CSP) do Cell bloqueia.
+4. Em **Speed → Optimization**, desative **Rocket Loader**, em **Scrape Shield** desative **Email Address Obfuscation** e, em **Analytics & Logs → Web Analytics**, desative a injeção automática para este domínio. Todos injetam scripts que a política de segurança (CSP) do Cell bloqueia.
 5. Recomendado: proteja o domínio com **Cloudflare Access** (Zero Trust → Access → Applications, política "e-mails permitidos" com código por e-mail). É uma segunda camada de login antes de a página do Cell sequer carregar.
 
 O limite de tentativas de login (10 a cada 15 minutos) é contado por IP real do visitante: o Cell lê o `CF-Connecting-IP` apenas quando a requisição chega por um endereço local (o `cloudflared`), então ele não pode ser falsificado pela internet.
