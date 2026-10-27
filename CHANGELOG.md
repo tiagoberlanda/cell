@@ -5,6 +5,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Geração de imagens pelo 9router (`generate_image`, via `/v1/images/generations?response_format=binary`): a imagem é salva na biblioteca e aparece dentro da resposta do agente, com link para baixar. Habilitada para todos os agentes.
+- Escolha do modelo de imagem em Configurações → 9router (padrão: o primeiro disponível).
+- Seções na barra lateral: criar, renomear e excluir (vazias) pelo menu "…" de cada seção ou pelo botão "Nova seção"; o editor do agente sugere as seções existentes.
+- Segurar e arrastar para reordenar agentes (inclusive entre seções) e seções; com o mouse basta arrastar. A lista rola sozinha perto das bordas e a ordem é salva ao soltar.
+
+### Alterado
+- Agente fixado único fica centralizado no topo; a ordem dos fixados segue a ordem da lista.
+- Leitura de páginas (`web_fetch`) envia `format: markdown` e limite de 30 mil caracteres, conforme a documentação do 9router.
+
+### Corrigido
+- Execuções interrompidas por reinício do worker (por exemplo, durante uma atualização) ficavam presas em "Trabalhando"; agora voltam para a fila quando o worker inicia.
+
 ## [0.5.0] - 2026-10-26
 
 ### Adicionado

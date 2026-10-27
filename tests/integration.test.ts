@@ -8,7 +8,7 @@ import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {z} from 'zod';
 
-test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_URL,timeout:180000},async t=>{
+test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_URL,timeout:360000},async t=>{
  process.env.DATABASE_URL=process.env.TEST_DATABASE_URL;process.env.SECRET_KEY='ca'.repeat(32);process.env.COOKIE_SECURE='false';process.env.APP_ORIGIN='http://localhost:5173';process.env.WORKSPACE_PATH='./.cache/integration-data';
  const {query,one,pool}=await import('../apps/server/src/db.js');
  const {migrate}=await import('../apps/server/src/migrate.js');
@@ -17,6 +17,9 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  const fake=Fastify();let writes=0,reads=0,worker:ChildProcess|undefined;let workerErrors='';
  let targetAgent='';let mcpName='';
  fake.get('/v1/models',async(req,reply)=>req.headers.authorization==='Bearer test-secret'?{data:[{id:'cell-test',name:'Modelo de teste'}]}:reply.code(401).send({error:'unauthorized'}));
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');let imageCalls:any[]=[];
+ fake.get('/v1/models/image',async()=>({data:[{id:'test/image'}]}));
+ fake.post('/v1/images/generations',async(req:any,reply)=>{imageCalls.push({query:req.query,body:req.body});if(req.body.size)return reply.code(400).send({error:{message:'size not allowed'}});return reply.type('image/png').send(png);});
  fake.get('/v1/models/web',async()=>({data:[{id:'test/search',kind:'webSearch'},{id:'test/fetch',kind:'webFetch'}]}));
  fake.post('/v1/search',async()=>({results:[{title:'Fonte de teste',url:'https://example.com',snippet:'Resultado controlado.'}]}));
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
@@ -71,5 +74,27 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  await t.test('rotina perdida não acumula execuções',async()=>{const r=await request('POST','/routines',{agentId:agent.id,name:'Rotina teste',prompt:'Olá',kind:'daily',schedule:'08:00',timezone:'America/Sao_Paulo',enabled:true});await query("UPDATE routines SET next_at=now()-interval '10 minutes' WHERE id=$1",[r.id]);await sleep(12000);const h=await request('GET',`/routines/${r.id}/history`);assert.equal(h[0].status,'missed');assert.equal(h[0].run_id,null);});
  await t.test('excluir mensagens e avisos de erro',async()=>{const failed=await one("SELECT id FROM runs WHERE state='failed' LIMIT 1");assert.ok(failed,'precisa de uma execução com falha');await request('DELETE','/runs/'+failed.id);assert.equal(await one('SELECT id FROM runs WHERE id=$1',[failed.id]),undefined);const done=await one("SELECT id,conversation_id FROM runs WHERE state='completed' LIMIT 1");await assert.rejects(request('DELETE','/runs/'+done.id),/400/);const msg=await one('SELECT id FROM messages WHERE conversation_id=$1 LIMIT 1',[done.conversation_id]);await request('DELETE','/messages/'+msg.id);assert.equal(await one('SELECT id FROM messages WHERE id=$1',[msg.id]),undefined);});
  await t.test('Coordenador é o agente principal e gerencia a equipe',async()=>{const {toolsFor}=await import('../apps/server/src/tools.js');const master=await one('SELECT * FROM agents WHERE is_master');assert.equal(master.name,'Coordenador');await assert.rejects(request('DELETE','/agents/'+master.id),/400/);await assert.rejects(request('POST','/agents/'+master.id+'/archive',{archived:true}),/400/);const other=await one('SELECT id FROM agents WHERE NOT is_master LIMIT 1');const cfg={agent:{tools:[]}};assert.equal((await toolsFor({agent_id:other.id},cfg)).some((x:any)=>x.name==='create_agent'),false);const tools=await toolsFor({agent_id:master.id},cfg),create=tools.find((x:any)=>x.name==='create_agent'),remove=tools.find((x:any)=>x.name==='delete_agent');assert.ok(create&&remove);assert.equal(remove.write,true,'excluir exige aprovação');await assert.rejects(create.execute({name:'Sem cargo'},{},{}));const made=JSON.parse(await create.execute({name:'Analista',role:'Analista de Dados',description:'Analisa planilhas e métricas.'},{},{}));const row=await one('SELECT role,description,shape FROM agents WHERE id=$1',[made.id]);assert.equal(row.role,'Analista de Dados');assert.equal(row.description,'Analisa planilhas e métricas.');await assert.rejects(create.execute({name:'analista',role:'X',description:'Y'},{},{}),/Já existe/);await assert.rejects(remove.execute({agentId:made.id,name:'Outro'},{},{}),/pertence a Analista/);await assert.rejects(remove.execute({agentId:master.id,name:'Coordenador'},{},{}),/principal/);await remove.execute({agentId:made.id,name:'Analista'},{},{});assert.equal(await one('SELECT id FROM agents WHERE id=$1',[made.id]),undefined);});
+ await t.test('gerar imagem salva arquivo e aparece na mensagem',async()=>{
+  const {toolsFor}=await import('../apps/server/src/tools.js');const {config}=await import('../apps/server/src/router.js');
+  const tool=(await toolsFor({agent_id:agent.id},{agent:{tools:['generate_image']}})).find((x:any)=>x.name==='generate_image');assert.ok(tool);
+  imageCalls=[];const out=JSON.parse(await tool.execute({prompt:'uma célula verde',size:'1024x1024'},{agent_id:agent.id},await config()));
+  assert.equal(imageCalls.length,2,'tenta de novo sem size');assert.equal(imageCalls[0].query.response_format,'binary');assert.equal(imageCalls[1].body.size,undefined);
+  const file=await one('SELECT mime,size FROM files WHERE id=$1',[out.fileId]);assert.equal(file.mime,'image/png');assert.equal(Number(file.size),png.length);
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});await query("INSERT INTO messages(conversation_id,role,content,files) VALUES($1,'assistant','pronto',$2)",[cv.id,JSON.stringify([out.fileId])]);
+  const msg=(await request('GET','/conversations/'+cv.id)).messages.find((m:any)=>m.content==='pronto');assert.equal(msg.attachments[0].mime,'image/png');
+  const inline=await app.inject({method:'GET',url:`/api/files/${out.fileId}?inline=1`,headers:{cookie}});assert.match(String(inline.headers['content-disposition']),/^inline/);
+ });
+ await t.test('seções e ordem dos agentes',async()=>{
+  await request('POST','/sections',{name:'Criativos'});await assert.rejects(request('POST','/sections',{name:'criativos'}),/400/);
+  const before=await request('GET','/agents');const ids=before.filter((a:any)=>!a.archived).map((a:any)=>a.id).reverse();
+  await request('PUT','/layout',{sections:['Criativos','Equipe'],agents:ids.map((id:string,i:number)=>({id,section:i===0?'Criativos':'Equipe'}))});
+  const after=(await request('GET','/agents')).filter((a:any)=>!a.archived);assert.deepEqual(after.map((a:any)=>a.id),ids);assert.equal(after[0].section,'Criativos');
+  assert.deepEqual((await request('GET','/sections')).slice(0,2).map((s:any)=>s.name),['Criativos','Equipe']);
+  await assert.rejects(request('DELETE','/sections/Criativos'),/400/);
+  await request('PUT','/sections/Criativos',{name:'Arte'});assert.equal((await request('GET','/agents')).find((a:any)=>a.id===ids[0]).section,'Arte');
+  await request('PUT','/layout',{sections:['Equipe','Arte'],agents:ids.map((id:string)=>({id,section:'Equipe'}))});await request('DELETE','/sections/Arte');
+  assert.equal((await request('GET','/sections')).some((s:any)=>s.name==='Arte'),false);
+ });
+ await t.test('execução interrompida por reinício do worker é retomada',async()=>{const r=await task('SLOW_TEST retomada');await poll(r.id,'running');const old=worker!;await new Promise(done=>{old.once('exit',done);old.kill();});assert.equal((await one('SELECT state FROM runs WHERE id=$1',[r.id])).state,'running');launch();await poll(r.id,'completed',120000);});
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));});
 });

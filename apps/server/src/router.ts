@@ -1,7 +1,7 @@
 import { one,query } from './db.js';
 import { decrypt,encrypt,validateEndpoint } from './security.js';
-export interface RouterConfig {baseUrl:string;token:string;defaultModel:string;timezone:string;concurrency:number;maxSteps:number;maxDepth:number}
-export async function config():Promise<RouterConfig>{const row=await one('SELECT value FROM settings WHERE id=1');const v=row?.value||{};return {baseUrl:v.baseUrl??process.env.NINEROUTER_BASE_URL??'http://192.168.0.200:20128/v1',token:v.token!==undefined?(v.token?decrypt<string>(v.token):''):(process.env.NINEROUTER_API_KEY||''),defaultModel:v.defaultModel??process.env.NINEROUTER_DEFAULT_MODEL??'',timezone:v.timezone||'America/Sao_Paulo',concurrency:v.concurrency??3,maxSteps:v.maxSteps??20,maxDepth:v.maxDepth??3};}
+export interface RouterConfig {baseUrl:string;token:string;defaultModel:string;imageModel?:string;timezone:string;concurrency:number;maxSteps:number;maxDepth:number}
+export async function config():Promise<RouterConfig>{const row=await one('SELECT value FROM settings WHERE id=1');const v=row?.value||{};return {baseUrl:v.baseUrl??process.env.NINEROUTER_BASE_URL??'http://192.168.0.200:20128/v1',token:v.token!==undefined?(v.token?decrypt<string>(v.token):''):(process.env.NINEROUTER_API_KEY||''),defaultModel:v.defaultModel??process.env.NINEROUTER_DEFAULT_MODEL??'',imageModel:v.imageModel||'',timezone:v.timezone||'America/Sao_Paulo',concurrency:v.concurrency??3,maxSteps:v.maxSteps??20,maxDepth:v.maxDepth??3};}
 export async function publicConfig(){const c=await config();const {token,...rest}=c;return {...rest,hasToken:!!token};}
 export async function saveConfig(input:any){const prev=(await one('SELECT value FROM settings WHERE id=1'))?.value||{};const next={...prev,...input,baseUrl:validateEndpoint(input.baseUrl),token:input.token===undefined?prev.token:(input.token?encrypt(input.token):'')};await query('INSERT INTO settings(id,value) VALUES(1,$1) ON CONFLICT(id) DO UPDATE SET value=$1',[JSON.stringify(next)]);}
 export async function routerRequest(c:RouterConfig,route:string,body?:unknown,signal?:AbortSignal){
@@ -9,6 +9,20 @@ export async function routerRequest(c:RouterConfig,route:string,body?:unknown,si
  if(!res.ok){await res.body?.cancel();throw new Error(`9router: HTTP ${res.status}${res.status===401?' — confira o token.':res.status===429?' — limite de uso atingido.':''}`);}return res;
 }
 export async function models(c?:RouterConfig){const result=await (await routerRequest(c||await config(),'/models')).json() as any;return (result.data||[]).map((m:any)=>({id:String(m.id),name:m.name||m.id}));}
+export async function imageModels(c?:RouterConfig){const result=await (await routerRequest(c||await config(),'/models/image')).json() as any;return (result.data||[]).map((m:any)=>({id:String(m.id),name:m.name||m.id}));}
+// Generates one image as raw bytes (?response_format=binary). Some providers reject `size`, so a failed sized call is retried without it.
+export async function generateImage(c:RouterConfig,prompt:string,size?:string,signal?:AbortSignal):Promise<{data:Buffer;mime:string;model:string}>{
+ const model=c.imageModel||(await imageModels(c))[0]?.id;if(!model)throw new Error('Nenhum modelo de imagem disponível no 9router.');
+ const call=(withSize:boolean)=>fetch(validateEndpoint(c.baseUrl)+'/images/generations?response_format=binary',{method:'POST',headers:{'Authorization':`Bearer ${c.token}`,'Content-Type':'application/json'},body:JSON.stringify({model,prompt,...(withSize&&size?{size}:{})}),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(180000)]):AbortSignal.timeout(180000)});
+ let res=await call(true);if(!res.ok&&size){await res.body?.cancel();res=await call(false);}
+ if(!res.ok){const detail=String((await res.json().catch(()=>({})) as any)?.error?.message||'').slice(0,240);throw new Error(`9router (${model}): HTTP ${res.status}${res.status===429?' — limite de uso atingido':''}${detail?' — '+detail:''}`);}
+ const type=(res.headers.get('content-type')||'').split(';')[0];
+ if(type.startsWith('image/'))return {data:Buffer.from(await res.arrayBuffer()),mime:type,model};
+ const item=((await res.json()) as any)?.data?.[0];
+ if(item?.b64_json)return {data:Buffer.from(item.b64_json,'base64'),mime:'image/png',model};
+ if(item?.url){const img=await fetch(item.url,{signal:AbortSignal.timeout(60000)});if(!img.ok)throw new Error('Não foi possível baixar a imagem gerada.');return {data:Buffer.from(await img.arrayBuffer()),mime:(img.headers.get('content-type')||'image/png').split(';')[0],model};}
+ throw new Error('O 9router não retornou imagem.');
+}
 export type ChatMessage={role:string;content:any;tool_calls?:any[];tool_call_id?:string};
 export async function completion(c:RouterConfig,model:string,messages:ChatMessage[],tools:any[],onDelta:(s:string)=>Promise<void>,signal?:AbortSignal){
  const res=await routerRequest(c,'/chat/completions',{model,messages,stream:true,stream_options:{include_usage:true},...(tools.length?{tools,tool_choice:'auto'}:{})},signal);
