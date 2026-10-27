@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.23.0] - 2026-10-27
+
 ### Adicionado
 - Ícone do Cell Host na bandeja do Windows (perto do relógio): colorido quando está rodando, cinza quando parado. O menu tem **Iniciar**, **Parar**, **Abrir o Cell**, **Ver registro** e **Fechar (parar e sair)**; um duplo clique inicia quando está parado. Se o Cell Host cair, a bandeja o reinicia sozinha (até 5 vezes seguidas, depois avisa).
 - Atalho **Cell Host** no menu Iniciar para abrir de novo depois de fechar. Abrir uma segunda cópia só avisa que já está rodando.
