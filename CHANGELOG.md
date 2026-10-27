@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.6.0] - 2026-10-27
+
 ### Adicionado
 - Geração de imagens pelo 9router (`generate_image`, via `/v1/images/generations?response_format=binary`): a imagem é salva na biblioteca e aparece dentro da resposta do agente, com link para baixar. Habilitada para todos os agentes.
 - Escolha do modelo de imagem em Configurações → 9router (padrão: o primeiro disponível).
