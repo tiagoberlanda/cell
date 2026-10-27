@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.11.0] - 2026-10-27
+
 Plano de confiabilidade e acompanhamento dos agentes (iniciado pelo Codex, revisado e concluído nesta versão).
 
 ### Corrigido
