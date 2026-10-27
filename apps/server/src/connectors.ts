@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createHash,randomBytes } from 'node:crypto';
 import { one,query,event } from './db.js';
 import { encrypt,decrypt,safeEqual,safeError,hash } from './security.js';
-import { discover,finishOAuth,fixedCallback,newState } from './mcp.js';
+import { discover,finishOAuth,fixedCallback,newState,startAuthorization } from './mcp.js';
 import type { Tool } from './tools.js';
 
 const G='https://www.googleapis.com/auth/';
@@ -109,7 +109,8 @@ export function registerConnectors(app:FastifyInstance){
   const oauth:any={fixedRedirect:true,state:newState(c.id)};
   if(entry.auth==='google'){const g=(await googleClient())!;oauth.client={client_id:g.client_id,client_secret:g.client_secret,redirect_uris:[fixedCallback()],token_endpoint_auth_method:'client_secret_post'};oauth.staticClient=true;oauth.scope=entry.scopes!.join(' ');}
   await saveOAuth(c.id,oauth);
-  try{const tools=await discover({...c,oauth:encrypt(oauth)});await event('connection',{id:c.id});return {connected:true,tools:tools.length};}
+  // Catalog apps always authorize first (fresh state each click); tools are listed only with a token.
+  try{const url=await startAuthorization({...c,oauth:encrypt(oauth)});if(url)return {authorizationUrl:url};const tools=await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));await event('connection',{id:c.id});return {connected:true,tools:tools.length};}
   catch(e){
    const after=decrypt<any>((await one('SELECT oauth FROM connections WHERE id=$1',[c.id])).oauth);
    if(after.authorizationUrl)return {authorizationUrl:after.authorizationUrl};

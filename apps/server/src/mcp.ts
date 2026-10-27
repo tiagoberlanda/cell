@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
 import { decrypt,encrypt,validateEndpoint,appOrigins } from './security.js';
 import { query,one } from './db.js';
 import { randomBytes } from 'node:crypto';
@@ -40,6 +41,14 @@ export async function discover(connection:any){const {client}=await mcpClient(co
 // The MCP server reported a tool failure (isError): the call completed and the action did not happen.
 export class McpToolError extends Error {}
 export async function mcpCall(connectionId:string,name:string,args:any){const connection=await one('SELECT * FROM connections WHERE id=$1',[connectionId]);if(!connection)throw new Error('Conexão removida.');const {client}=await mcpClient(connection);try{const result=await client.callTool({name,arguments:args},undefined,{timeout:60000});if(result.isError){const content=Array.isArray(result.content)?result.content:[];const text=content.map((c:any)=>c.type==='text'?c.text:`[${c.type}]`).join('\n')||'sem detalhes';throw new McpToolError('A ferramenta MCP retornou erro: '+text.slice(0,1000));}return JSON.stringify(result).slice(0,30000);}finally{await client.close();}}
+// Starts OAuth before talking to the server. Some servers (Google) list tools without a token, so waiting for a 401 would mark
+// a connection as connected while every call fails. Returns the authorization URL, or null when tokens are already valid.
+export async function startAuthorization(connection:any):Promise<string|null>{
+ const oauth=connection.oauth?decrypt<any>(connection.oauth):{};
+ const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]).then(()=>{});
+ const result=await auth(oauthProvider(connection,oauth,save),{serverUrl:new URL(validateEndpoint(connection.url)),...(oauth.scope?{scope:oauth.scope}:{})});
+ return result==='REDIRECT'?oauth.authorizationUrl:null;
+}
 export async function finishOAuth(connection:any,code:string){
  const headers=connection.auth?decrypt<Record<string,string>>(connection.auth):{},oauth=connection.oauth?decrypt<any>(connection.oauth):{};
  const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]).then(()=>{});

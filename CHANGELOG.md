@@ -5,6 +5,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Os servidores MCP do Google listam ferramentas sem login, então o Gmail, o Drive e a Agenda podiam aparecer como conectados sem autorização (e todas as chamadas falhariam). Os aplicativos do catálogo agora iniciam a autorização antes de listar as ferramentas.
+
 ## [0.15.0] - 2026-10-27
 
 ### Adicionado
