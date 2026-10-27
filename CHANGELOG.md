@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.17.0] - 2026-10-27
+
 ### Adicionado
 - Janela de contexto: nova configuração "Janela de contexto (tokens)" em Configurações → Execução, com padrão de 16 mil. Cada execução envia ao modelo só o que cabe nela (instruções, a nova mensagem e o histórico mais recente; anexos usam no máximo metade). Antes o limite era fixo em 120 mil caracteres.
 - Nos detalhes do agente, "Janela de contexto" mostra quanto a última execução da conversa usou em relação ao máximo, com barra (amarela acima de 70%, vermelha acima de 90%).
