@@ -5,6 +5,7 @@ import { mcpCall } from './mcp.js';
 import { googleTasksTools,catalog } from './connectors.js';
 import { hostFileTools,mountedDrives } from './hostfiles.js';
 import { documentTools } from './documents.js';
+import { computerTools,commandsEnabled } from './computer.js';
 import { saveFile } from './files.js';
 import { createRun } from './runtime.js';
 import { nextOccurrence } from './schedule.js';
@@ -15,6 +16,8 @@ export interface Tool {name:string;description:string;parameters:any;write:boole
 // Function name for an MCP tool. Providers cap names at 64 characters; plain truncation made distinct tools collide
 // (notion-calendar-list-calendars vs notion-calendar-list-calendar-events), which xAI/Grok rejects as a duplicate
 // definition. Names that fit stay as they were (saved agent settings keep working); longer ones get a hash suffix.
+// Apps that are part of Cell rather than a connection.
+const builtinApps:Record<string,{name:string;about:string}>={computador:{name:'Computador',about:'Rodar comandos PowerShell e ver o estado do computador do usuário.'}};
 // Short stable key of a connection for use_app: the catalog key (notion, canva…) or a slug of the custom name.
 const appKey=(c:any)=>String(c.catalog_key||(String(c.name).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||c.id)).slice(0,40);
 // Tools sent to the model: everything except apps not opened yet in this run (opened = a use_app call, or a tool of
@@ -55,14 +58,16 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  result.push(...documentTools());
  // Computer folders, for every agent when the host drives are mounted; access itself is granted per folder by the owner.
  if((await mountedDrives()).length)result.push(...hostFileTools());
+ // Commands on the computer through the Cell Host (an app: loaded on demand, every command approved).
+ if(await commandsEnabled())result.push(...computerTools());
  // A repeated name makes some providers reject the whole request; keep the first definition.
  const seen=new Set<string>();
  const unique=result.filter(t=>!seen.has(t.name)&&seen.add(t.name));
  result.length=0;result.push(...unique);
- const usable=run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','pc_list','pc_read'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
+ const usable=run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','pc_list','pc_read','pc_status'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
  // One light tool stands in for every connected app; its own tools are offered only once opened (see offeredTools).
  const apps=new Map<string,{name:string;about:string;tools:Tool[]}>();
- for(const t of usable)if(t.app){const c=connections.find(x=>appKey(x)===t.app);if(!apps.has(t.app))apps.set(t.app,{name:c?.name||t.app,about:catalog.find(e=>e.key===c?.catalog_key)?.description||'',tools:[]});apps.get(t.app)!.tools.push(t);}
+ for(const t of usable)if(t.app){const c=connections.find(x=>appKey(x)===t.app);if(!apps.has(t.app))apps.set(t.app,{name:c?.name||builtinApps[t.app]?.name||t.app,about:catalog.find(e=>e.key===c?.catalog_key)?.description||builtinApps[t.app]?.about||'',tools:[]});apps.get(t.app)!.tools.push(t);}
  if(apps.size)usable.push({name:'use_app',write:false,
   description:'Abre um aplicativo conectado para usar as ferramentas dele. As ferramentas do aplicativo só ficam disponíveis depois desta chamada, a partir da próxima etapa. Use apenas quando o pedido precisar do aplicativo. Aplicativos: '+[...apps].map(([k,a])=>`${k} = ${a.name}${a.about?` (${a.about.replace(/\.$/,'')})`:''}`).join('; ')+'.',
   parameters:object({app:{type:'string',enum:[...apps.keys()]}},['app']),

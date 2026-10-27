@@ -39,6 +39,9 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.get('/v1/models/web',async()=>({data:[{id:'test/search',kind:'webSearch'},{id:'test/fetch',kind:'webFetch'}]}));
  fake.post('/v1/search',async()=>({results:[{title:'Fonte de teste',url:'https://example.com',snippet:'Resultado controlado.'}]}));
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
+ const hostRuns:any[]=[];const hostToken='h'.repeat(40);
+ fake.get('/host/status',async(req,reply)=>req.headers.authorization===`Bearer ${hostToken}`?{version:'1.0.0',computer:'pc-teste',user:'Tiago',os:'Windows_NT',uptimeHours:2,memory:{totalGb:32,freeGb:8},cpus:8,home:'C:\\Users\\Tiago'}:reply.code(401).send({error:'unauthorized'}));
+ fake.post('/host/run',async(req:any,reply)=>{if(req.headers.authorization!==`Bearer ${hostToken}`)return reply.code(401).send({error:'unauthorized'});hostRuns.push(req.body);return {exitCode:0,stdout:'27/10/2026 10:00:00',stderr:'',timedOut:false,truncated:false,ms:120};});
  fake.post('/v1/chat/completions',async(req,reply)=>{
   const b=req.body as any;if(req.headers.authorization!=='Bearer test-secret')return reply.code(401).send({error:'bad token'});
   if(String(b.messages?.[0]?.content||'').startsWith('Atualize o resumo'))summaryRequests.push(b);
@@ -52,6 +55,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    if(text.includes('DELEGATE')){tool='delegate';args={agentId:/DELEGATE_TO:([0-9a-f-]{36})/.exec(text)?.[1]||targetAgent,task:'Responda como especialista.'};}
    if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
    // Keys in an order jsonb rewrites (it sorts by length): the approval must survive the round trip through the database.
+   if(text.includes('RUN_CMD')){tool='pc_run';args={command:'Get-Date',reason:'Ver a data do computador'};}
    if(text.includes('OPEN_NOTION')){tool='use_app';args={app:'notion'};}
    if(text.includes('MAKE_SHEET')){tool='create_spreadsheet';args={name:'Vendas: 3º trimestre.xlsx',sheets:[{name:'Resumo',columns:['Mês','Vendas','Meta','Atingido'],rows:[['Julho',120,100,'=B2/C2'],['Agosto',98,110,'=B3/C3']]}]};}
    if(text.includes('PC_ACCESS')){tool='pc_request_access';args={path:'k:/Downloads/',reason:'Organizar os downloads'};}
@@ -100,7 +104,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.post('/google/tasks/lists/:list/tasks',async(req:any,reply)=>{if(!gAuth(req,reply))return;const t={id:'t'+(tasksDb.length+1),status:'needsAction',...req.body};tasksDb.push(t);return t;});
  fake.patch('/google/tasks/lists/:list/tasks/:id',async(req:any,reply)=>{if(!gAuth(req,reply))return;const t=tasksDb.find(x=>x.id===req.params.id);Object.assign(t,req.body);return t;});
  await fake.listen({host:'127.0.0.1',port:0});const base=`http://127.0.0.1:${(fake.server.address() as any).port}`;
- fakeBase=base;process.env.CONNECTOR_URL_OVERRIDES=JSON.stringify({notion:base+'/oauth-mcp',canva:base+'/oauth-mcp',gmail:base+'/google-mcp'});process.env.GOOGLE_OAUTH_AUTHORIZE=base+'/google/authorize';process.env.GOOGLE_OAUTH_TOKEN=base+'/google/token';process.env.GOOGLE_TASKS_API=base+'/google/tasks';process.env.NINEROUTER_BASE_URL=base+'/v1';process.env.NINEROUTER_API_KEY='test-secret';process.env.NINEROUTER_DEFAULT_MODEL='cell-test';
+ fakeBase=base;process.env.CELL_HOST_URL=base+'/host';process.env.CELL_HOST_TOKEN=hostToken;process.env.CONNECTOR_URL_OVERRIDES=JSON.stringify({notion:base+'/oauth-mcp',canva:base+'/oauth-mcp',gmail:base+'/google-mcp'});process.env.GOOGLE_OAUTH_AUTHORIZE=base+'/google/authorize';process.env.GOOGLE_OAUTH_TOKEN=base+'/google/token';process.env.GOOGLE_TASKS_API=base+'/google/tasks';process.env.NINEROUTER_BASE_URL=base+'/v1';process.env.NINEROUTER_API_KEY='test-secret';process.env.NINEROUTER_DEFAULT_MODEL='cell-test';
  // TEST_DATABASE_URL must point at a disposable test database; never production.
  assert.ok(new URL(process.env.TEST_DATABASE_URL!).pathname.endsWith('_test'),'Use um banco com sufixo _test.');
  await query('DROP SCHEMA IF EXISTS pgboss CASCADE');await query('DROP SCHEMA public CASCADE');await query('CREATE SCHEMA public');await migrate();await seed();await startQueue();
@@ -253,7 +257,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  await t.test('/plan restringe ferramentas no backend',async()=>{
   const {toolsFor}=await import('../apps/server/src/tools.js');
   const all=['web_search','web_fetch','generate_image','list_files','read_file','write_file','list_agents','delegate','propose_routine'];
-  assert.deepEqual((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:all}})).map((x:any)=>x.name).sort(),['list_agents','list_files','pc_list','pc_read','read_file','web_fetch','web_search'],'só leitura (pastas do computador incluídas)');
+  assert.deepEqual((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:all}})).map((x:any)=>x.name).sort(),['list_agents','list_files','pc_list','pc_read','pc_status','read_file','use_app','web_fetch','web_search'],'só leitura (pastas do computador incluídas)');
   const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
   const ok=await request('POST',`/conversations/${cv.id}/messages`,{content:'Planeje a migração',mode:'plan'});await poll(ok.id,'completed');
   const run=await one('SELECT mode,context FROM runs WHERE id=$1',[ok.id]);assert.equal(run.mode,'plan');assert.equal((run.context[0].content.match(/Modo planejamento/g)||[]).length,1);
@@ -393,7 +397,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   // Apps load on demand: one use_app tool stands in for them until the model opens one in the run.
   const {offeredTools}=await import('../apps/server/src/tools.js');
   const full:any[]=await toolsFor({agent_id:targetAgent,mode:'execute'},{agent:{tools:[]}});const opener=full.find((x:any)=>x.name==='use_app');
-  assert.deepEqual([...opener.parameters.properties.app.enum].sort(),['canva','gmail','google-tasks','notion']);assert.match(opener.description,/notion = Notion \(Busque/);
+  assert.deepEqual([...opener.parameters.properties.app.enum].sort(),['canva','computador','gmail','google-tasks','notion']);assert.match(opener.description,/notion = Notion \(Busque/);
   const notionTools=full.filter((x:any)=>x.app==='notion').map((x:any)=>x.name);assert.equal(notionTools.length,3);
   const closed=offeredTools(full,[]).map((x:any)=>x.name);assert.ok(notionTools.every((n:string)=>!closed.includes(n))&&closed.includes('use_app')&&closed.includes('create_pdf'));
   assert.ok(notionTools.every((n:string)=>offeredTools(full,[{tool:'use_app',args:{app:'notion'}}]).some((x:any)=>x.name===n)),'aberto pelo use_app');
@@ -446,10 +450,10 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  });
  await t.test('pastas do computador: pedido de acesso aprovado, leitura livre, mudanças aprovadas, revogação',async()=>{
   const {toolsFor}=await import('../apps/server/src/tools.js');
-  const tools=async(agentId:string,mode='execute')=>(await toolsFor({agent_id:agentId,mode},{agent:{tools:[]}})).filter((x:any)=>x.name.startsWith('pc_'));
+  const tools=async(agentId:string,mode='execute')=>(await toolsFor({agent_id:agentId,mode},{agent:{tools:[]}})).filter((x:any)=>x.name.startsWith('pc_')&&x.app!=='computador');
   const pc=async(agentId:string,name:string,args:any)=>(await tools(agentId)).find((x:any)=>x.name===name)!.execute(args,{agent_id:agentId},{});
-  const mine=await tools(agent.id);assert.deepEqual(mine.map((x:any)=>x.name).sort(),['pc_list','pc_mkdir','pc_move','pc_read','pc_rename','pc_request_access']);
-  assert.deepEqual(mine.filter((x:any)=>x.write).map((x:any)=>x.name).sort(),['pc_mkdir','pc_move','pc_rename','pc_request_access'],'pedido e mudanças pedem aprovação');
+  const mine=await tools(agent.id);assert.deepEqual(mine.map((x:any)=>x.name).sort(),['pc_delete','pc_list','pc_mkdir','pc_move','pc_read','pc_rename','pc_request_access','pc_write']);
+  assert.deepEqual(mine.filter((x:any)=>x.write).map((x:any)=>x.name).sort(),['pc_delete','pc_mkdir','pc_move','pc_rename','pc_request_access','pc_write'],'pedido, mudanças e exclusões pedem aprovação');
   assert.deepEqual((await tools(agent.id,'plan')).map((x:any)=>x.name).sort(),['pc_list','pc_read'],'modo plano só lê');
   await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso a K:\\Downloads/);
   // The agent asks; the run waits for the owner; approving grants the folder.
@@ -473,6 +477,15 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.match(JSON.parse(await pc(agent.id,'pc_move',{moves:[{from:'K:\\Downloads\\notas.txt',to:'K:\\Downloads\\Documentos'}]})).results[0].error,/já existe/);
   await pc(agent.id,'pc_rename',{path:'K:\\Downloads\\Documentos\\notas.txt',newName:'compras.txt'});assert.ok(existsSync(join(hostRoot,'k','Downloads','Documentos','compras.txt')));
   await assert.rejects(pc(agent.id,'pc_rename',{path:'K:\\Downloads\\foto.jpg',newName:'..\\fuga.jpg'}),/inválido/i);
+  // Writing and deleting need approval (write tools) and stay inside the granted folder.
+  const byName=Object.fromEntries((await tools(agent.id)).map((x:any)=>[x.name,x]));assert.ok(byName.pc_write.write&&byName.pc_delete.write,'gravar e excluir pedem aprovação');
+  await pc(agent.id,'pc_write',{path:'K:\\Downloads\\Documentos\\lista.md',content:'# Lista\n- pão'});assert.ok(existsSync(join(hostRoot,'k','Downloads','Documentos','lista.md')));
+  await assert.rejects(pc(agent.id,'pc_write',{path:'K:\\Downloads\\Documentos\\lista.md',content:'x'}),/já existe/);
+  await pc(agent.id,'pc_write',{path:'K:\\Downloads\\Documentos\\lista.md',content:'nova',overwrite:true});
+  const del=JSON.parse(await pc(agent.id,'pc_delete',{paths:['K:\\Downloads\\Documentos\\lista.md','K:\\Downloads\\sub','K:\\Downloads','K:\\Outros\\privado.txt']}));
+  assert.equal(del.deleted,2);assert.ok(!existsSync(join(hostRoot,'k','Downloads','sub')),'pasta com conteúdo excluída');
+  assert.match(del.results.find((x:any)=>x.path==='K:\\Downloads').error,/pasta liberada/);assert.match(del.results.find((x:any)=>x.path==='K:\\Outros\\privado.txt').error,/Sem acesso/);
+  assert.ok(existsSync(join(hostRoot,'k','Outros','privado.txt')),'fora da pasta liberada nada é excluído');
   // Revoking is immediate.
   await request('DELETE','/host-access/'+access.grants[0].id);await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso/);
  });
@@ -501,6 +514,27 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal(deck.name,'Plano.pptx');assert.equal(deck.slides,3);const zip=(await fileData(deck.id)).data;assert.equal(zip.subarray(0,2).toString(),'PK','arquivo Office (zip)');
   assert.ok(zip.includes(Buffer.from('ppt/slides/slide3.xml'))&&zip.includes(Buffer.from('ppt/notesSlides/')),'3 slides com anotações');
   await assert.rejects(make('create_presentation',{name:'x',title:'x',slides:[]}),/./,'precisa de pelo menos um slide');
+ });
+ await t.test('comandos no computador: app sob demanda, aprovação de cada comando e liga/desliga',async()=>{
+  const {toolsFor,offeredTools}=await import('../apps/server/src/tools.js');
+  const all:any[]=await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}});
+  const run=all.find((x:any)=>x.name==='pc_run');assert.ok(run.write,'todo comando pede aprovação');assert.equal(run.app,'computador');
+  assert.ok(all.find((x:any)=>x.name==='use_app').parameters.properties.app.enum.includes('computador'));
+  assert.ok(!offeredTools(all,[]).some((x:any)=>x.name==='pc_run'),'carregado só sob demanda');
+  assert.ok(!(await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:[]}})).some((x:any)=>x.name==='pc_run'),'modo plano não roda comandos');
+  const before=hostRuns.length;const r=await task('RUN_CMD');await poll(r.id,'waiting_approval');assert.equal(hostRuns.length,before,'nada roda antes da aprovação');
+  const ap=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1 AND t.tool='pc_run'",[r.id]);
+  await request('POST','/approvals/'+ap.id,{decision:'approved'});await poll(r.id,'completed');
+  assert.equal(hostRuns.at(-1).command,'Get-Date');assert.equal(JSON.parse((await one("SELECT result FROM tool_calls WHERE run_id=$1 AND tool='pc_run'",[r.id])).result).ok,true);
+  const panel=await request('GET','/host-access/commands');assert.equal(panel.configured,true);assert.equal(panel.enabled,true);assert.equal(panel.status.computer,'pc-teste');
+  assert.equal(panel.recent[0].command,'Get-Date');assert.equal(panel.recent[0].exitCode,0);
+  // Denied commands never reach the computer.
+  const r2=await task('RUN_CMD');await poll(r2.id,'waiting_approval');const ap2=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[r2.id]);
+  const runsBefore=hostRuns.length;await request('POST','/approvals/'+ap2.id,{decision:'denied'});await poll(r2.id,'completed');assert.equal(hostRuns.length,runsBefore);
+  // Switched off: the tools disappear for every agent.
+  await request('POST','/host-access/commands',{enabled:false});assert.ok(!(await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).some((x:any)=>x.app==='computador'));
+  const {hasToken,...settings}=await request('GET','/settings');await request('PUT','/settings',settings);assert.equal((await request('GET','/host-access/commands')).enabled,false,'salvar configurações mantém o desligado');
+  await request('POST','/host-access/commands',{enabled:true});assert.ok((await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).some((x:any)=>x.name==='pc_run'));
  });
  await t.test('fixar até 3 agentes, renomear e mover de seção pelo menu',async()=>{
   const all=await request('GET','/agents');const others=all.filter((a:any)=>!a.archived&&!a.pinned);

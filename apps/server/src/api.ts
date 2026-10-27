@@ -10,6 +10,7 @@ import { agentInput,messageInput,settingsInput,skillInput,routineInput } from '.
 import { pool,one,query,event,transaction,ensureSection } from './db.js';
 import { key,hash,safeEqual,encrypt,decrypt,validateEndpoint,safeError } from './security.js';
 import { estimateTokens } from './context.js';
+import { hostConfigured,commandsEnabled,hostStatus } from './computer.js';
 import { publicConfig,saveConfig,models,imageModels,audioModels,transcribe,synthesize,probeModel,config,routerRequest } from './router.js';
 import { migrate } from './migrate.js';
 import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
@@ -119,6 +120,11 @@ export async function buildApp(){
   return {id:r.id,state:r.state,transcript};
  });
  // Computer folders granted to agents (approving an agent's access request creates the grant); revoking is immediate.
+ // Commands on the computer (Cell Host): installed?, switched on?, reachable?, and the latest commands with their result.
+ app.get('/api/host-access/commands',async()=>{const configured=hostConfigured(),enabled=await commandsEnabled();let status=null,error='';if(configured){try{status=await hostStatus();}catch(e){error=safeError(e);}}
+  const recent=await query("SELECT t.id,t.args->>'command' AS command,t.args->>'reason' AS reason,t.status,t.result,t.created_at,a.name AS agent_name,ap.status AS approval FROM tool_calls t JOIN runs r ON r.id=t.run_id JOIN agents a ON a.id=r.agent_id LEFT JOIN approvals ap ON ap.call_id=t.id WHERE t.tool='pc_run' ORDER BY t.created_at DESC LIMIT 20");
+  return {configured,enabled,status,error,recent:recent.map(c=>{let exitCode=null;try{exitCode=JSON.parse(c.result).exitCode;}catch{}return {...c,result:undefined,exitCode};})};});
+ app.post('/api/host-access/commands',async req=>{const {enabled}=z.object({enabled:z.boolean()}).parse(req.body);await query("INSERT INTO settings(id,value) VALUES(1,jsonb_build_object('computerCommands',$1::boolean)) ON CONFLICT(id) DO UPDATE SET value=settings.value||jsonb_build_object('computerCommands',$1::boolean)",[enabled]);return {enabled};});
  app.get('/api/host-access',async()=>({drives:(await one("SELECT drives FROM worker_health WHERE id='primary'"))?.drives||[],grants:await query('SELECT g.id,g.path,g.created_at,a.id AS agent_id,a.name AS agent_name FROM host_grants g JOIN agents a ON a.id=g.agent_id ORDER BY a.name,g.path')}));
  app.delete('/api/host-access/:id',async req=>{await query('DELETE FROM host_grants WHERE id=$1',[id(req)]);return {ok:true};});
  app.get('/api/models/audio',async()=>audioModels());

@@ -31,6 +31,9 @@ services:
       CELL_PROXY_SECRET: ${CELL_PROXY_SECRET:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       WORKSPACE_PATH: /data
+      # Cell Host (scripts/host.ps1): commands on this computer, each approved by the owner.
+      CELL_HOST_URL: ${CELL_HOST_URL:-}
+      CELL_HOST_TOKEN: ${CELL_HOST_TOKEN:-}
       PORT: "3001"
     volumes: ["workspace:/data"]
     depends_on:

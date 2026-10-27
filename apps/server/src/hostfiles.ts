@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readdir,stat,rename,mkdir,readFile,cp,rm } from 'node:fs/promises';
+import { readdir,stat,rename,mkdir,readFile,cp,rm,writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { one,query } from './db.js';
 import { extractText } from './files.js';
@@ -84,5 +84,19 @@ export function hostFileTools():Tool[]{
     await rename(src,dest);return JSON.stringify({renamed:formatWindowsPath(p),to:formatWindowsPath(next)});}},
   {name:'pc_mkdir',description:'Cria uma pasta (e as pastas intermediárias) dentro de uma pasta liberada.',parameters:object({path:pathArg},['path']),write:true,target:'Pastas do computador',
    execute:async(a,r)=>{const x=z.object({path:z.string().min(2).max(500)}).parse(a);const p=await grantFor(r.agent_id,x.path);await mkdir(toHost(p),{recursive:true});return JSON.stringify({created:formatWindowsPath(p)});}},
+  {name:'pc_write',description:'Cria um arquivo de texto (txt, md, csv, json, html, ps1, etc.) numa pasta liberada. Não sobrescreve, a menos que overwrite=true (o usuário vê isso na aprovação).',parameters:object({path:pathArg,content:{type:'string'},overwrite:{type:'boolean'}},['path','content']),write:true,target:'Pastas do computador',
+   execute:async(a,r)=>{const x=z.object({path:z.string().min(2).max(500),content:z.string().max(2_000_000),overwrite:z.boolean().optional()}).parse(a);const p=await grantFor(r.agent_id,x.path);if(!p.parts.length)throw new Error('Informe o arquivo.');const file=toHost(p);
+    if(/^\.env/i.test(p.parts.at(-1)!))throw new Error('Arquivos de configuração com segredos não podem ser escritos.');
+    const info=await stat(file).catch(()=>null);if(info?.isDirectory())throw new Error('Já existe uma pasta com esse nome.');if(info&&!x.overwrite)throw new Error('O arquivo já existe. Peça de novo com overwrite=true para substituir.');
+    await mkdir(path.posix.dirname(file),{recursive:true});await writeFile(file,x.content,'utf8');return JSON.stringify({written:formatWindowsPath(p),bytes:Buffer.byteLength(x.content),replaced:!!info});}},
+  {name:'pc_delete',description:'Exclui arquivos ou pastas (com o conteúdo) dentro das pastas liberadas, vários de uma vez, com uma única aprovação. A exclusão é definitiva (não vai para a Lixeira). Nunca exclui a própria pasta liberada.',parameters:object({paths:{type:'array',maxItems:200,items:pathArg}},['paths']),write:true,target:'Pastas do computador',
+   execute:async(a,r)=>{const x=z.object({paths:z.array(z.string().min(2).max(500)).min(1).max(200)}).parse(a);const results:any[]=[];
+    const grants=(await query('SELECT path FROM host_grants WHERE agent_id=$1',[r.agent_id])).map(g=>parseWindowsPath(g.path));
+    for(const item of x.paths){try{const p=await grantFor(r.agent_id,item);
+     if(grants.some(g=>g.drive===p.drive&&g.parts.length===p.parts.length&&inside(g,p)))throw new Error('a pasta liberada em si não pode ser excluída');
+     const file=toHost(p),info=await stat(file).catch(()=>null);if(!info)throw new Error('não encontrado');
+     await rm(file,{recursive:true});results.push({path:formatWindowsPath(p),type:info.isDirectory()?'pasta':'arquivo',ok:true});}
+     catch(e:any){results.push({path:item,ok:false,error:String(e?.message||e)});}}
+    return JSON.stringify({deleted:results.filter(x=>x.ok).length,failed:results.filter(x=>!x.ok).length,results});}},
  ];
 }

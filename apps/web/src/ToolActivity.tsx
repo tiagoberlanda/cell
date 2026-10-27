@@ -28,7 +28,12 @@ const computerTools: Record<string, string> = {
   pc_read: 'Ler arquivo do computador',
   pc_move: 'Mover no computador',
   pc_rename: 'Renomear no computador',
-  pc_mkdir: 'Criar pasta no computador'
+  pc_mkdir: 'Criar pasta no computador',
+  pc_write: 'Gravar arquivo no computador',
+  pc_delete: 'Excluir no computador',
+  pc_run: 'Comando no computador',
+  pc_status: 'Estado do computador',
+  use_app: 'Abrir aplicativo'
 };
 const toolLabel = (tool: string) => computerTools[tool] || tool.replace(/^mcp_[0-9a-f]{32}_/, '');
 
@@ -39,6 +44,9 @@ export function describeApproval(tool: string, args: any): { title: string; line
   if (tool === 'pc_move') { const moves: any[] = Array.isArray(a.moves) ? a.moves : []; return { title: moves.length === 1 ? 'Mover 1 item no computador?' : `Mover ${moves.length} itens no computador?`, lines: moves.slice(0, 50).map(m => `${m.from} → ${m.to}`).concat(moves.length > 50 ? [`… e mais ${moves.length - 50}`] : []) }; }
   if (tool === 'pc_rename') return { title: 'Renomear no computador?', lines: [`${a.path} → ${a.newName}`] };
   if (tool === 'pc_mkdir') return { title: 'Criar pasta no computador?', lines: [a.path] };
+  if (tool === 'pc_run') return { title: 'Rodar este comando no computador?', lines: [a.reason || 'Comando PowerShell', ...String(a.command || '').split('\n').slice(0, 40).map((l: string) => `› ${l}`), a.cwd ? `Pasta: ${a.cwd}` : '', `Limite: ${a.timeoutSeconds || 60} s`].filter(Boolean) };
+  if (tool === 'pc_delete') { const paths: string[] = Array.isArray(a.paths) ? a.paths : []; return { title: paths.length === 1 ? 'Excluir definitivamente 1 item do computador?' : `Excluir definitivamente ${paths.length} itens do computador?`, lines: ['Não vai para a Lixeira.', ...paths.slice(0, 50), ...(paths.length > 50 ? [`… e mais ${paths.length - 50}`] : [])] }; }
+  if (tool === 'pc_write') return { title: a.overwrite ? 'Substituir este arquivo no computador?' : 'Criar este arquivo no computador?', lines: [a.path, `${String(a.content || '').length} caracteres${a.overwrite ? ' · substitui o arquivo existente' : ''}`] };
   return null;
 }
 

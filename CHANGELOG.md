@@ -5,6 +5,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Comandos no computador: com o **Cell Host** instalado no Windows (`.\scripts\host.ps1`), os agentes podem rodar comandos PowerShell no computador, pedindo pelo celular ou pelo PC. O Cell Host roda no login, com o seu usuário e sem administrador, escuta só no `127.0.0.1` (a rede local e a internet não o alcançam), exige um token e recusa chamadas de navegadores.
+  - `pc_run` roda um comando, **sempre com aprovação**, mostrando o script, a pasta e o tempo limite (até 10 minutos; o processo e os filhos são encerrados no limite). A saída volta limitada a 20 mil caracteres.
+  - `pc_status` mostra o estado do computador (nome, usuário, sistema, tempo ligado, memória).
+  - As duas fazem parte do aplicativo "Computador", carregado só quando o pedido precisa (`use_app`). O modo `/plan` não roda comandos.
+- Configurações → Computador: estado do Cell Host, interruptor para permitir ou bloquear comandos e os últimos 20 comandos com o resultado.
+- Pastas do computador: `pc_write` (criar arquivo de texto; substituir só com `overwrite`) e `pc_delete` (excluir arquivos e pastas, vários de uma vez, definitivamente), ambas **com aprovação**. A própria pasta liberada não pode ser excluída.
+
+### Como foi verificado
+- **Real:** Cell Host rodando no Windows, chamado de dentro de um container: comando com acentos em UTF-8, token errado recusado (401), chamada com cabeçalho de navegador recusada (403), comando de 30 s encerrado no limite de 2 s.
+- **Simulado:** teste de integração com um Cell Host falso: ferramentas só sob demanda, nada roda antes da aprovação, aprovado roda e aparece no histórico, negado nunca chega ao computador, interruptor desliga para todos os agentes e sobrevive a salvar as configurações. Gravar e excluir arquivos dentro e fora da pasta liberada. Teste de navegador da tela Computador.
+
 ## [0.21.0] - 2026-10-27
 
 ### Alterado

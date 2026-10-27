@@ -29,13 +29,22 @@ export function AgentEditor({agent,onSaved,notify,initialTab='profile'}:{agent:A
 }
 // Folders on the owner's computer that agents may use. Grants come from approving an agent's access request.
 function ComputerAccess({notify}:Notice){
- const [data,setData]=useState<{drives:string[];grants:any[]}|null>(null);
- const load=()=>api('/host-access').then(setData).catch((e:any)=>notify(e.message));
+ const [data,setData]=useState<{drives:string[];grants:any[]}|null>(null),[cmd,setCmd]=useState<any>(null);
+ const load=()=>Promise.all([api('/host-access').then(setData),api('/host-access/commands').then(setCmd)]).catch((e:any)=>notify(e.message));
  useEffect(()=>{load();},[]);
  if(!data)return <p className="hint">Carregando…</p>;
  const revoke=async(g:any)=>{if(!await confirmDialog('Remover o acesso?',`${g.agent_name} deixa de acessar ${g.path}.`,{confirm:'Remover',danger:true}))return;try{await api('/host-access/'+g.id,'DELETE');notify('Acesso removido.');await load();}catch(e:any){notify(e.message);}};
- return <div className="stack computer-access"><h3>Pastas do computador</h3>
-  <p className="hint">Os agentes podem organizar arquivos deste computador. Para usar uma pasta, o agente pede acesso e você aprova na conversa. Dentro de uma pasta liberada, listar e ler é livre; mover, renomear e criar pastas sempre pedem aprovação. Os agentes não apagam arquivos.</p>
+ const toggle=async()=>{try{await api('/host-access/commands','POST',{enabled:!cmd.enabled});notify(cmd.enabled?'Comandos desativados.':'Comandos ativados.');await load();}catch(e:any){notify(e.message);}};
+ const commands=cmd&&<div className="stack host-commands"><h3>Comandos no computador</h3>
+  {!cmd.configured?<p className="hint">Para os agentes rodarem comandos neste computador, instale o Cell Host uma vez, no próprio computador (PowerShell, na pasta do Cell): <code>.\scripts\host.ps1</code> e depois <code>.\scripts\deploy.ps1</code>. Cada comando sempre pede sua aprovação.</p>
+  :<><div className="setting-card grant-card"><div><strong>{cmd.status?`${cmd.status.computer} · ${cmd.status.user}`:'Computador indisponível'}</strong><small className={cmd.status?'':'app-error'}>{cmd.status?`Cell Host ${cmd.status.version} · ligado há ${cmd.status.uptimeHours} h · ${cmd.status.os}`:cmd.error}</small></div>
+    <button type="button" role="switch" aria-checked={cmd.enabled} aria-label="Permitir comandos no computador" className={'switch'+(cmd.enabled?' on':'')} onClick={toggle}><span/></button></div>
+   <p className="hint">Os agentes abrem o "Computador" só quando o pedido precisa. Todo comando mostra o script e espera sua aprovação; roda com o seu usuário, sem administrador.</p>
+   <div className="detail-label">ÚLTIMOS COMANDOS</div>
+   {cmd.recent.length?cmd.recent.map((c:any)=><div className="setting-card command-card" key={c.id}><div><code>{String(c.command||'').slice(0,300)}</code><small>{c.agent_name} · {new Date(c.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · {c.approval==='denied'?'negado':c.status==='done'?(c.exitCode===0?'concluído':`saída ${c.exitCode}`):c.approval==='pending'?'aguardando aprovação':c.status==='error'?'erro':c.status}</small></div></div>):<p className="empty-state">Nenhum comando ainda.</p>}</>}
+ </div>;
+ return <div className="stack computer-access">{commands}<h3>Pastas do computador</h3>
+  <p className="hint">Os agentes podem organizar arquivos deste computador. Para usar uma pasta, o agente pede acesso e você aprova na conversa. Dentro de uma pasta liberada, listar e ler é livre; criar, mover, renomear e excluir sempre pedem aprovação.</p>
   <div className="detail-box"><span>Discos disponíveis</span><strong>{data.drives.length?data.drives.map(d=>d==='C'?'C: (sua pasta de usuário)':d+':').join(' · '):'Nenhum. No computador do Cell, rode ./scripts/drives.ps1 e depois ./scripts/deploy.ps1.'}</strong></div>
   <div className="detail-label">PASTAS LIBERADAS</div>
   {data.grants.length?data.grants.map(g=><div className="setting-card grant-card" key={g.id}><div><strong>{g.path}</strong><small>{g.agent_name} · desde {new Date(g.created_at).toLocaleDateString('pt-BR')}</small></div><button className="secondary" aria-label={`Remover acesso de ${g.agent_name} a ${g.path}`} onClick={()=>revoke(g)}>Remover</button></div>)

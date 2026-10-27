@@ -428,13 +428,23 @@ test('menu do agente: segurar no celular, três pontos no computador', async ({ 
 });
 
 test('configurações: pastas do computador', async ({ page }) => {
+  let enabled = true;
+  await page.route('**/api/host-access/commands', route => { if (route.request().method() === 'POST') { enabled = route.request().postDataJSON().enabled; return route.fulfill({ json: { enabled } }); } return route.fulfill({ json: { configured: true, enabled, error: '', status: { version: '1.0.0', computer: 'WINDOWS11', user: 'User', os: 'Windows_NT 10.0', uptimeHours: 3.5 }, recent: [{ id: 'c1', command: 'Get-ChildItem K:\Downloads', status: 'done', exitCode: 0, approval: 'approved', created_at: new Date().toISOString(), agent_name: 'Coordenador' }] } }); });
   await page.route('**/api/host-access', route => route.fulfill({ json: { drives: ['C', 'K'], grants: [{ id: '00000000-0000-0000-0000-000000000001', path: 'K:\Downloads', created_at: new Date().toISOString(), agent_id: 'x', agent_name: 'Coordenador' }] } }));
   await openAgents(page);
   if (tablet(page)) await page.locator('.profile').click(); else await page.getByRole('button', { name: /e2e/ }).click();
   await page.getByRole('menuitem', { name: 'Configurações' }).click();
   await page.getByRole('button', { name: 'Computador' }).click();
   await expect(page.locator('.computer-access')).toContainText('C: (sua pasta de usuário) · K:');
-  await expect(page.locator('.grant-card')).toContainText('K:\Downloads');
-  await expect(page.locator('.grant-card')).toContainText('Coordenador');
+  await expect(page.locator('.computer-access > .grant-card')).toContainText('K:\Downloads');
+  const host = page.locator('.host-commands');
+  await expect(host).toContainText('WINDOWS11 · User');
+  await expect(host.locator('.command-card')).toContainText('Get-ChildItem K:\Downloads');
+  await expect(host.locator('.command-card')).toContainText('concluído');
+  const sw = host.getByRole('switch', { name: 'Permitir comandos no computador' });
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await sw.click();
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('.computer-access > .grant-card')).toContainText('Coordenador');
   await noHorizontalScroll(page);
 });

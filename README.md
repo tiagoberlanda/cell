@@ -27,7 +27,7 @@
 
 - **Equipe de agentes:** crie quantos quiser, cada um com nome, cargo, descrição, instruções, memória, modelo de IA, ferramentas, cor e um ícone de célula. O **Coordenador** é o agente principal: organiza a equipe e pode criar e excluir agentes.
 - **Conversas** com anexos (PDF, Word, Excel, imagens, textos), histórico, arquivamento e busca.
-- **Ferramentas:** pesquisa na web, leitura de páginas, geração de imagens, **planilhas Excel/CSV, PDF, Word e PowerPoint**, pastas do computador, delegação entre agentes, rotinas e mais de 20 aplicativos (Notion, Google, Todoist…).
+- **Ferramentas:** pesquisa na web, leitura de páginas, geração de imagens, **planilhas Excel/CSV, PDF, Word e PowerPoint**, pastas e **comandos no computador**, delegação entre agentes, rotinas e mais de 20 aplicativos (Notion, Google, Todoist…).
 - **Aprovações:** o agente para e pergunta antes de qualquer ação que altere algo fora do Cell.
 - **Rotinas:** tarefas agendadas (todo dia, toda semana, uma vez ou cron).
 - **Voz:** envie áudios, receba respostas faladas e faça **chamadas de voz** com o agente.
@@ -176,8 +176,15 @@ Os arquivos gerados aparecem **anexados à resposta** do agente (toque para baix
 | `pc_list` / `pc_read` | Lista e lê arquivos das pastas liberadas. | Não |
 | `pc_move` | Move arquivos e pastas, vários de uma vez (uma aprovação para a lista toda). Nunca sobrescreve. | **Sim** |
 | `pc_rename` / `pc_mkdir` | Renomeia e cria pastas. | **Sim** |
+| `pc_write` | Cria um arquivo de texto (substituir um existente aparece na aprovação). | **Sim** |
+| `pc_delete` | Exclui arquivos e pastas, vários de uma vez. **Definitivo** (não vai para a Lixeira). | **Sim** |
 
-Os agentes **não apagam** arquivos do computador.
+### Comandos no computador ([como ativar](#comandos-no-computador))
+
+| Ferramenta | O que faz | Pede aprovação? |
+|-----------|-----------|:---:|
+| `pc_run` | Roda um comando PowerShell no computador (com o seu usuário, sem administrador), mostrando o script antes. | **Sim, sempre** |
+| `pc_status` | Mostra nome, usuário, sistema, tempo ligado e memória do computador. | Não |
 
 ### Aplicativos ([como conectar](#aplicativos-notion-google-e-outros))
 
@@ -258,7 +265,34 @@ Os agentes podem organizar arquivos do computador onde o Cell roda. Ative uma ve
 
 O script libera os discos locais para o `worker` (do `C:` só a sua pasta de usuário) no arquivo `compose.override.yaml`, que fica só na sua máquina. Para desligar: `.\scripts\drives.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
 
-Depois peça, por exemplo: *"organize a pasta K:\Downloads por tipo de arquivo"*. O agente pede acesso, você aprova, e ele lista, propõe a reorganização e pede aprovação antes de mover. Arquivos ocultos e de sistema (como `.env`) ficam bloqueados. Veja e remova acessos em **Configurações → Computador**.
+Depois peça, por exemplo: *"organize a pasta K:\Downloads por tipo de arquivo"*. O agente pede acesso, você aprova, e ele lista, propõe a reorganização e pede aprovação antes de mover, criar ou **excluir** (a exclusão é definitiva). Arquivos ocultos e de sistema (como `.env`) ficam bloqueados. Veja e remova acessos em **Configurações → Computador**.
+
+### Comandos no computador
+
+Com o **Cell Host** instalado, você pode pedir (inclusive pelo celular) coisas como *"quanto espaço livre tem no disco K:?"*, *"quais programas estão usando mais memória?"* ou *"compacte a pasta K:\Projetos\site num zip"*. O agente monta o comando PowerShell e **você aprova cada um**, vendo exatamente o que será executado.
+
+Instale **uma vez, no próprio computador** (PowerShell, na pasta do Cell; precisa do [Node.js](https://nodejs.org/) 22 ou mais novo):
+
+```powershell
+.\scripts\host.ps1
+.\scripts\deploy.ps1
+```
+
+O que o instalador faz:
+
+- cria uma **tarefa agendada** que liga o Cell Host quando você entra no Windows, sem janela;
+- roda com o **seu usuário, sem administrador**; comandos que exigem administrador falham;
+- escuta **só em `127.0.0.1`**, sem nenhuma porta aberta para a rede ou a internet, com um token gerado na instalação (guardado em `%LOCALAPPDATA%\Cell\host.json` e no `.env`).
+
+Como funciona no dia a dia:
+
+- só funciona com o computador **ligado e com você logado**;
+- o registro do Cell Host fica em `%LOCALAPPDATA%\Cell\host.log`;
+- em **Configurações → Computador** você vê o estado, bloqueia ou libera os comandos num toque e confere os últimos comandos com o resultado.
+
+Para remover: `.\scripts\host.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
+
+> **Segurança:** isso dá ao Cell um terminal no seu computador. Toda execução depende da sua aprovação, mas **proteja o acesso ao Cell**: senha forte e, se usar acesso pela internet, o **Cloudflare Access** (passo 5 do [acesso pela internet](#acesso-pela-internet-cloudflare-tunnel)). Desconfie de comandos que você não pediu, por exemplo sugeridos depois de o agente ler uma página da web.
 
 ### Aplicativos (Notion, Google e outros)
 
@@ -367,6 +401,7 @@ As migrações do banco rodam sozinhas. A versão instalada aparece no menu do u
 | **Microfone** não grava | Precisa de HTTPS confiável (domínio público ou certificado instalado) e permissão de microfone no navegador. |
 | **Notificações** não chegam | Ative no próprio aparelho (menu → Notificações → Enviar teste). No iPhone, só com o app instalado na tela inicial. |
 | **Rotina** não disparou | Confira se o interruptor está ligado, o horário e o fuso. O *Histórico* da rotina mostra o que aconteceu. |
+| "O computador não respondeu" | O PC precisa estar ligado e com você logado. Confira em Configurações → Computador; se preciso, rode `.\scripts\host.ps1` e `.\scripts\deploy.ps1` de novo. O registro fica em `%LOCALAPPDATA%\Cell\host.log`. |
 | Agente **não acha uma pasta** do PC | Rode `.\scripts\drives.ps1` e `.\scripts\deploy.ps1`; confira os discos em Configurações → Computador. |
 | Algo travou | Configurações → **Diagnóstico** mostra o que está com problema. `docker compose logs -f api worker` mostra os registros. |
 
@@ -384,6 +419,7 @@ O `setup.ps1` cria o `.env` sozinho. Os campos principais:
 | `CELL_DEFAULT_SNI` | Endereço usado quando o navegador abre pelo IP. |
 | `APP_ORIGIN` | Os mesmos endereços, com `https://`. O primeiro é usado no retorno dos aplicativos. |
 | `NINEROUTER_BASE_URL` / `NINEROUTER_API_KEY` / `NINEROUTER_DEFAULT_MODEL` | Valores iniciais do provedor (também ajustáveis na interface). |
+| `CELL_HOST_URL` / `CELL_HOST_TOKEN` | Endereço e token do Cell Host (gravados pelo `scripts\host.ps1`). |
 | `CELL_PROXY_SECRET` | Segredo opcional enviado pelo Cloudflare Tunnel (veja acima). |
 | `TRUSTED_PROXIES` | Lista de redes (CIDR) de proxies confiáveis, se não usar o segredo. |
 
@@ -404,7 +440,8 @@ Estrutura:
 
 | Pasta | Conteúdo |
 |-------|----------|
-| `apps/server/src` | API (`api.ts`), worker (`worker.ts`), ferramentas (`tools.ts`, `documents.ts`, `hostfiles.ts`, `connectors.ts`), provedor de modelos (`router.ts`). |
+| `apps/server/src` | API (`api.ts`), worker (`worker.ts`), ferramentas (`tools.ts`, `documents.ts`, `hostfiles.ts`, `computer.ts`, `connectors.ts`), provedor de modelos (`router.ts`). |
+| `host` | Cell Host (`cell-host.mjs`): roda no Windows e executa os comandos aprovados. |
 | `apps/server/migrations` | Migrações do banco, em ordem. |
 | `apps/web/src` | Interface React. |
 | `packages/shared` | Tipos e validações compartilhados. |
