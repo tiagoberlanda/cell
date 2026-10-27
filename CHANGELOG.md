@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.13.0] - 2026-10-27
+
 ### Adicionado
 - Notificações push (Web Push) no celular e no computador: avisam quando um agente ou uma rotina envia mensagem e quando uma ação precisa de aprovação. Tocar no aviso abre o Cell direto na conversa (ou traz o app aberto para a frente).
 - Configurações → Notificações: ativar e desativar por aparelho, enviar teste e ver ou remover os aparelhos inscritos. Sair da conta desativa o aparelho.
