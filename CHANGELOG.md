@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.16.0] - 2026-10-27
+
 ### Adicionado
 - Mensagens de voz: botão de microfone no campo de mensagem (aparece quando o campo está vazio), barra "Gravando" com tempo e Cancelar, limite de 5 minutos. O áudio é transcrito pelo 9router (modelo de transcrição escolhido em Configurações), a transcrição vira o texto da mensagem e o áudio fica anexado para ouvir.
 - Opção "Responder com áudio quando eu enviar áudio" no cadastro do agente. Marcada: uma mensagem de voz recebe resposta em áudio, tocada automaticamente. Desmarcada (padrão): a resposta é sempre em texto. Mensagens digitadas sempre recebem texto.
