@@ -10,6 +10,11 @@ import {z} from 'zod';
 
 test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_URL,timeout:360000},async t=>{
  process.env.ALLOW_HTTP_PUSH='1';process.env.PUSH_DELAY_MS='800';process.env.DATABASE_URL=process.env.TEST_DATABASE_URL;process.env.SECRET_KEY='ca'.repeat(32);process.env.COOKIE_SECURE='false';process.env.APP_ORIGIN='http://localhost:5173';process.env.WORKSPACE_PATH='./.cache/integration-data';
+ const {mkdtempSync,mkdirSync,writeFileSync,existsSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const hostRoot=mkdtempSync(join(tmpdir(),'cell-host-'));process.env.HOST_DRIVES_ROOT=hostRoot;
+ mkdirSync(join(hostRoot,'k','Downloads','sub'),{recursive:true});mkdirSync(join(hostRoot,'k','Outros'),{recursive:true});
+ writeFileSync(join(hostRoot,'k','Downloads','notas.txt'),'Lista de compras: pão e café.');writeFileSync(join(hostRoot,'k','Downloads','foto.jpg'),Buffer.alloc(300,7));
+ writeFileSync(join(hostRoot,'k','Downloads','.env'),'SECRET=1');writeFileSync(join(hostRoot,'k','Downloads','sub','x.txt'),'interno');writeFileSync(join(hostRoot,'k','Outros','privado.txt'),'não liberado');
  const {query,one,pool}=await import('../apps/server/src/db.js');
  const {migrate}=await import('../apps/server/src/migrate.js');
  const {buildApp,seed}=await import('../apps/server/src/api.js');
@@ -45,6 +50,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    if(text.includes('DELEGATE')){tool='delegate';args={agentId:/DELEGATE_TO:([0-9a-f-]{36})/.exec(text)?.[1]||targetAgent,task:'Responda como especialista.'};}
    if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
    // Keys in an order jsonb rewrites (it sorts by length): the approval must survive the round trip through the database.
+   if(text.includes('PC_ACCESS')){tool='pc_request_access';args={path:'k:/Downloads/',reason:'Organizar os downloads'};}
    if(text.includes('CALL_MCP_ORDER')){tool=mcpName;args={value:'ordem',properties:{Status:'Sugestões',TAG:'Natureza',Nome:'Florestas'}};}
   }
   reply.hijack();reply.raw.writeHead(200,{'Content-Type':'text/event-stream'});
@@ -243,7 +249,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  await t.test('/plan restringe ferramentas no backend',async()=>{
   const {toolsFor}=await import('../apps/server/src/tools.js');
   const all=['web_search','web_fetch','generate_image','list_files','read_file','write_file','list_agents','delegate','propose_routine'];
-  assert.deepEqual((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:all}})).map((x:any)=>x.name).sort(),['list_agents','list_files','read_file','web_fetch','web_search']);
+  assert.deepEqual((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:all}})).map((x:any)=>x.name).sort(),['list_agents','list_files','pc_list','pc_read','read_file','web_fetch','web_search'],'só leitura (pastas do computador incluídas)');
   const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
   const ok=await request('POST',`/conversations/${cv.id}/messages`,{content:'Planeje a migração',mode:'plan'});await poll(ok.id,'completed');
   const run=await one('SELECT mode,context FROM runs WHERE id=$1',[ok.id]);assert.equal(run.mode,'plan');assert.equal((run.context[0].content.match(/Modo planejamento/g)||[]).length,1);
@@ -419,6 +425,49 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    assert.equal((await one('SELECT call FROM messages WHERE id=(SELECT input_message_id FROM runs WHERE id=$1)',[r7.json().id])).call,true);
    const r8=(await sendAudio(cv.id)).json();await poll(r8.id,'completed');assert.equal((await lastReply(cv.id)).voice,false,'fora da chamada vale a opção do agente');
   }finally{await request('PUT','/settings',{...base,ttsModel:'',ttsVoice:''});agent.voice_reply=false;agent.tts_model='';agent.tts_voice='';await request('PUT','/agents/'+agent.id,agent);}
+ });
+ await t.test('pastas do computador: pedido de acesso aprovado, leitura livre, mudanças aprovadas, revogação',async()=>{
+  const {toolsFor}=await import('../apps/server/src/tools.js');
+  const tools=async(agentId:string,mode='execute')=>(await toolsFor({agent_id:agentId,mode},{agent:{tools:[]}})).filter((x:any)=>x.name.startsWith('pc_'));
+  const pc=async(agentId:string,name:string,args:any)=>(await tools(agentId)).find((x:any)=>x.name===name)!.execute(args,{agent_id:agentId},{});
+  const mine=await tools(agent.id);assert.deepEqual(mine.map((x:any)=>x.name).sort(),['pc_list','pc_mkdir','pc_move','pc_read','pc_rename','pc_request_access']);
+  assert.deepEqual(mine.filter((x:any)=>x.write).map((x:any)=>x.name).sort(),['pc_mkdir','pc_move','pc_rename','pc_request_access'],'pedido e mudanças pedem aprovação');
+  assert.deepEqual((await tools(agent.id,'plan')).map((x:any)=>x.name).sort(),['pc_list','pc_read'],'modo plano só lê');
+  await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso a K:\\Downloads/);
+  // The agent asks; the run waits for the owner; approving grants the folder.
+  const r=await task('PC_ACCESS');await poll(r.id,'waiting_approval');
+  const ap=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1 AND t.tool='pc_request_access'",[r.id]);
+  await request('POST','/approvals/'+ap.id,{decision:'approved'});await poll(r.id,'completed');
+  const access=await request('GET','/host-access');assert.deepEqual(access.grants.map((g:any)=>g.path),['K:\\Downloads']);
+  const listed=JSON.parse(await pc(agent.id,'pc_list',{path:'K:\\Downloads'}));assert.deepEqual(listed.entries.map((e:any)=>e.path).sort(),['foto.jpg','notas.txt','sub'],'arquivos ocultos ficam de fora');
+  assert.ok(JSON.parse(await pc(agent.id,'pc_list',{path:'K:/downloads',recursive:true})).entries.some((e:any)=>e.path==='sub\\x.txt'),'subpastas e maiúsculas');
+  assert.match(JSON.parse(await pc(agent.id,'pc_read',{path:'K:\\Downloads\\notas.txt'})).text,/pão e café/);
+  assert.match(JSON.parse(await pc(agent.id,'pc_read',{path:'K:\\Downloads\\foto.jpg'})).note,/sem texto/);
+  await assert.rejects(pc(agent.id,'pc_read',{path:'K:\\Downloads\\.env'}),/ocultos/);
+  await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads\\..\\Outros'}),/inválido/);
+  await assert.rejects(pc(agent.id,'pc_read',{path:'K:\\Outros\\privado.txt'}),/Sem acesso/);
+  await assert.rejects(pc(targetAgent,'pc_list',{path:'K:\\Downloads'}),/Sem acesso/,'outro agente não herda o acesso');
+  // Organizing: create a folder, move into it (no overwrite), rename.
+  await pc(agent.id,'pc_mkdir',{path:'K:\\Downloads\\Documentos'});
+  const moved=JSON.parse(await pc(agent.id,'pc_move',{moves:[{from:'K:\\Downloads\\notas.txt',to:'K:\\Downloads\\Documentos'},{from:'K:\\Downloads\\foto.jpg',to:'K:\\Outros\\foto.jpg'}]}));
+  assert.equal(moved.moved,1);assert.equal(moved.failed,1,'destino fora da pasta liberada falha');assert.ok(existsSync(join(hostRoot,'k','Downloads','Documentos','notas.txt')));
+  writeFileSync(join(hostRoot,'k','Downloads','notas.txt'),'outra');
+  assert.match(JSON.parse(await pc(agent.id,'pc_move',{moves:[{from:'K:\\Downloads\\notas.txt',to:'K:\\Downloads\\Documentos'}]})).results[0].error,/já existe/);
+  await pc(agent.id,'pc_rename',{path:'K:\\Downloads\\Documentos\\notas.txt',newName:'compras.txt'});assert.ok(existsSync(join(hostRoot,'k','Downloads','Documentos','compras.txt')));
+  await assert.rejects(pc(agent.id,'pc_rename',{path:'K:\\Downloads\\foto.jpg',newName:'..\\fuga.jpg'}),/inválido/i);
+  // Revoking is immediate.
+  await request('DELETE','/host-access/'+access.grants[0].id);await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso/);
+ });
+ await t.test('fixar até 3 agentes, renomear e mover de seção pelo menu',async()=>{
+  const all=await request('GET','/agents');const others=all.filter((a:any)=>!a.archived&&!a.pinned);
+  const room=3-all.filter((a:any)=>a.pinned&&!a.archived).length;for(const a of others.slice(0,room))await request('POST',`/agents/${a.id}/pin`,{pinned:true});
+  const extra=others[room];await assert.rejects(request('POST',`/agents/${extra.id}/pin`,{pinned:true}),/até 3 agentes/);
+  await assert.rejects(request('PUT','/agents/'+extra.id,{...extra,pinned:true}),/até 3 agentes/);
+  for(const a of others.slice(0,room))await request('POST',`/agents/${a.id}/pin`,{pinned:false});
+  const renamed=await request('PATCH','/agents/'+extra.id,{name:'  Novo Nome  '});assert.equal(renamed.name,'Novo Nome');
+  const moved=await request('PATCH','/agents/'+extra.id,{section:'Criativos'});assert.equal(moved.section,'Criativos');assert.ok((await request('GET','/sections')).some((s:any)=>s.name==='Criativos'));
+  await assert.rejects(request('PATCH','/agents/'+extra.id,{}),/400/);
+  await request('PATCH','/agents/'+extra.id,{name:extra.name,section:extra.section});
  });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });

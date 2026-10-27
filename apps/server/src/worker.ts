@@ -1,4 +1,5 @@
 import {prepareContext} from './context.js';
+import {mountedDrives} from './hostfiles.js';
 import {dispatchRoutine} from './scheduler.js';
 import { pool,query,one,event,transaction } from './db.js';
 import { boss,startQueue,setState,enqueue } from './runtime.js';
@@ -84,7 +85,7 @@ async function summarize(run:any,cfg:any){try{const count=await one('SELECT coun
 async function tick(){if(stopping)return;
  const due=await query('SELECT * FROM routines WHERE enabled AND next_at<=now() ORDER BY next_at LIMIT 20');
  for(const r of due){const runId=await dispatchRoutine(r.id);if(runId)await enqueue(runId);}
- await query("INSERT INTO worker_health(id) VALUES('primary') ON CONFLICT(id) DO UPDATE SET heartbeat_at=now()");
+ await query("INSERT INTO worker_health(id,drives) VALUES('primary',$1) ON CONFLICT(id) DO UPDATE SET heartbeat_at=now(),drives=$1",[await mountedDrives()]);
  // Keep the SSE event log and expired sessions from growing without bound.
  await query("DELETE FROM events WHERE created_at<now()-interval '1 day'");await query('DELETE FROM sessions WHERE expires_at<now()');
  // Recovery sweep also resumes FIFO jobs deferred while the agent was busy.

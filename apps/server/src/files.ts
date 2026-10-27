@@ -9,13 +9,19 @@ const require=createRequire(import.meta.url);
 export const workspace=path.resolve(process.env.WORKSPACE_PATH||'./data');
 export const storage=path.join(workspace,'files');
 const types:Record<string,string>={'.txt':'text/plain','.md':'text/markdown','.csv':'text/csv','.json':'application/json','.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.webm':'audio/webm','.ogg':'audio/ogg','.mp3':'audio/mpeg','.m4a':'audio/mp4','.wav':'audio/wav'};
+// Text of a document by extension (txt, md, csv, json, pdf, docx); null for formats without text.
+export async function extractText(name:string,data:Buffer):Promise<{text:string;warning:string}|null>{
+ const ext=path.extname(name).toLowerCase();let text='',warning='';
+ if(['.txt','.md','.csv','.json'].includes(ext))text=data.toString('utf8');
+ else if(ext==='.pdf'){const pdf=require('pdf-parse/lib/pdf-parse.js');try{text=(await pdf(data,{max:100})).text;if(!text.trim())warning='PDF sem texto extraível. OCR não está incluído.';}catch{warning='Não foi possível extrair o texto deste PDF.';}}
+ else if(ext==='.docx'){try{text=(await mammoth.extractRawText({buffer:data})).value;}catch{warning='Não foi possível extrair o texto deste DOCX.';}}
+ else return null;
+ return {text,warning};
+}
 export async function saveFile(name:string,data:Buffer,agentId?:string,sourceCallId?:string){
  if(sourceCallId){const existing=await one('SELECT id,name,mime,size,warning FROM files WHERE source_call_id=$1',[sourceCallId]);if(existing)return existing;}
  const ext=path.extname(name).toLowerCase(),mime=types[ext];if(!mime)throw new Error('Formato não suportado.');if(data.length>25*1024*1024)throw new Error('Limite de 25 MB por arquivo.');
- let extracted='',warning='';
- if(mime.startsWith('text/')||ext==='.json')extracted=data.toString('utf8');
- if(ext==='.pdf'){const pdf=require('pdf-parse/lib/pdf-parse.js');try{extracted=(await pdf(data,{max:100})).text;if(!extracted.trim())warning='PDF sem texto extraível. OCR não está incluído.';}catch{warning='Não foi possível extrair o texto deste PDF.';}}
- if(ext==='.docx'){try{extracted=(await mammoth.extractRawText({buffer:data})).value;}catch{warning='Não foi possível extrair o texto deste DOCX.';}}
+ let {text:extracted,warning}=await extractText(name,data)||{text:'',warning:''};
  if(extracted.length>100000){extracted=extracted.slice(0,100000);warning='Texto limitado aos primeiros 100 mil caracteres.';}
  await mkdir(storage,{recursive:true});const id=randomUUID(),storageName=id+ext;await writeFile(contained(storage,storageName),data,{flag:'wx'});
  return (await query('INSERT INTO files(id,agent_id,name,mime,size,storage_name,extracted,warning,source_call_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,name,mime,size,warning',[id,agentId||null,path.basename(name).slice(0,200),mime,data.length,storageName,extracted,warning||null,sourceCallId||null]))[0];

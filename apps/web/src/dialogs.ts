@@ -11,4 +11,8 @@ export async function promptDialog(title:string,{value='',placeholder='',confirm
  const r=await base().fire({title,text,input:'text',inputValue:value,inputPlaceholder:placeholder,showCancelButton:true,confirmButtonText:confirm,cancelButtonText:'Cancelar',inputValidator:v=>v.trim()?null:required});
  return r.isConfirmed?String(r.value).trim():null;
 }
+export async function selectDialog(title:string,{options,value='',confirm='Confirmar'}:{options:Record<string,string>;value?:string;confirm?:string}){
+ const r=await base().fire({title,input:'select',inputOptions:options,inputValue:value,showCancelButton:true,confirmButtonText:confirm,cancelButtonText:'Cancelar'});
+ return r.isConfirmed?String(r.value):null;
+}
 export function alertDialog(title:string,text?:string,icon:'success'|'error'|'info'|'warning'='info'){return base().fire({title,text,icon,confirmButtonText:'Ok'});}

@@ -12,3 +12,5 @@ playwright-report/
 *.tsbuildinfo
 # Exported local CA certificate (scripts/export-cert.ps1)
 *.crt
+# Machine-specific drive mounts (scripts/drives.ps1)
+compose.override.yaml

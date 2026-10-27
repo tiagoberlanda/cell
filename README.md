@@ -133,6 +133,19 @@ Com o campo de mensagem vazio, toque no microfone para gravar (até 5 minutos) e
 
 Toque no telefone no topo da conversa. Fale normalmente: ao fazer uma pausa de pouco mais de um segundo, o Cell envia o trecho, a célula mostra o agente pensando e ele responde falando; depois volta a ouvir. Na chamada o agente sempre responde em voz. Use os botões para desligar o microfone, enviar na hora, interromper a resposta ou encerrar. Use fones de ouvido em lugares com barulho.
 
+## Pastas do computador
+
+Os agentes podem organizar arquivos do computador onde o Cell roda. Para liberar os discos (uma vez, e de novo se adicionar um disco):
+
+```powershell
+./scripts/drives.ps1
+./scripts/deploy.ps1
+```
+
+O script monta no worker os discos locais (do `C:` só a sua pasta de usuário) em `compose.override.yaml`, que não vai para o Git. Para desligar: `./scripts/drives.ps1 -Remove` e depois o deploy.
+
+Mesmo com os discos montados, nenhum agente acessa nada até você aprovar. Peça, por exemplo, "organize a pasta K:\Downloads por tipo de arquivo": o agente pede acesso à pasta, você aprova na conversa e ela fica liberada para aquele agente (com subpastas). Listar e ler são livres; mover (várias de uma vez, numa única aprovação), renomear e criar pastas sempre pedem aprovação. Os agentes não apagam nem sobrescrevem arquivos, e arquivos ocultos ou de sistema ficam bloqueados. Em **Configurações → Computador** você vê e remove os acessos.
+
 ## Aplicativos (MCP com um clique)
 
 Menu do usuário → **Conectar aplicativos**.

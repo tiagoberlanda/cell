@@ -365,3 +365,76 @@ test('voz do agente: modelo e voz por agente', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Editar agente' })).toHaveCount(0);
   await page.getByLabel('Fechar detalhes').click();
 });
+
+test('menu do agente: segurar no celular, três pontos no computador', async ({ page }) => {
+  const w = page.viewportSize()!.width;
+  await openAgents(page);
+  const row = (name: string) => page.locator('.agent-row-wrap', { has: page.locator('.agent-row', { hasText: name }) });
+  const menu = page.getByRole('menu');
+  // Three dots with room for them; on the collapsed (icons-only) sidebar, right-click opens the same menu.
+  const openMenu = async (name: string) => { if (tablet(page)) await row(name).locator('.agent-row').click({ button: 'right' }); else await row(name).getByLabel(`Opções de ${name}`).click(); await expect(menu).toBeVisible(); };
+  // Touch: hold and release in place opens the agent's menu (moving instead would drag it).
+  const box = (await row('Redator').locator('.agent-row').boundingBox())!;
+  await row('Redator').locator('.agent-row').dispatchEvent('pointerdown', { pointerType: 'touch', button: 0, clientX: box.x + 20, clientY: box.y + 20, bubbles: true });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch' })));
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem')).toHaveText(['Fixar no topo', 'Renomear', 'Mover para outra seção']);
+  // Rename (then restore: other tests use the name).
+  await menu.getByRole('menuitem', { name: 'Renomear' }).click();
+  await page.locator('.swal2-input').fill('Redator Chefe');
+  await page.getByRole('button', { name: 'Renomear' }).click();
+  await expect(page.locator('.swal2-container')).toHaveCount(0);
+  await expect(row('Redator Chefe')).toBeVisible();
+  await openMenu('Redator Chefe');
+  await menu.getByRole('menuitem', { name: 'Renomear' }).click();
+  await page.locator('.swal2-input').fill('Redator');
+  await page.getByRole('button', { name: 'Renomear' }).click();
+  await expect(page.locator('.swal2-container')).toHaveCount(0);
+  await expect(page.locator('.agent-row', { hasText: 'Redator Chefe' })).toHaveCount(0);
+  // Move to a new section, then back.
+  const section = `Testes ${w}`;
+  await openMenu('Redator');
+  await menu.getByRole('menuitem', { name: 'Mover para outra seção' }).click();
+  await page.locator('.swal2-select').selectOption({ label: '+ Nova seção…' });
+  await page.getByRole('button', { name: 'Mover', exact: true }).click();
+  await page.locator('.swal2-input').fill(section);
+  await page.getByRole('button', { name: 'Criar e mover' }).click();
+  await expect(page.locator('.swal2-container')).toHaveCount(0);
+  await expect(page.locator('section', { has: page.locator('.section-label', { hasText: section }) }).locator('.agent-row', { hasText: 'Redator' })).toBeVisible();
+  await openMenu('Redator');
+  await menu.getByRole('menuitem', { name: 'Mover para outra seção' }).click();
+  await page.locator('.swal2-select').selectOption('Equipe');
+  await page.getByRole('button', { name: 'Mover', exact: true }).click();
+  await expect(page.locator('.swal2-container')).toHaveCount(0);
+  await expect(page.locator('section', { has: page.locator('.section-label', { hasText: 'Equipe' }) }).locator('.agent-row', { hasText: 'Redator' })).toBeVisible();
+  // At most three pinned: with Coordenador plus two more, the fourth cannot be pinned.
+  // Widths share the database: unpin whatever an interrupted earlier run left (Coordenador stays pinned).
+  for (const name of ['Pesquisador', 'Redator', 'Revisor']) if (await row(name).getByLabel('Fixado no topo').count()) { await openMenu(name); await menu.getByRole('menuitem', { name: 'Desafixar do topo' }).click(); await expect(row(name).getByLabel('Fixado no topo')).toHaveCount(0); }
+  for (const name of ['Redator', 'Revisor']) {
+    await openMenu(name);
+    await menu.getByRole('menuitem', { name: 'Fixar no topo' }).click();
+    await expect(row(name).getByLabel('Fixado no topo')).toHaveCount(1);
+  }
+  await openMenu('Pesquisador');
+  await expect(menu.getByRole('menuitem', { name: 'Fixar no topo (máximo de 3)' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  for (const name of ['Redator', 'Revisor']) {
+    await openMenu(name);
+    await menu.getByRole('menuitem', { name: 'Desafixar do topo' }).click();
+    await expect(row(name).getByLabel('Fixado no topo')).toHaveCount(0);
+  }
+  await noHorizontalScroll(page);
+});
+
+test('configurações: pastas do computador', async ({ page }) => {
+  await page.route('**/api/host-access', route => route.fulfill({ json: { drives: ['C', 'K'], grants: [{ id: '00000000-0000-0000-0000-000000000001', path: 'K:\Downloads', created_at: new Date().toISOString(), agent_id: 'x', agent_name: 'Coordenador' }] } }));
+  await openAgents(page);
+  if (tablet(page)) await page.locator('.profile').click(); else await page.getByRole('button', { name: /e2e/ }).click();
+  await page.getByRole('menuitem', { name: 'Configurações' }).click();
+  await page.getByRole('button', { name: 'Computador' }).click();
+  await expect(page.locator('.computer-access')).toContainText('C: (sua pasta de usuário) · K:');
+  await expect(page.locator('.grant-card')).toContainText('K:\Downloads');
+  await expect(page.locator('.grant-card')).toContainText('Coordenador');
+  await noHorizontalScroll(page);
+});

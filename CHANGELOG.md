@@ -5,6 +5,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Pastas do computador: os agentes podem organizar arquivos do PC onde o Cell roda. Para usar uma pasta (ex.: `K:\Downloads`), o agente pede acesso e você aprova na conversa; o acesso vale para aquele agente, com subpastas. Na pasta liberada, listar e ler (txt, md, csv, json, pdf, docx) é livre; mover (em lote, com uma única aprovação), renomear e criar pastas sempre pedem aprovação. Não há ferramenta para apagar, nada é sobrescrito e arquivos ocultos ou de sistema (incluindo `.env`) ficam bloqueados.
+- Configurações → Computador: discos disponíveis e pastas liberadas por agente, com botão para remover o acesso.
+- `scripts/drives.ps1`: libera os discos locais para o worker (do `C:` só a pasta do usuário), gravando `compose.override.yaml` (não versionado). `-Remove` desliga.
+- Aprovações de ações no computador aparecem em linguagem simples (pasta pedida, lista "origem → destino").
+- Menu do agente na lista: no celular, segure e solte sobre o agente (segurar e arrastar continua reordenando); no computador, ícone de três pontos. Opções: fixar/desafixar no topo, renomear e mover para outra seção (ou criar uma nova).
+- Limite de 3 agentes fixados no topo, aplicado também no servidor. Agentes fixados mostram um alfinete na lista.
+- Migração `0019_host_grants`.
+
+### Como foi verificado
+- **Simulado:** teste de integração com um disco K: simulado: pedido de acesso pelo agente parando na aprovação e liberando a pasta ao aprovar; listar (sem ocultos), ler, `..` e pastas não liberadas recusados, outro agente sem acesso, mover sem sobrescrever e sem sair da pasta liberada, renomear, modo plano só leitura, revogação imediata. Limite de fixados, renomear e mover de seção pela API. Testes de navegador do menu (segurar, renomear, mover para nova seção, limite de 3) e da tela Computador.
+- **Real:** os discos C:, D:, E: e K: deste PC montam no Docker.
+
 ## [0.18.0] - 2026-10-27
 
 ### Adicionado

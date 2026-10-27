@@ -118,3 +118,14 @@
 @keyframes call-orbit{0%,100%{transform:scale(.96) rotate(0);opacity:.35}50%{transform:scale(1.06) rotate(180deg);opacity:.7}}
 @media (prefers-reduced-motion:reduce){.call-screen *{animation:none!important;transition:none!important}}
 .voice-device select{width:100%}
+.approval-lines{margin:8px 0 14px;padding-left:18px;list-style:disc;font-size:13px;color:var(--muted);overflow-wrap:anywhere;max-height:260px;overflow-y:auto}.approval-lines li{margin:4px 0}.approval-lines li:first-child{color:var(--text);font-weight:500}
+.grant-card{justify-content:space-between!important;align-items:center!important}.grant-card>div{display:flex;flex-direction:column;gap:4px;min-width:0;overflow-wrap:anywhere}.grant-card small{color:var(--muted)}
+/* Agent options: three dots with a mouse; on touch screens the menu opens by holding the agent (the button stays as its anchor). */
+.agent-row-wrap:has(.agent-menu){display:flex;align-items:center;gap:2px}.agent-row-wrap:has(.agent-menu)>.agent-row{flex:1;min-width:0;padding-right:9px}
+.agent-menu{flex-shrink:0;margin:0 4px 3px 0;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--subtle);opacity:0;transition:opacity .15s,background .15s}
+.agent-row-wrap:hover .agent-menu,.agent-menu:focus-visible,.agent-menu[data-state=open],.agent-row.selected+.agent-menu{opacity:1}.agent-menu:hover{background:var(--elevated);color:var(--text)}
+@media (hover:none){.agent-menu{width:0;margin:0;overflow:hidden;opacity:0!important;pointer-events:none}}
+/* Collapsed sidebar (icons only): no room for the button; right-click or hold opens the same menu. */
+@media (min-width:768px) and (max-width:1199px){.agent-menu{width:0;margin:0;overflow:hidden;opacity:0!important;pointer-events:none}}
+.pinned-mark{margin-left:5px;color:var(--subtle);vertical-align:-1px}
+.dropdown-label{padding:6px 10px 4px;font-size:11px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

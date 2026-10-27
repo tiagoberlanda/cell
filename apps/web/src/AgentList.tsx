@@ -1,14 +1,15 @@
 import {useEffect,useRef,useState} from 'react';
 import type {PointerEvent as ReactPointerEvent} from 'react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
-import {Pin,PinOff,Plus,MoreHorizontal,Pencil,Trash2,BellOff} from 'lucide-react';
+import {Pin,PinOff,Plus,MoreHorizontal,Pencil,Trash2,BellOff,FolderInput} from 'lucide-react';
 import type {Agent} from '../../../packages/shared/src/index';
 import {CellAvatar} from './CellAvatar';
 import {api} from './api';
-import {confirmDialog,promptDialog} from './dialogs';
+import {confirmDialog,promptDialog,selectDialog} from './dialogs';
 type Group={name:string;ids:string[]};
-type Drag={kind:'agent'|'section';id:string;x:number;y:number;pointer:string;timer?:ReturnType<typeof setTimeout>;active:boolean};
-const HOLD_MS=350;
+// Touch: holding an agent arms it; moving then drags, releasing opens its menu. Mouse: moving drags right away.
+type Drag={kind:'agent'|'section';id:string;x:number;y:number;pointer:string;timer?:ReturnType<typeof setTimeout>;active:boolean;armed?:boolean};
+const HOLD_MS=350,MAX_PINNED=3;
 const clone=(groups:Group[])=>groups.map(g=>({...g,ids:[...g.ids]}));
 // Moves the dragged agent or section next to the element under the pointer; returns the same array when nothing changes.
 function reorder(groups:Group[],d:Drag,kind:string,key:string,after:boolean):Group[]{
@@ -27,12 +28,13 @@ function reorder(groups:Group[],d:Drag,kind:string,key:string,after:boolean):Gro
 export function AgentList({agents,sections,selected,onSelect,onTogglePin,onChanged,notify,describe}:{agents:Agent[];sections:string[];selected:string|null;onSelect:(id:string)=>void;onTogglePin:(a:Agent)=>void;onChanged:()=>Promise<any>;notify:(m:string)=>void;describe:(a:Agent)=>{title:string;subtitle:string}}){
  const names=[...sections];for(const a of agents)if(!a.archived&&!names.includes(a.section))names.push(a.section);
  const base:Group[]=names.map(name=>({name,ids:agents.filter(a=>!a.archived&&a.section===name).map(a=>a.id)}));
- const [layout,setLayout]=useState<Group[]|null>(null),[dragging,setDragging]=useState<string|null>(null);
+ const [layout,setLayout]=useState<Group[]|null>(null),[dragging,setDragging]=useState<string|null>(null),[menu,setMenu]=useState<string|null>(null);
  const view=layout||base,byId=new Map(agents.map(a=>[a.id,a]));
  const drag=useRef<Drag|null>(null),list=useRef<HTMLDivElement>(null),current=useRef(view),suppress=useRef(false),props=useRef({onChanged,notify});
  current.current=view;props.current={onChanged,notify};
  const activate=()=>{const d=drag.current;if(!d||d.active)return;d.active=true;setDragging(d.id);setLayout(clone(current.current));navigator.vibrate?.(12);};
- const press=(e:ReactPointerEvent,kind:Drag['kind'],id:string)=>{if(e.pointerType==='mouse'&&e.button!==0)return;drag.current={kind,id,x:e.clientX,y:e.clientY,pointer:e.pointerType,active:false,timer:setTimeout(activate,HOLD_MS)};};
+ const hold=()=>{const d=drag.current;if(!d||d.active)return;if(d.pointer==='mouse'||d.kind==='section'){activate();return;}d.armed=true;navigator.vibrate?.(12);};
+ const press=(e:ReactPointerEvent,kind:Drag['kind'],id:string)=>{if(e.pointerType==='mouse'&&e.button!==0)return;drag.current={kind,id,x:e.clientX,y:e.clientY,pointer:e.pointerType,active:false,timer:setTimeout(hold,HOLD_MS)};};
  useEffect(()=>{
   let point={x:0,y:0},frame=0;
   const update=(x:number,y:number)=>{const d=drag.current;if(!d?.active)return;
@@ -45,9 +47,12 @@ export function AgentList({agents,sections,selected,onSelect,onTogglePin,onChang
    const speed=point.y<r.top+edge?-Math.ceil((r.top+edge-point.y)/4):point.y>r.bottom-edge?Math.ceil((point.y-r.bottom+edge)/4):0;
    if(speed){box.scrollTop+=speed;update(point.x,Math.min(Math.max(point.y,r.top+2),r.bottom-2));}frame=requestAnimationFrame(autoScroll);};
   const move=(e:PointerEvent)=>{const d=drag.current;if(!d)return;
-   if(!d.active){if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>8){if(d.pointer==='mouse')activate();else{clearTimeout(d.timer);drag.current=null;}}if(!drag.current?.active)return;}
+   if(!d.active){if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>8){if(d.pointer==='mouse'||d.armed)activate();else{clearTimeout(d.timer);drag.current=null;}}if(!drag.current?.active)return;}
    point={x:e.clientX,y:e.clientY};if(!frame)frame=requestAnimationFrame(autoScroll);update(e.clientX,e.clientY);};
-  const end=()=>{cancelAnimationFrame(frame);frame=0;const d=drag.current;drag.current=null;if(!d)return;clearTimeout(d.timer);if(!d.active)return;
+  const end=()=>{cancelAnimationFrame(frame);frame=0;const d=drag.current;drag.current=null;if(!d)return;clearTimeout(d.timer);
+   // A hold released in place opens the agent's menu instead of selecting it.
+   if(!d.active&&d.armed){suppress.current=true;setTimeout(()=>{suppress.current=false;},0);setMenu(d.id);return;}
+   if(!d.active)return;
    suppress.current=true;setTimeout(()=>{suppress.current=false;},0);setDragging(null);const final=current.current;
    api('/layout','PUT',{sections:final.map(g=>g.name),agents:final.flatMap(g=>g.ids.map(id=>({id,section:g.name})))}).then(()=>props.current.onChanged()).catch(e=>props.current.notify(e.message)).finally(()=>setLayout(null));};
   // Once a hold starts a drag, touch scrolling must not steal the gesture.
@@ -58,14 +63,27 @@ export function AgentList({agents,sections,selected,onSelect,onTogglePin,onChang
  const run=async(fn:()=>Promise<any>)=>{try{await fn();await onChanged();}catch(e:any){notify(e.message);}};
  const createSection=async()=>{const name=await promptDialog('Nova seção',{placeholder:'Ex.: Criativos',confirm:'Criar'});if(name)run(()=>api('/sections','POST',{name}));};
  const renameSection=async(from:string)=>{const name=await promptDialog('Renomear seção',{value:from});if(name&&name!==from)run(()=>api('/sections/'+encodeURIComponent(from),'PUT',{name}));};
+ const pinned=agents.filter(a=>a.pinned&&!a.archived).length;
+ const renameAgent=async(a:Agent)=>{const name=await promptDialog('Renomear agente',{value:a.name,confirm:'Renomear'});if(name&&name!==a.name)run(()=>api('/agents/'+a.id,'PATCH',{name}));};
+ const moveAgent=async(a:Agent)=>{
+  const NEW='\u0000nova';const options:Record<string,string>={};for(const g of view)options[g.name]=g.name===a.section?`${g.name} (atual)`:g.name;options[NEW]='+ Nova seção…';
+  const choice=await selectDialog(`Mover ${a.name} para`,{options,value:a.section,confirm:'Mover'});if(!choice||choice===a.section)return;
+  const section=choice===NEW?await promptDialog('Nova seção',{placeholder:'Ex.: Criativos',confirm:'Criar e mover'}):choice;
+  if(section&&section!==a.section)run(async()=>{await api('/agents/'+a.id,'PATCH',{section});notify(`${a.name} movido para ${section}.`);});
+ };
  const deleteSection=async(name:string)=>{if(await confirmDialog(`Excluir a seção ${name}?`,undefined,{confirm:'Excluir',danger:true}))run(()=>api('/sections/'+encodeURIComponent(name),'DELETE'));};
  return <div ref={list} className={`agent-list ${dragging?'is-dragging':''}`}>
   {view.map(g=><section key={g.name} data-drop="section" data-key={g.name} data-section-box={g.name} className={dragging===g.name?'dragging':''}>
    <div className="section-label" data-drop="section-head" data-key={g.name} onPointerDown={e=>press(e,'section',g.name)} onContextMenu={e=>e.preventDefault()} title="Segure e arraste para reordenar a seção"><span>{g.name}</span><span className="section-tools"><span>{g.ids.length}</span>
     <Dropdown.Root><Dropdown.Trigger asChild><button className="section-menu" aria-label={`Opções da seção ${g.name}`} onPointerDown={e=>e.stopPropagation()}><MoreHorizontal size={14}/></button></Dropdown.Trigger><Dropdown.Portal><Dropdown.Content className="dropdown" align="end"><Dropdown.Item onSelect={()=>renameSection(g.name)}><Pencil size={15}/>Renomear seção</Dropdown.Item><Dropdown.Item onSelect={createSection}><Plus size={15}/>Nova seção</Dropdown.Item><Dropdown.Separator/><Dropdown.Item disabled={g.ids.length>0} onSelect={()=>deleteSection(g.name)}><Trash2 size={15}/>{g.ids.length?'Excluir (mova os agentes antes)':'Excluir seção'}</Dropdown.Item></Dropdown.Content></Dropdown.Portal></Dropdown.Root></span></div>
    {g.ids.map(id=>{const a=byId.get(id);if(!a)return null;const {title,subtitle}=describe(a);return <div key={id} className={`agent-row-wrap ${dragging===id?'dragging':''}`} data-drop="agent" data-key={id}>
-    <button className={`agent-row ${id===selected?'selected':''}`} onPointerDown={e=>press(e,'agent',id)} onContextMenu={e=>e.preventDefault()} onClick={()=>{if(!suppress.current)onSelect(id);}} title={title}><CellAvatar shape={a.shape} color={a.color} state={a.state} size={40}/><span className="agent-copy"><strong>{a.name}{a.notify===false&&<BellOff className="muted-bell" size={12} aria-label="Notificações desativadas"/>}</strong><small>{subtitle}</small></span>{a.unread&&<b className="unread"/>}</button>
-    <button className={`pin-toggle ${a.pinned?'on':''}`} aria-label={a.pinned?`Desafixar ${a.name} do topo`:`Fixar ${a.name} no topo`} title={a.pinned?'Desafixar do topo':'Fixar no topo'} aria-pressed={a.pinned} onClick={()=>onTogglePin(a)}>{a.pinned?<PinOff size={15}/>:<Pin size={15}/>}</button></div>;})}
+    <button className={`agent-row ${id===selected?'selected':''}`} onPointerDown={e=>press(e,'agent',id)} onContextMenu={e=>{e.preventDefault();if(!drag.current?.active&&!drag.current?.armed)setMenu(id);}} onClick={()=>{if(!suppress.current)onSelect(id);}} title={title}><CellAvatar shape={a.shape} color={a.color} state={a.state} size={40}/><span className="agent-copy"><strong>{a.name}{a.pinned&&<Pin className="pinned-mark" size={11} aria-label="Fixado no topo"/>}{a.notify===false&&<BellOff className="muted-bell" size={12} aria-label="Notificações desativadas"/>}</strong><small>{subtitle}</small></span>{a.unread&&<b className="unread"/>}</button>
+    <Dropdown.Root open={menu===id} onOpenChange={o=>setMenu(o?id:null)}><Dropdown.Trigger asChild><button className="agent-menu" aria-label={`Opções de ${a.name}`} title="Opções" onPointerDown={e=>e.stopPropagation()}><MoreHorizontal size={16}/></button></Dropdown.Trigger><Dropdown.Portal><Dropdown.Content className="dropdown" align="end">
+     <Dropdown.Label className="dropdown-label">{a.name}</Dropdown.Label>
+     <Dropdown.Item disabled={!a.pinned&&pinned>=MAX_PINNED} onSelect={()=>onTogglePin(a)}>{a.pinned?<PinOff size={15}/>:<Pin size={15}/>}{a.pinned?'Desafixar do topo':pinned>=MAX_PINNED?`Fixar no topo (máximo de ${MAX_PINNED})`:'Fixar no topo'}</Dropdown.Item>
+     <Dropdown.Item onSelect={()=>renameAgent(a)}><Pencil size={15}/>Renomear</Dropdown.Item>
+     <Dropdown.Item onSelect={()=>moveAgent(a)}><FolderInput size={15}/>Mover para outra seção</Dropdown.Item>
+    </Dropdown.Content></Dropdown.Portal></Dropdown.Root></div>;})}
    {!g.ids.length&&<div className="section-empty">{dragging?'Solte aqui':'Seção vazia — arraste agentes para cá'}</div>}
   </section>)}
   <button className="new-section" onClick={createSection}><Plus size={14}/>Nova seção</button>

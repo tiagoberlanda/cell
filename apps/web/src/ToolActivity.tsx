@@ -22,7 +22,25 @@ const statusLabels: Record<string, string> = {
 };
 
 // MCP tools are namespaced by connection id (mcp_<32 hex>_name); the id means nothing to the reader.
-const toolLabel = (tool: string) => tool.replace(/^mcp_[0-9a-f]{32}_/, '');
+const computerTools: Record<string, string> = {
+  pc_request_access: 'Acesso a pasta do computador',
+  pc_list: 'Listar pasta do computador',
+  pc_read: 'Ler arquivo do computador',
+  pc_move: 'Mover no computador',
+  pc_rename: 'Renomear no computador',
+  pc_mkdir: 'Criar pasta no computador'
+};
+const toolLabel = (tool: string) => computerTools[tool] || tool.replace(/^mcp_[0-9a-f]{32}_/, '');
+
+// Plain-language summary of a computer-folder action awaiting approval; null for other tools (shown as raw arguments).
+export function describeApproval(tool: string, args: any): { title: string; lines: string[] } | null {
+  const a = args || {};
+  if (tool === 'pc_request_access') return { title: 'Permitir acesso a esta pasta do computador?', lines: [a.path, a.reason ? `Motivo: ${a.reason}` : '', 'O agente poderá listar e ler arquivos dela e das subpastas. Mover, renomear e criar pastas continuam pedindo sua aprovação.'].filter(Boolean) };
+  if (tool === 'pc_move') { const moves: any[] = Array.isArray(a.moves) ? a.moves : []; return { title: moves.length === 1 ? 'Mover 1 item no computador?' : `Mover ${moves.length} itens no computador?`, lines: moves.slice(0, 50).map(m => `${m.from} → ${m.to}`).concat(moves.length > 50 ? [`… e mais ${moves.length - 50}`] : []) }; }
+  if (tool === 'pc_rename') return { title: 'Renomear no computador?', lines: [`${a.path} → ${a.newName}`] };
+  if (tool === 'pc_mkdir') return { title: 'Criar pasta no computador?', lines: [a.path] };
+  return null;
+}
 
 export function ToolActivityCard({
   calls,
