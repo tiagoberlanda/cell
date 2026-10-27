@@ -296,3 +296,72 @@ test('canva: diálogos funcionam dentro da janela de aplicativos', async ({ page
   await expect(page.getByRole('button', { name: 'Abrir o Canva' })).toHaveCount(0);
   await expect(dialog).toBeVisible();
 });
+
+test('chamada de voz: ouve, pensa e responde falando', async ({ page }) => {
+  // Silent microphone (no automatic turn) and device speech that never ends, so every phase can be checked.
+  // Applied to the page already open (beforeEach); nothing reads these until the call starts.
+  await page.evaluate(() => {
+    AnalyserNode.prototype.getFloatTimeDomainData = function (a: Float32Array) { a.fill(0); };
+    window.speechSynthesis.speak = () => {};
+  });
+  let posted = false;
+  await page.route('**/api/conversations/*/audio', route => { posted = true; return route.fulfill({ json: { id: 'call-run', state: 'queued', transcript: 'Qual é a previsão de amanhã?' } }); });
+  await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET' || !posted) return route.continue();
+    const res = await route.fetch(); const body = await res.json();
+    await new Promise(r => setTimeout(r, 1200)); // the agent "thinks" for a moment
+    body.messages.push({ id: 'call-reply', role: 'assistant', content: 'Amanhã vai fazer sol à tarde.', voice: true, attachments: [], files: [], created_at: new Date().toISOString() });
+    return route.fulfill({ response: res, json: body });
+  });
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  await page.getByLabel('Chamada de voz').click();
+  const call = page.getByRole('dialog', { name: 'Chamada com Revisor' });
+  const status = call.locator('.call-status');
+  await expect(status).toHaveText('Ouvindo');
+  await noHorizontalScroll(page);
+  await page.waitForTimeout(1500); // the recorder collects a short turn
+  await call.getByLabel('Enviar agora').click();
+  await expect(status).toHaveText('Pensando…');
+  await expect(call.locator('.call-dots')).toBeVisible();
+  await expect(call).toContainText('Qual é a previsão de amanhã?');
+  await expect(status).toHaveText('Falando');
+  await expect(call.locator('.call-wave')).toBeVisible();
+  await expect(call).toContainText('Amanhã vai fazer sol à tarde.');
+  await page.screenshot({ path: `test-results/chamada-${page.viewportSize()!.width}.png` });
+  await call.getByLabel('Interromper').click();
+  await expect(status).toHaveText('Ouvindo');
+  await call.getByLabel('Desligar microfone').click();
+  await expect(status).toHaveText('Microfone desligado');
+  await expect(call.getByLabel('Enviar agora')).toBeDisabled();
+  await call.getByLabel('Encerrar chamada').click();
+  await expect(call).toHaveCount(0);
+});
+
+test('voz do agente: modelo e voz por agente', async ({ page }) => {
+  await page.route('**/api/models/audio', route => route.fulfill({ json: { stt: [], tts: [{ id: 'openrouter/openai/gpt-4o-mini-tts', name: 'gpt-4o-mini-tts' }, { id: 'nvidia/fastpitch', name: 'fastpitch' }] } }));
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Pesquisador' }).click();
+  await page.getByLabel('Detalhes do agente').click();
+  await page.getByRole('button', { name: 'Editar agente' }).click();
+  const model = page.getByLabel('Voz deste agente'), voice = page.getByLabel('Voz', { exact: true });
+  // Widths share the database: start from the workspace default whatever an earlier run left.
+  await model.selectOption('');
+  await expect(voice).toBeDisabled(); // no workspace voice model in the test stack
+  await model.selectOption('openrouter/openai/gpt-4o-mini-tts');
+  await expect(voice.locator('option')).toHaveCount(13); // model default, 11 voices, custom
+  await voice.selectOption('nova');
+  await page.getByRole('button', { name: 'Salvar agente' }).click();
+  await page.getByRole('button', { name: 'Editar agente' }).click();
+  await expect(model).toHaveValue('openrouter/openai/gpt-4o-mini-tts');
+  await expect(voice).toHaveValue('nova');
+  await voice.selectOption('__custom');
+  await expect(page.getByLabel('Voz: nome da voz')).toBeVisible();
+  await model.selectOption('');
+  await page.getByRole('button', { name: 'Salvar agente' }).click();
+  await page.getByRole('button', { name: 'Editar agente' }).click();
+  await expect(model).toHaveValue('');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Editar agente' })).toHaveCount(0);
+  await page.getByLabel('Fechar detalhes').click();
+});

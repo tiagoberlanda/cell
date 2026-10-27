@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const shapes = ['animal','vegetal','bacilo','coco','neuronio','hemacia','ameba','paramecio','euglena','diatomacea','levedura','leucocito'] as const;
 export const states = ['queued','running','waiting_approval','waiting_agent','completed','failed','cancelled'] as const;
 export type RunState = typeof states[number];
-export const agentInput = z.object({ name:z.string().trim().min(1).max(60), role:z.string().max(120).default(''), description:z.string().max(1000).default(''), instructions:z.string().max(16000).default(''), color:z.string().regex(/^#[0-9a-fA-F]{6}$/), shape:z.enum(shapes), model:z.string().max(200).nullable().default(null), pinned:z.boolean().default(false), notify:z.boolean().default(true), voice_reply:z.boolean().default(false), section:z.string().max(60).default('Equipe'), memory:z.string().max(20000).default(''), tools:z.array(z.string().max(180)).max(100).default([]), skills:z.array(z.string().uuid()).max(100).default([]) });
+export const agentInput = z.object({ name:z.string().trim().min(1).max(60), role:z.string().max(120).default(''), description:z.string().max(1000).default(''), instructions:z.string().max(16000).default(''), color:z.string().regex(/^#[0-9a-fA-F]{6}$/), shape:z.enum(shapes), model:z.string().max(200).nullable().default(null), pinned:z.boolean().default(false), notify:z.boolean().default(true), voice_reply:z.boolean().default(false), tts_model:z.string().max(200).default(''), tts_voice:z.string().max(100).default(''), section:z.string().max(60).default('Equipe'), memory:z.string().max(20000).default(''), tools:z.array(z.string().max(180)).max(100).default([]), skills:z.array(z.string().uuid()).max(100).default([]) });
 export type AgentInput = z.infer<typeof agentInput>;
 export interface Agent extends AgentInput {id:string; archived:boolean; is_master:boolean; state:RunState|null; last_message?:string; unread?:boolean}
 export const messageInput=z.object({mode:z.enum(['execute','plan']).default('execute'),content:z.string().trim().min(1).max(50000),files:z.array(z.string().uuid()).max(5).default([])});
@@ -21,4 +21,15 @@ export function stripThinking(raw:string,streaming=false){
  const open=/<(think|thinking|reasoning)>/i.exec(out);if(open)out=out.slice(0,open.index);
  if(streaming){const lt=out.lastIndexOf('<');if(lt>=0){const tail=out.slice(lt).toLowerCase();if(thinkTags.some(t=>`<${t}>`.startsWith(tail)||`</${t}>`.startsWith(tail)))out=out.slice(0,lt);}}
  return out.replace(/^\s+/,'');
+}
+
+// Known voices per text-to-speech model family (the 9router lists models, not voices). Empty: the model has no voice choice
+// or uses account-specific voices, typed by hand.
+const openaiVoices:[string,string][]=[['alloy','alloy · neutra'],['ash','ash · masculina, firme'],['ballad','ballad · masculina, suave'],['coral','coral · feminina, calorosa'],['echo','echo · masculina, clara'],['fable','fable · narradora'],['nova','nova · feminina, animada'],['onyx','onyx · masculina, grave'],['sage','sage · feminina, serena'],['shimmer','shimmer · feminina, leve'],['verse','verse · masculina, expressiva']];
+export function ttsVoices(model:string):{id:string;label:string}[]{
+ const m=model.toLowerCase(),pick=(ids:string[])=>openaiVoices.filter(([id])=>ids.includes(id)).map(([id,label])=>({id,label}));
+ if(/gpt-4o[\w.-]*-tts/.test(m))return openaiVoices.map(([id,label])=>({id,label}));
+ if(/(^|\/)tts-1/.test(m))return pick(['alloy','ash','coral','echo','fable','nova','onyx','sage','shimmer']);
+ if(/edge|azure/.test(m))return [['pt-BR-FranciscaNeural','Francisca · feminina'],['pt-BR-ThalitaNeural','Thalita · feminina'],['pt-BR-AntonioNeural','Antônio · masculina']].map(([id,label])=>({id,label}));
+ return [];
 }

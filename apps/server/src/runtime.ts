@@ -29,7 +29,7 @@ export async function createRun(agentId:string,conversationId:string,prompt:stri
  if((prompt.startsWith('[Comando /imagem]')||prompt.startsWith('/imagem'))&&!tools.includes('generate_image')){tools.push('generate_image');}
  const snapshot={...c,agent:{instructions:agent.instructions,tools},capabilities:{tools:!!cap?.tools,vision:!!cap?.vision}};
  const persist=async(tx:import('pg').PoolClient)=>{
-  const message=(await tx.query('INSERT INTO messages(conversation_id,role,content,files,voice) VALUES($1,\'user\',$2,$3,$4) RETURNING id',[conversationId,prompt,JSON.stringify(fileIds),!!options.voice])).rows[0];
+  const message=(await tx.query('INSERT INTO messages(conversation_id,role,content,files,voice,call) VALUES($1,\'user\',$2,$3,$4,$5) RETURNING id',[conversationId,prompt,JSON.stringify(fileIds),!!options.voice,!!options.call])).rows[0];
   const run=(await tx.query('INSERT INTO runs(agent_id,conversation_id,parent_id,model,config,context,depth,source_call_id,mode,input_message_id,context_ready,routine_history_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11) RETURNING *',[agentId,conversationId,parent?.id||null,model,encrypt(snapshot),JSON.stringify(context),parent?parent.depth+1:0,sourceCallId||null,mode,message.id,options.routineHistoryId||null])).rows[0];
   await tx.query('INSERT INTO events(type,payload) VALUES(\'run\',$1)',[JSON.stringify({id:run.id,state:'queued'})]);return run;
  };

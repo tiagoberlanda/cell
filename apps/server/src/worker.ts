@@ -69,9 +69,13 @@ async function processRun(id:string){
  async function finishCall(call:any,result:string,context:ChatMessage[],status='done'){context.push({role:'tool',tool_call_id:call.call_id,content:result});await transaction(async tx=>{await tx.query('UPDATE tool_calls SET status=$2,result=$3 WHERE id=$1',[call.id,status,result]);await tx.query('UPDATE runs SET context=$2,updated_at=now() WHERE id=$1',[id,JSON.stringify(context)]);});await event('tool',{runId:id,tool:call.tool,status});}
 }
 async function voiceReply(run:any,text:string):Promise<{fileId?:string}|null>{
- const input=run.input_message_id?await one('SELECT voice FROM messages WHERE id=$1',[run.input_message_id]):null;
- if(!input?.voice||!(await one('SELECT voice_reply FROM agents WHERE id=$1',[run.agent_id]))?.voice_reply)return null;
- const c=await config();if(!c.ttsModel)return {};
+ const input=run.input_message_id?await one('SELECT voice,call FROM messages WHERE id=$1',[run.input_message_id]):null;
+ const agent=await one('SELECT voice_reply,tts_model,tts_voice FROM agents WHERE id=$1',[run.agent_id]);
+ // Calls are always answered with speech; a voice message only when the agent is set to reply with audio.
+ if(!input?.call&&!(input?.voice&&agent?.voice_reply))return null;
+ const base=await config(),model=agent?.tts_model||base.ttsModel;if(!model)return {};
+ // The agent's own voice; with the workspace model it may still pick a voice, otherwise the workspace voice applies.
+ const c={...base,ttsModel:model,ttsVoice:agent?.tts_voice||(agent?.tts_model?'':base.ttsVoice)};
  const speech=stripThinking(text).replace(/```[\s\S]*?```/g,' ').replace(/[*_#>`|~]+/g,'').replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').replace(/\s+/g,' ').trim().slice(0,3500);
  try{const audio=await synthesize(c,speech);const ext=audio.mime==='audio/wav'?'.wav':audio.mime==='audio/ogg'?'.ogg':'.mp3';const f=await saveFile(`resposta-${Date.now()}${ext}`,audio.data,run.agent_id);return {fileId:f.id};}
  catch(e){console.error('Resposta em áudio indisponível:',safeError(e));return {};}

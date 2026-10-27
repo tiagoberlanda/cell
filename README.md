@@ -127,6 +127,11 @@ Com o campo de mensagem vazio, toque no microfone para gravar (até 5 minutos) e
 - **Responder com áudio:** marque "Responder com áudio quando eu enviar áudio" no cadastro do agente. Desmarcado, ele sempre responde em texto.
 - **Modelos:** em Configurações → 9router, escolha o modelo de transcrição e, se tiver, o de síntese e a voz ("Testar voz" toca um exemplo). Sem modelo de síntese, o próprio aparelho lê a resposta em português.
 - Gravar exige HTTPS confiável (domínio público ou certificado instalado) e permissão do microfone.
+- **Voz por agente:** no cadastro do agente, "Voz deste agente" escolhe outro modelo de voz ou outra voz; vazio usa o padrão. A "Voz do aparelho" (Configurações → 9router) escolhe a voz do próprio celular ou computador e vale só para ele.
+
+### Chamada de voz
+
+Toque no telefone no topo da conversa. Fale normalmente: ao fazer uma pausa de pouco mais de um segundo, o Cell envia o trecho, a célula mostra o agente pensando e ele responde falando; depois volta a ouvir. Na chamada o agente sempre responde em voz. Use os botões para desligar o microfone, enviar na hora, interromper a resposta ou encerrar. Use fones de ouvido em lugares com barulho.
 
 ## Aplicativos (MCP com um clique)
 

@@ -384,7 +384,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.ok((await request('GET','/connectors')).connectors.every((c:any)=>c.status==='disconnected'));await request('DELETE','/connectors/google');
  });
  await t.test('mensagem de voz: transcrição e resposta em áudio conforme o agente',async()=>{
-  const sendAudio=async(cvId:string,type='audio/webm',name='audio.webm')=>{const form=new FormData();form.append('mode','execute');form.append('audio',new Blob([Buffer.alloc(4000,1)],{type}),name);const r=new Request('http://cell/upload',{method:'POST',body:form});
+  const sendAudio=async(cvId:string,type='audio/webm',name='audio.webm',call=false)=>{const form=new FormData();form.append('mode','execute');if(call)form.append('call','1');form.append('audio',new Blob([Buffer.alloc(4000,1)],{type}),name);const r=new Request('http://cell/upload',{method:'POST',body:form});
    return app.inject({method:'POST',url:`/api/conversations/${cvId}/audio`,headers:{cookie,'x-csrf-token':csrf,origin:'http://localhost:5173','content-type':r.headers.get('content-type')!},payload:Buffer.from(await r.arrayBuffer())});};
   const lastReply=async(cvId:string)=>(await request('GET','/conversations/'+cvId)).messages.filter((m:any)=>m.role==='assistant').at(-1);
   const cv=await request('POST',`/agents/${agent.id}/conversations`,{});transcriptionRequests.length=0;speechRequests.length=0;
@@ -407,7 +407,25 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    const r4=await request('POST',`/conversations/${cv.id}/messages`,{content:'Mensagem escrita'});await poll(r4.id,'completed');assert.equal((await lastReply(cv.id)).voice,false,'texto continua texto');
    const vt=await app.inject({method:'POST',url:'/api/models/voice-test',headers:{cookie,'x-csrf-token':csrf,origin:'http://localhost:5173'},payload:{ttsModel:'test/tts'}});assert.equal(vt.statusCode,200);assert.match(String(vt.headers['content-type']),/audio\/mpeg/);
    assert.equal((await sendAudio(cv.id,'text/plain','nota.txt')).statusCode,400,'formato recusado');
-  }finally{await request('PUT','/settings',{...base,ttsModel:'',ttsVoice:''});agent.voice_reply=false;await request('PUT','/agents/'+agent.id,agent);}
+   // Voice per agent: a voice for the workspace model, or the agent's own model (without the workspace voice).
+   agent.tts_voice='nova';await request('PUT','/agents/'+agent.id,agent);
+   const r5=(await sendAudio(cv.id)).json();await poll(r5.id,'completed');assert.equal(speechRequests.at(-1).model,'test/tts/nova');
+   agent.tts_model='other/tts';agent.tts_voice='';await request('PUT','/agents/'+agent.id,agent);
+   const r6=(await sendAudio(cv.id)).json();await poll(r6.id,'completed');assert.equal(speechRequests.at(-1).model,'other/tts');
+   // A call turn is answered with speech even when the agent replies to voice messages in text.
+   agent.voice_reply=false;await request('PUT','/agents/'+agent.id,agent);
+   const r7=await sendAudio(cv.id,'audio/webm','audio.webm',true);assert.equal(r7.statusCode,200,r7.body);await poll(r7.json().id,'completed');
+   reply=await lastReply(cv.id);assert.equal(reply.voice,true,'chamada sempre responde em voz');assert.equal(reply.attachments[0].mime,'audio/mpeg');
+   assert.equal((await one('SELECT call FROM messages WHERE id=(SELECT input_message_id FROM runs WHERE id=$1)',[r7.json().id])).call,true);
+   const r8=(await sendAudio(cv.id)).json();await poll(r8.id,'completed');assert.equal((await lastReply(cv.id)).voice,false,'fora da chamada vale a opção do agente');
+  }finally{await request('PUT','/settings',{...base,ttsModel:'',ttsVoice:''});agent.voice_reply=false;agent.tts_model='';agent.tts_voice='';await request('PUT','/agents/'+agent.id,agent);}
  });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
+});
+
+test('vozes conhecidas por modelo de síntese',async()=>{
+ const {ttsVoices}=await import('../packages/shared/src/index.js');
+ const mini=ttsVoices('openrouter/openai/gpt-4o-mini-tts').map(v=>v.id);assert.equal(mini.length,11);assert.ok(mini.includes('nova')&&mini.includes('ballad'));
+ const tts1=ttsVoices('openrouter/openai/tts-1-hd').map(v=>v.id);assert.equal(tts1.length,9);assert.ok(!tts1.includes('ballad'),'tts-1 não tem ballad');
+ assert.deepEqual(ttsVoices('nvidia/fastpitch'),[]);assert.ok(ttsVoices('edge/tts').some(v=>v.id==='pt-BR-FranciscaNeural'));
 });

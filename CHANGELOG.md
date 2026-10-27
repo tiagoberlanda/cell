@@ -5,6 +5,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Chamada de voz: botão de telefone no topo da conversa abre uma tela de chamada com o agente. Você fala e, ao fazer uma pausa, o Cell envia o trecho; a célula do agente mostra que está pensando (anéis girando e pontinhos), depois responde falando (ondas sonoras) e volta a ouvir sozinha. Legendas mostram o que você disse e o que o agente respondeu. Dá para desligar o microfone, enviar na hora, interromper a fala do agente e encerrar. A tela fica acesa durante a chamada.
+- Na chamada o agente sempre responde em voz, mesmo que esteja configurado para responder áudios em texto. Fora da chamada vale a opção do agente.
+- Escolha de voz em lista: em Configurações → 9router, a voz padrão agora é escolhida entre as vozes conhecidas do modelo selecionado (OpenAI: 11 vozes no gpt-4o-mini-tts, 9 no tts-1) ou digitada em "Outra".
+- Voz por agente: no cadastro do agente, "Voz deste agente" escolhe outro modelo de voz e/ou outra voz; vazio usa o padrão do espaço.
+- Voz do aparelho: escolha qual voz do celular ou computador lê as respostas quando não há modelo de voz (vale só para aquele aparelho).
+- Migração `0018_voices_call`.
+
+### Como foi verificado
+- **Simulado:** teste de integração da voz por agente (voz do modelo padrão, modelo próprio sem a voz padrão), da chamada (resposta sempre em voz, mensagem marcada como chamada) e do catálogo de vozes. Testes de navegador em cinco larguras: chamada passando por ouvindo, pensando e falando, com interromper, microfone desligado e encerrar; escolha e gravação da voz do agente.
+- **Não verificado:** chamada com microfone e alto-falante reais no celular, e a detecção de pausa em ambiente com ruído. Sem um modelo de voz funcionando no 9router, a resposta da chamada é lida pela voz do aparelho.
+
 ## [0.17.2] - 2026-10-27
 
 ### Corrigido

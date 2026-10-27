@@ -66,7 +66,7 @@ export async function buildApp(){
  app.post('/api/models/probe',async req=>probeModel(z.object({model:z.string().min(1)}).parse(req.body).model));
  app.post('/api/models/vision',async req=>{const {model}=z.object({model:z.string().min(1)}).parse(req.body);const c=await config();const r=await(await routerRequest(c,'/chat/completions',{model,stream:false,max_tokens:60,messages:[{role:'user',content:[{type:'text',text:'Descreva brevemente a imagem.'},{type:'image_url',image_url:{url:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='}}]}]})).json() as any;if(!r.choices?.[0]?.message?.content)throw new Error('Sem resposta de visão.');await query('INSERT INTO model_capabilities(id,vision,verified_at) VALUES($1,true,now()) ON CONFLICT(id) DO UPDATE SET vision=true,verified_at=now()',[model]);return {vision:true,description:r.choices[0].message.content};});
  app.get('/api/agents',async()=>query(`SELECT a.*,(SELECT state FROM runs WHERE agent_id=a.id ORDER BY CASE state WHEN 'running' THEN 0 WHEN 'waiting_approval' THEN 1 WHEN 'waiting_agent' THEN 2 WHEN 'queued' THEN 3 ELSE 4 END,created_at DESC LIMIT 1) AS state,(SELECT m.content FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.agent_id=a.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,EXISTS(SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.agent_id=a.id AND m.role='assistant' AND m.created_at>c.seen_at) AS unread FROM agents a ORDER BY position,created_at`));
- const agentColumns=['name','role','description','instructions','color','shape','model','pinned','notify','voice_reply','section','memory','tools','skills'];
+ const agentColumns=['name','role','description','instructions','color','shape','model','pinned','notify','voice_reply','tts_model','tts_voice','section','memory','tools','skills'];
  const values=(data:any)=>agentColumns.map(k=>['tools','skills'].includes(k)?JSON.stringify(data[k]):data[k]);
  app.post('/api/agents',async req=>{const d=agentInput.parse(req.body);await ensureSection(d.section);const a=await one(`INSERT INTO agents(${agentColumns.join(',')},position) VALUES(${agentColumns.map((_,i)=>'$'+(i+1)).join(',')},(SELECT COALESCE(max(position),0)+1 FROM agents)) RETURNING *`,values(d));await event('agent',{id:a.id});return a;});
  app.put('/api/agents/:id',async req=>{const d=agentInput.parse(req.body);await ensureSection(d.section);const before=await one('SELECT memory FROM agents WHERE id=$1',[id(req)]);if(before&&before.memory!==d.memory)await query("INSERT INTO memory_revisions(agent_id,kind,body,source) VALUES($1,'memory',$2,'Editor do agente')",[id(req),d.memory]);const a=await one(`UPDATE agents SET ${agentColumns.map((k,i)=>`${k}=$${i+2}`).join(',')} WHERE id=$1 RETURNING *`,[id(req),...values(d)]);await event('agent',{id:id(req)});return a;});
@@ -101,10 +101,10 @@ export async function buildApp(){
   const f=await req.file();if(!f)throw new Error('Áudio ausente.');const data=await f.toBuffer();if(data.length<800)throw new Error('Áudio muito curto.');
   const mime=String(f.mimetype||'').split(';')[0],ext=({'audio/webm':'.webm','audio/ogg':'.ogg','audio/mp4':'.m4a','audio/mpeg':'.mp3','audio/wav':'.wav','audio/x-wav':'.wav'} as Record<string,string>)[mime];
   if(!ext)throw new Error('Formato de áudio não suportado.');
-  const mode=(f.fields as any)?.mode?.value==='plan'?'plan':'execute';
+  const mode=(f.fields as any)?.mode?.value==='plan'?'plan':'execute',call=(f.fields as any)?.call?.value==='1';
   const saved=await saveFile(`audio-${new Date().toISOString().slice(0,19).replace(/[-:T]/g,'')}${ext}`,data,cv.agent_id);
   let transcript:string;try{transcript=await transcribe(await config(),data,mime,'audio'+ext);}catch(e){await deleteFile(saved.id);throw e;}
-  const r=await createRun(cv.agent_id,cv.id,transcript,[saved.id],undefined,undefined,undefined,{mode,voice:true});
+  const r=await createRun(cv.agent_id,cv.id,transcript,[saved.id],undefined,undefined,undefined,{mode,voice:true,call});
   if(cv.title==='Nova conversa')await query('UPDATE conversations SET title=$2 WHERE id=$1',[cv.id,transcript.slice(0,60)]);
   return {id:r.id,state:r.state,transcript};
  });
