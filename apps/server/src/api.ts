@@ -19,6 +19,7 @@ import { nativeToolNames,deleteAgent } from './tools.js';
 import { nextOccurrence } from './schedule.js';
 import { registerInsights } from './insights.js';
 import { registerPush } from './push.js';
+import { registerConnectors } from './connectors.js';
 import { routineConversation,routineMessage } from './scheduler.js';
 import { readFileSync } from 'node:fs';
 const {version}=JSON.parse(readFileSync(new URL('../../../package.json',import.meta.url),'utf8'));
@@ -35,7 +36,8 @@ export async function buildApp(){
  app.setErrorHandler((err:any,req,reply)=>{const status=err instanceof ZodError?400:err.statusCode||400,sql=typeof err.code==='string'&&/^[0-9A-Z]{5}$/.test(err.code);if(sql||status>=500)req.log.error({err},'falha na requisição');reply.code(status>=500?500:status).send({error:err instanceof ZodError?'Dados inválidos: '+err.issues.map((x:any)=>x.path.join('.')+': '+x.message).join('; '):sql?(err.code.startsWith('23')?'Operação incompatível com os dados existentes.':'Operação inválida.'):status>=500?'Falha interna. Tente novamente.':safeError(err)});});
  app.addHook('onRequest',async(req,reply)=>{
   reply.header('X-Content-Type-Options','nosniff').header('Referrer-Policy','same-origin').header('Cache-Control','no-store');
-  if(req.url==='/api/health'||req.url==='/api/login')return;
+  // OAuth callbacks are protected by their random state; the provider may return to a host where this browser has no session.
+  if(req.url==='/api/health'||req.url==='/api/login'||req.url.startsWith('/api/connections/oauth/callback'))return;
   const token=req.cookies[sessionCookie];if(!token)return reply.code(401).send({error:'Faça login.'});
   const session=await one('SELECT s.*,u.username FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND expires_at>now()',[hash(token)]);if(!session)return reply.code(401).send({error:'Sessão expirada.'});(req as any).session=session;
   if(!['GET','HEAD','OPTIONS'].includes(req.method)){
@@ -120,14 +122,14 @@ export async function buildApp(){
  app.post('/api/connections/:id/test',async req=>{const c=await one('SELECT * FROM connections WHERE id=$1',[id(req)]);if(!c)throw new Error('Conexão não encontrada.');try{return {tools:await discover(c)};}catch{await query("UPDATE connections SET status='error' WHERE id=$1",[c.id]);const updated=await one('SELECT oauth FROM connections WHERE id=$1',[c.id]);return {error:'Conexão indisponível ou autenticação necessária.',authorizationUrl:updated?.oauth?decrypt<any>(updated.oauth).authorizationUrl:null};}});
  app.get('/api/connections/:id/oauth/callback',async(req,reply)=>{const input=z.object({code:z.string(),state:z.string()}).parse(req.query);const c=await one('SELECT * FROM connections WHERE id=$1',[id(req)]);const o=c?.oauth?decrypt<any>(c.oauth):null;if(!o?.state||!safeEqual(o.state,input.state))throw new Error('Estado OAuth inválido.');await finishOAuth(c,input.code);await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));reply.redirect('/');});
  app.delete('/api/connections/:id',async req=>{await query('DELETE FROM connections WHERE id=$1',[id(req)]);return {ok:true};});
- app.get('/api/tools',async()=>{const tools:any[]=nativeToolNames.map(name=>({name,label:name,read:true}));for(const c of await query('SELECT * FROM connections'))for(const t of c.tools)tools.push({name:`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64),label:`${c.name}: ${t.name}`,read:c.read_tools.includes(t.name)});return tools;});
+ app.get('/api/tools',async()=>{const tools:any[]=nativeToolNames.map(name=>({name,label:name,read:true}));for(const c of await query('SELECT * FROM connections'))for(const t of c.tools)tools.push({name:c.kind==='native'?t.name:`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64),label:`${c.name}: ${t.name}`,read:c.read_tools.includes(t.name),allAgents:c.all_agents});return tools;});
  app.get('/api/usage',async()=>({runs:await query('SELECT state,count(*)::int AS count FROM runs GROUP BY state'),models:await query("SELECT model,sum(COALESCE((usage->>'prompt_tokens')::bigint,0)) AS input_tokens,sum(COALESCE((usage->>'completion_tokens')::bigint,0)) AS output_tokens FROM runs GROUP BY model")}));
  app.get('/api/events',async(req,reply)=>{
   const header=String(req.headers['last-event-id']||''),qs=(req.query as any).after;let cursor=/^\d+$/.test(header)?Number(header):/^\d+$/.test(String(qs||''))?Number(qs):Number((await one('SELECT COALESCE(max(id),0) AS id FROM events')).id);
   reply.hijack();reply.raw.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no'});reply.raw.write(': connected\n\n');let busy=false;
   const interval=setInterval(async()=>{if(busy||reply.raw.destroyed)return;busy=true;try{const valid=await one('SELECT 1 FROM sessions WHERE id=$1 AND expires_at>now()',[(req as any).session.id]);if(!valid){reply.raw.end();return;}for(const e of await query('SELECT * FROM events WHERE id>$1 ORDER BY id LIMIT 200',[cursor])){reply.raw.write(`id: ${e.id}\ndata: ${JSON.stringify({type:e.type,...e.payload})}\n\n`);cursor=Number(e.id);}reply.raw.write(': heartbeat\n\n');}catch{reply.raw.end();}finally{busy=false;}},400);reply.raw.on('close',()=>clearInterval(interval));
  });
- registerInsights(app);registerPush(app);
+ registerInsights(app);registerPush(app);registerConnectors(app);
  return app;
 }
 export async function seed(){if(await one('SELECT id FROM agents LIMIT 1'))return;const templates=[['Coordenador','Organiza o trabalho da equipe','#f1f0e9','animal',true],['Pesquisador','Investiga e verifica fontes','#18b99c','euglena',false],['Redator','Transforma ideias em textos','#fcad24','paramecio',false],['Revisor','Revisa qualidade e precisão','#9b6bff','vegetal',false]];await ensureSection('Equipe');for(const [name,role,color,shape,pinned] of templates)await query('INSERT INTO agents(name,role,color,shape,pinned,tools,instructions,is_master) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[name,role,color,shape,pinned,JSON.stringify(nativeToolNames),`Você é ${name}. ${role}. Trabalhe com clareza, confirme fatos e entregue resultados verificáveis.`,name==='Coordenador']);}

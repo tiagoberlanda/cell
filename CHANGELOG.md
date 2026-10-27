@@ -5,6 +5,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Catálogo de aplicativos com conexão em um clique (OAuth com registro automático do cliente): Notion, Canva, Todoist, Linear e Jira/Confluence. Cartões com estado, número de ferramentas, Reconectar, Desconectar e Ferramentas e permissões.
+- Google: configuração única guiada (comando das APIs, URI de redirecionamento para copiar, Client ID e Client Secret cifrado) e conexão em um clique para Gmail, Google Drive e Google Agenda (servidores MCP oficiais do Google, em prévia).
+- Google Tarefas integrado nativamente: listar listas e tarefas, criar, concluir e excluir, com renovação automática do token; escritas pedem aprovação e o modo `/plan` só libera a leitura.
+- Ferramentas dos aplicativos do catálogo ficam disponíveis para todos os agentes; as de leitura são detectadas pela anotação `readOnlyHint` do MCP (ou pelo nome) e as demais exigem aprovação.
+- Endereço único de retorno OAuth (`/api/connections/oauth/callback`), protegido pelo `state` e sem exigir sessão, para concluir a conexão mesmo iniciando pela rede local. Ao voltar, o Cell mostra o resultado e abre o painel.
+- Migração `0015_connector_catalog`.
+
+### Como foi verificado
+- **Simulado:** teste de integração com servidores OAuth falsos de comportamento real: registro dinâmico, PKCE, retorno sem sessão, `state` forjado recusado, ferramentas liberadas para todos com leitura/escrita classificadas, chamada autenticada; servidor estilo Google com cliente estático e escopos; Google Tarefas com troca de código, renovação de token, criar/listar/concluir e restrição no `/plan`. Testes de navegador do catálogo e do guia do Google em cinco larguras.
+- **Não verificado:** conexão real com Notion, Canva, Todoist, Linear, Atlassian e Google, que exige suas contas. Os servidores do Google estão em prévia e podem exigir participação no programa de prévia do Google Workspace.
+
 ## [0.14.0] - 2026-10-27
 
 ### Adicionado

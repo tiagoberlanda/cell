@@ -2,6 +2,7 @@ import { query,one,event,ensureSection } from './db.js';
 import { agentInput,shapes } from '../../../packages/shared/src/index.js';
 import { routerRequest,generateImage } from './router.js';
 import { mcpCall } from './mcp.js';
+import { googleTasksTools } from './connectors.js';
 import { saveFile } from './files.js';
 import { createRun } from './runtime.js';
 import { nextOccurrence } from './schedule.js';
@@ -26,8 +27,12 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  const result=native.filter(t=>enabled.includes(t.name));
  // The master agent always manages the team, regardless of its enabled tool list.
  if((await one('SELECT is_master FROM agents WHERE id=$1',[run.agent_id]))?.is_master)result.push(...masterTools);
- for(const c of await query('SELECT * FROM connections WHERE status=\'connected\''))for(const t of c.tools){const name=`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64);if(!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
- return run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents'].includes(t.name)||(t.name.startsWith('mcp_')&&!t.write)):result;
+ for(const c of await query('SELECT * FROM connections WHERE status=\'connected\'')){
+  // Catalog connections are available to every agent (all_agents); others only where the agent enabled the tool.
+  if(c.kind==='native'){if(c.catalog_key==='google-tasks')result.push(...googleTasksTools(c).filter(t=>c.all_agents||enabled.includes(t.name)));continue;}
+  for(const t of c.tools){const name=`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64);if(!c.all_agents&&!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
+ }
+ return run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
 }
 const palette=['#258cff','#18b99c','#fcad24','#9b6bff','#fc733f','#df8da9','#b3efbc','#9c713f'];
 const pick=<T,>(list:readonly T[])=>list[Math.floor(Math.random()*list.length)];

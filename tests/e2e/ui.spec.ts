@@ -156,3 +156,25 @@ test('notificações por agente e convite para ativar no aparelho', async ({ pag
   await page.getByRole('button', { name: 'Notificações desativadas', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Notificações ativadas', exact: true })).toBeVisible();
 });
+
+test('aplicativos: catálogo com um clique e guia do Google', async ({ page }) => {
+  await openAgents(page);
+  if (tablet(page)) await page.locator('.profile').click(); else await page.getByRole('button', { name: /e2e/ }).click();
+  await page.getByRole('menuitem', { name: 'Conectar aplicativos' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Conectar aplicativos' });
+  const card = (name: string) => dialog.locator('.app-card', { hasText: name });
+  await expect(card('Notion').getByRole('button', { name: 'Conectar' })).toBeVisible();
+  await expect(card('Todoist')).toContainText('Conectado · 2 ferramentas');
+  await expect(card('Google Tarefas').getByRole('button', { name: 'Configurar' })).toBeVisible();
+  await card('Gmail').getByRole('button', { name: 'Configurar' }).click();
+  await expect(dialog.locator('.google-setup')).toContainText('/api/connections/oauth/callback');
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `test-results/apps-${page.viewportSize()!.width}.png`, fullPage: true });
+});
+
+test('volta do OAuth com erro abre o painel e explica', async ({ page }) => {
+  await page.goto('/?connector_error=' + encodeURIComponent('Acesso negado pelo usuário'));
+  await expect(page.getByRole('dialog', { name: 'Conectar aplicativos' })).toBeVisible();
+  await expect(page.locator('.toast')).toContainText('Acesso negado pelo usuário');
+  expect(new URL(page.url()).search).toBe('');
+});

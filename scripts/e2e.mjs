@@ -58,6 +58,7 @@ async function seed() {
   await q("UPDATE conversations SET summary='Decisão: lançar em março.' WHERE id=$1", [coord]);
   await q("INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,enabled,next_at,conversation_id) VALUES($1,'Bom dia','Pergunte se preciso de algo','daily','08:00','America/Sao_Paulo',false,now()+interval '1 day',$2)", [agents['Coordenador'], coord]);
   await q("INSERT INTO messages(conversation_id,role,content,created_at) VALUES($1,'user','[Rotina agendada: Bom dia] Pergunte se preciso de algo',now()-interval '1 minute')", [coord]);
+  await q("INSERT INTO connections(name,url,catalog_key,all_agents,status,tools,read_tools) VALUES('Todoist','https://ai.todoist.net/mcp','todoist',true,'connected','[{\"name\":\"find_tasks\"},{\"name\":\"add_task\"}]','[\"find_tasks\"]')");
   await q("INSERT INTO worker_health(id,heartbeat_at) VALUES('primary',now()) ON CONFLICT(id) DO UPDATE SET heartbeat_at=now()");
   await c.end();
 }

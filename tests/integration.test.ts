@@ -47,8 +47,42 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   packet({choices:[],usage:{prompt_tokens:15,completion_tokens:9}});if(!text.includes('BROKEN_STREAM'))reply.raw.write('data: [DONE]\n\n');reply.raw.end();
  });
  fake.post('/mcp',async(req,reply)=>{if(req.headers.authorization!=='Bearer mcp-secret')return reply.code(401).send({error:'unauthorized'});const server=new McpServer({name:'cell-test',version:'1.0.0'});server.registerTool('read_public',{description:'Leitura controlada',inputSchema:{value:z.string()}},async a=>{reads++;return {content:[{type:'text',text:a.value}]};});server.registerTool('write_external',{description:'Escrita controlada',inputSchema:{value:z.string()}},async a=>{writes++;return {content:[{type:'text',text:a.value}]};});server.registerTool('fail_external',{description:'Escrita que falha',inputSchema:{value:z.string()}},async()=>({isError:true,content:[{type:'text',text:'Serviço recusou a operação.'}]}));const transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});await server.connect(transport);reply.hijack();await transport.handleRequest(req.raw,reply.raw,req.body);reply.raw.on('close',()=>{transport.close();server.close();});});
+ // Fake OAuth world for one-click connectors: an authorization server with dynamic registration (Notion-like), one without
+ // it that needs a pre-registered client (Google-like MCP), MCP servers that demand a bearer token, and Google Tasks.
+ const oauthCodes=new Map<string,any>(),validTokens=new Set<string>();let registered:any[]=[],googleRefreshes=0;const tasksDb:any[]=[];
+ fake.addContentTypeParser('application/x-www-form-urlencoded',{parseAs:'string'},(_req:any,body:any,done:any)=>done(null,Object.fromEntries(new URLSearchParams(body))));
+ const asMeta=(issuer:string,dcr:boolean)=>({issuer:fakeBase+issuer,authorization_endpoint:fakeBase+issuer+'/authorize',token_endpoint:fakeBase+issuer+'/token',...(dcr?{registration_endpoint:fakeBase+issuer+'/register'}:{}),response_types_supported:['code'],grant_types_supported:['authorization_code','refresh_token'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:dcr?['none']:['client_secret_post']});
+ let fakeBase='';
+ for(const [issuer,dcr] of [['/as',true],['/gas',false]] as const){
+  fake.get('/.well-known/oauth-authorization-server'+issuer,async()=>asMeta(issuer,dcr));
+  fake.post(issuer+'/register',async(req:any)=>{const c={...req.body,client_id:'dcr-'+(registered.length+1)};registered.push(c);return c;});
+  fake.get(issuer+'/authorize',async(req:any,reply)=>{const q=req.query;const code='code-'+Math.random().toString(36).slice(2);oauthCodes.set(code,{client:q.client_id,challenge:q.code_challenge,redirect:q.redirect_uri,scope:q.scope});return reply.redirect(`${q.redirect_uri}?code=${code}&state=${encodeURIComponent(q.state)}`);});
+  fake.post(issuer+'/token',async(req:any,reply)=>{const b=req.body,c=oauthCodes.get(b.code);const {createHash}=await import('node:crypto');
+   if(!c||createHash('sha256').update(b.code_verifier||'').digest('base64url')!==c.challenge||b.redirect_uri!==c.redirect||(!dcr&&b.client_secret!=='gsecret-1234567'))return reply.code(400).send({error:'invalid_grant'});
+   oauthCodes.delete(b.code);const token='tok-'+Math.random().toString(36).slice(2);validTokens.add(token);return {access_token:token,token_type:'Bearer',expires_in:3600,refresh_token:'refresh-1'};});
+ }
+ for(const [path,issuer] of [['/oauth-mcp','/as'],['/google-mcp','/gas']]){
+  fake.get('/.well-known/oauth-protected-resource'+path,async()=>({resource:fakeBase+path,authorization_servers:[fakeBase+issuer]}));
+  fake.post(path,async(req:any,reply)=>{const token=String(req.headers.authorization||'').replace('Bearer ','');
+   if(!validTokens.has(token))return reply.code(401).header('WWW-Authenticate',`Bearer resource_metadata="${fakeBase}/.well-known/oauth-protected-resource${path}"`).send({error:'unauthorized'});
+   const server=new McpServer({name:'oauth-test',version:'1.0.0'});
+   server.registerTool('search_pages',{description:'Busca páginas',inputSchema:{query:z.string()},annotations:{readOnlyHint:true}},async a=>({content:[{type:'text',text:`1 página encontrada para ${a.query}`}]}));
+   server.registerTool('list_items',{description:'Lista itens',inputSchema:{}},async()=>({content:[{type:'text',text:'[]'}]}));
+   server.registerTool('create_page',{description:'Cria página',inputSchema:{title:z.string()}},async a=>({content:[{type:'text',text:`criada ${a.title}`}]}));
+   const transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});await server.connect(transport);reply.hijack();await transport.handleRequest(req.raw,reply.raw,req.body);reply.raw.on('close',()=>{transport.close();server.close();});});
+ }
+ fake.get('/google/authorize',async(req:any,reply)=>{const q=req.query;const code='g-'+Math.random().toString(36).slice(2);oauthCodes.set(code,{challenge:q.code_challenge,redirect:q.redirect_uri,client:q.client_id});return reply.redirect(`${q.redirect_uri}?code=${code}&state=${encodeURIComponent(q.state)}`);});
+ fake.post('/google/token',async(req:any,reply)=>{const b=req.body;if(b.client_secret!=='gsecret-1234567')return reply.code(401).send({error:'invalid_client'});
+  if(b.grant_type==='refresh_token'){googleRefreshes++;const t='gt-'+Math.random().toString(36).slice(2);validTokens.add(t);return {access_token:t,expires_in:3600};}
+  const c=oauthCodes.get(b.code);const {createHash}=await import('node:crypto');if(!c||createHash('sha256').update(b.code_verifier||'').digest('base64url')!==c.challenge)return reply.code(400).send({error:'invalid_grant'});
+  const t='gt-'+Math.random().toString(36).slice(2);validTokens.add(t);return {access_token:t,refresh_token:'g-refresh',expires_in:1};});
+ const gAuth=(req:any,reply:any)=>{if(!validTokens.has(String(req.headers.authorization||'').replace('Bearer ',''))){reply.code(401).send({error:'unauthorized'});return false;}return true;};
+ fake.get('/google/tasks/users/@me/lists',async(req,reply)=>gAuth(req,reply)&&{items:[{id:'@default',title:'Minhas tarefas'}]});
+ fake.get('/google/tasks/lists/:list/tasks',async(req:any,reply)=>gAuth(req,reply)&&{items:tasksDb.filter(t=>req.query.showCompleted==='true'||t.status!=='completed')});
+ fake.post('/google/tasks/lists/:list/tasks',async(req:any,reply)=>{if(!gAuth(req,reply))return;const t={id:'t'+(tasksDb.length+1),status:'needsAction',...req.body};tasksDb.push(t);return t;});
+ fake.patch('/google/tasks/lists/:list/tasks/:id',async(req:any,reply)=>{if(!gAuth(req,reply))return;const t=tasksDb.find(x=>x.id===req.params.id);Object.assign(t,req.body);return t;});
  await fake.listen({host:'127.0.0.1',port:0});const base=`http://127.0.0.1:${(fake.server.address() as any).port}`;
- process.env.NINEROUTER_BASE_URL=base+'/v1';process.env.NINEROUTER_API_KEY='test-secret';process.env.NINEROUTER_DEFAULT_MODEL='cell-test';
+ fakeBase=base;process.env.CONNECTOR_URL_OVERRIDES=JSON.stringify({notion:base+'/oauth-mcp',gmail:base+'/google-mcp'});process.env.GOOGLE_OAUTH_AUTHORIZE=base+'/google/authorize';process.env.GOOGLE_OAUTH_TOKEN=base+'/google/token';process.env.GOOGLE_TASKS_API=base+'/google/tasks';process.env.NINEROUTER_BASE_URL=base+'/v1';process.env.NINEROUTER_API_KEY='test-secret';process.env.NINEROUTER_DEFAULT_MODEL='cell-test';
  // TEST_DATABASE_URL must point at a disposable test database; never production.
  assert.ok(new URL(process.env.TEST_DATABASE_URL!).pathname.endsWith('_test'),'Use um banco com sufixo _test.');
  await query('DROP SCHEMA IF EXISTS pgboss CASCADE');await query('DROP SCHEMA public CASCADE');await query('CREATE SCHEMA public');await migrate();await seed();await startQueue();
@@ -277,6 +311,36 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal(pushes.length,0,'agente silenciado não envia push');assert.ok(!(await request('GET','/notifications')).items.some((n:any)=>n.conversation_id===cv.id),'nem aparece na central');
   await request('POST',`/agents/${agent.id}/notify`,{notify:true});assert.equal((await request('GET','/agents')).find((x:any)=>x.id===agent.id).notify,true);agent.notify=true;
   await request('POST','/push/unsubscribe',{endpoint:base+'/push/laptop'});
+ });
+ await t.test('conectores com um clique: OAuth automático, Google e Google Tarefas',async()=>{
+  const {toolsFor}=await import('../apps/server/src/tools.js');
+  const follow=async(url:string)=>{const r=await fetch(url,{redirect:'manual'});const back=new URL(r.headers.get('location')!);return app.inject({method:'GET',url:back.pathname+back.search});};
+  const cat=await request('GET','/connectors');assert.ok(cat.connectors.some((c:any)=>c.key==='notion'));assert.equal(cat.googleConfigured,false);assert.equal(cat.redirectUri,'http://localhost:5173/api/connections/oauth/callback');
+  // Notion-like: dynamic registration, PKCE and the fixed callback; the callback works without a session cookie.
+  const start=await request('POST','/connectors/notion/connect');const u=new URL(start.authorizationUrl);
+  assert.equal(u.searchParams.get('redirect_uri'),'http://localhost:5173/api/connections/oauth/callback');assert.equal(u.searchParams.get('code_challenge_method'),'S256');assert.ok(registered.at(-1).redirect_uris.includes('http://localhost:5173/api/connections/oauth/callback'));
+  const cb=await follow(start.authorizationUrl);assert.equal(cb.statusCode,302);assert.equal(cb.headers.location,'/?connected=notion');
+  const notion=(await request('GET','/connectors')).connectors.find((c:any)=>c.key==='notion');assert.equal(notion.status,'connected');assert.equal(notion.tools,3);
+  const row=await one("SELECT id,read_tools,all_agents FROM connections WHERE catalog_key='notion'");assert.deepEqual([...row.read_tools].sort(),['list_items','search_pages']);assert.equal(row.all_agents,true);
+  const forAgent:any[]=(await toolsFor({agent_id:targetAgent},{agent:{tools:[]}})).filter((x:any)=>x.target?.startsWith('Notion'));assert.equal(forAgent.length,3,'liberado para todos os agentes');
+  assert.equal(forAgent.find((x:any)=>x.name.endsWith('create_page')).write,true,'escrita pede aprovação');
+  assert.match(await forAgent.find((x:any)=>x.name.endsWith('search_pages')).execute({query:'atas'},{},{}),/1 página encontrada para atas/);
+  const forged=await app.inject({method:'GET',url:`/api/connections/oauth/callback?code=x&state=${row.id}.${'0'.repeat(48)}`});assert.match(String(forged.headers.location),/connector_error/);
+  // Google services need the owner's OAuth client once; the secret is stored encrypted.
+  await assert.rejects(request('POST','/connectors/gmail/connect'),/Configure o Google/);await assert.rejects(request('PUT','/connectors/google',{clientId:'abc',clientSecret:'x'.repeat(12)}),/400/);
+  await request('PUT','/connectors/google',{clientId:'123-abc.apps.googleusercontent.com',clientSecret:'gsecret-1234567'});assert.ok(!(await one("SELECT client_secret FROM oauth_clients WHERE provider='google'")).client_secret.includes('gsecret'));
+  const g=await request('POST','/connectors/gmail/connect');const gu=new URL(g.authorizationUrl);assert.equal(gu.searchParams.get('client_id'),'123-abc.apps.googleusercontent.com');assert.match(String(gu.searchParams.get('scope')),/gmail\.readonly/);
+  assert.equal((await follow(g.authorizationUrl)).headers.location,'/?connected=gmail');assert.equal((await request('GET','/connectors')).connectors.find((c:any)=>c.key==='gmail').status,'connected');
+  // Google Tasks: native OAuth (offline access) and API calls with automatic token refresh.
+  const tk=await request('POST','/connectors/google-tasks/connect');const tu=new URL(tk.authorizationUrl);assert.equal(tu.searchParams.get('access_type'),'offline');assert.match(String(tu.searchParams.get('scope')),/auth\/tasks/);
+  assert.equal((await follow(tk.authorizationUrl)).headers.location,'/?connected=google-tasks');
+  const gt:any[]=(await toolsFor({agent_id:targetAgent},{agent:{tools:[]}})).filter((x:any)=>x.name.startsWith('gtasks_'));assert.equal(gt.length,5);assert.equal(gt.find((x:any)=>x.name==='gtasks_create_task').write,true);
+  assert.equal(JSON.parse(await gt.find((x:any)=>x.name==='gtasks_create_task').execute({title:'Comprar pão',due:'2026-10-30'},{},{})).title,'Comprar pão');
+  await sleep(1200);const listed=JSON.parse(await gt.find((x:any)=>x.name==='gtasks_list_tasks').execute({},{},{}));assert.equal(listed[0].title,'Comprar pão');assert.ok(googleRefreshes>=1,'token renovado');
+  await gt.find((x:any)=>x.name==='gtasks_complete_task').execute({taskId:listed[0].id},{},{});assert.equal(JSON.parse(await gt.find((x:any)=>x.name==='gtasks_list_tasks').execute({},{},{})).length,0);
+  assert.deepEqual((await toolsFor({agent_id:targetAgent,mode:'plan'},{agent:{tools:[]}})).map((x:any)=>x.name).filter((n:string)=>n.startsWith('gtasks_')).sort(),['gtasks_list_tasklists','gtasks_list_tasks']);
+  for(const key of ['notion','gmail','google-tasks'])await request('DELETE','/connectors/'+key);
+  assert.ok((await request('GET','/connectors')).connectors.every((c:any)=>c.status==='disconnected'));await request('DELETE','/connectors/google');
  });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });

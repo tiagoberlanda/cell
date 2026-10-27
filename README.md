@@ -120,6 +120,15 @@ npm run backup:verify -- backups\20261026-120000
 
 O comando restaura o backup num PostgreSQL temporário e isolado (com os mesmos parâmetros do `restore.ps1`), confere as migrações, compara as contagens com o manifesto e checa se todo arquivo citado no banco está na pasta `files/`. Nada de produção é tocado; o container temporário é removido no fim. Sai com código 0 e `"ok": true` quando o backup está íntegro.
 
+## Aplicativos (MCP com um clique)
+
+Menu do usuário → **Conectar aplicativos**.
+
+- **Um clique:** Notion, Canva, Todoist, Linear e Jira/Confluence. Toque em **Conectar**, autorize no próprio serviço e volte ao Cell; as ferramentas ficam disponíveis para todos os agentes. Ferramentas de leitura (anotadas como somente leitura pelo servidor, ou com nomes como `search`, `list`, `get`) rodam direto; as demais sempre pedem sua aprovação. Em **⋯ → Ferramentas e permissões** dá para ajustar quais são confiáveis para leitura.
+- **Google (Gmail, Drive, Agenda e Tarefas):** o Google exige um cliente OAuth próprio, criado uma vez. Em **Google → Como configurar**, o Cell mostra o comando para ativar as APIs, o URI de redirecionamento exato para cadastrar (`https://<seu domínio>/api/connections/oauth/callback`) e os campos para Client ID e Client Secret (guardado cifrado). Depois, cada serviço conecta com um clique. Gmail, Drive e Agenda usam os servidores MCP oficiais do Google (em prévia); o Google Tarefas é integrado diretamente (listar, criar, concluir e excluir tarefas, com renovação automática do acesso).
+- O retorno da autorização usa sempre o primeiro endereço de `APP_ORIGIN` (o domínio público). Ele funciona mesmo que você tenha iniciado a conexão pela rede local.
+- Outros servidores MCP continuam em **Conexões MCP personalizadas (avançado)**.
+
 ## Acompanhamento e diagnóstico
 
 - **Central de atividade** (ícone de atividade no cabeçalho ou menu do usuário): todas as execuções de todos os agentes, com filtros por estado e agente, resumo do que está trabalhando, na fila, aguardando aprovação ou com falha. Cada execução mostra modelo, duração, tokens, ferramentas, documentos usados, arquivos e a árvore de delegações, com os botões de aprovar, negar e cancelar.

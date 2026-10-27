@@ -31,7 +31,7 @@ function getCallsForMessage(m:any,chat:{runs:any[];calls:any[]}){
 const activeStates=['queued','running','waiting_approval','waiting_agent'];
 const stateNames:Record<string,string>={queued:'Na fila',running:'Trabalhando',waiting_approval:'Precisa da sua aprovação',waiting_agent:'Aguardando especialista',failed:'Execução interrompida',completed:'Concluído',cancelled:'Cancelado'};
 // Read once at load, then removed from the address bar so a refresh does not reopen it.
-const openTarget=(()=>{const p=new URLSearchParams(location.search),agent=p.get('agent')||'',conversation=p.get('conversation')||'';if(agent){history.replaceState(null,'',location.pathname);}return {agent,conversation};})();
+const openTarget=(()=>{const p=new URLSearchParams(location.search),agent=p.get('agent')||'',conversation=p.get('conversation')||'',connected=p.get('connected')||'',connectorError=p.get('connector_error')||'';if(agent||connected||connectorError){history.replaceState(null,'',location.pathname);}return {agent,conversation,connected,connectorError};})();
 export function App(){
  const pendingOpen=useRef<{agent:string;conversation:string}|null>(openTarget.agent?{agent:openTarget.agent,conversation:openTarget.conversation}:null);
  // pulse: bumped on every server event so open panels (activity center) refresh live.
@@ -124,6 +124,7 @@ export function App(){
  const openNote=(n:NotificationItem)=>{setAlerts(prev=>prev.filter(a=>a.id!==n.id));setModal(null);setDrawer(false);if(n.agent_id===selection.current.selected)setConversation(n.conversation_id);else{pendingOpen.current={agent:n.agent_id,conversation:n.conversation_id};setSelected(n.agent_id);}};
  const readAll=()=>api('/notifications/read-all','POST').then(()=>refreshNotes()).catch((e:any)=>notify(e.message));
  const toggleNotify=(a:Agent)=>action(async()=>{await api('/agents/'+a.id+'/notify','POST',{notify:!a.notify});notify(a.notify?`Notificações de ${a.name} desativadas.`:`Notificações de ${a.name} ativadas.`);await refreshNotes();});
+ useEffect(()=>{if(!user||!(openTarget.connected||openTarget.connectorError))return;notify(openTarget.connectorError?`Não foi possível conectar: ${openTarget.connectorError}`:'Aplicativo conectado. As ferramentas já estão disponíveis para os agentes.');setModal('connections');openTarget.connected=openTarget.connectorError='';},[user,notify]);
  const action=async(fn:()=>Promise<any>)=>{try{await fn();await refreshChat();await refreshAgents();}catch(e:any){notify(e.message);}};
  const openAgent=(a:Agent|null,tab='profile')=>{setEditAgent(a);setEditorTab(tab);setModal('agent');};
  const togglePin=(a:Agent)=>action(async()=>{await api('/agents/'+a.id+'/pin','POST',{pinned:!a.pinned});notify(a.pinned?`${a.name} saiu do topo.`:`${a.name} fixado no topo.`);});
