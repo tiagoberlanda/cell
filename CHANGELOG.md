@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.15.0] - 2026-10-27
+
 ### Adicionado
 - Catálogo de aplicativos com conexão em um clique (OAuth com registro automático do cliente): Notion, Canva, Todoist, Linear e Jira/Confluence. Cartões com estado, número de ferramentas, Reconectar, Desconectar e Ferramentas e permissões.
 - Google: configuração única guiada (comando das APIs, URI de redirecionamento para copiar, Client ID e Client Secret cifrado) e conexão em um clique para Gmail, Google Drive e Google Agenda (servidores MCP oficiais do Google, em prévia).
