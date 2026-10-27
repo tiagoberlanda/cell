@@ -45,6 +45,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.post('/v1/chat/completions',async(req,reply)=>{
   const b=req.body as any;if(req.headers.authorization!=='Bearer test-secret')return reply.code(401).send({error:'bad token'});
   if(String(b.messages?.[0]?.content||'').startsWith('Atualize o resumo'))summaryRequests.push(b);
+  if(!b.stream&&b.model==='sem-ferramentas')return {choices:[{message:{content:'ok'}}]};
   if(!b.stream)return {choices:[{message:{content:'Imagem recebida.',tool_calls:[{id:'probe',type:'function',function:{name:'cell_probe',arguments:'{"ok":true}'}}]}}]};
   chatTools.push((b.tools||[]).map((t:any)=>t.function.name));
   const last=b.messages.at(-1),text=typeof last.content==='string'?last.content:JSON.stringify(last.content);let tool:string|undefined,args:any={};
@@ -535,6 +536,19 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await request('POST','/host-access/commands',{enabled:false});assert.ok(!(await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).some((x:any)=>x.app==='computador'));
   const {hasToken,...settings}=await request('GET','/settings');await request('PUT','/settings',settings);assert.equal((await request('GET','/host-access/commands')).enabled,false,'salvar configurações mantém o desligado');
   await request('POST','/host-access/commands',{enabled:true});assert.ok((await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).some((x:any)=>x.name==='pc_run'));
+ });
+ await t.test('modelo nunca testado é testado uma vez e recebe ferramentas',async()=>{
+  const original=agent.model;
+  try{
+   agent.model='modelo-novo';await request('PUT','/agents/'+agent.id,agent);await query("DELETE FROM model_capabilities WHERE id IN('modelo-novo','sem-ferramentas')");
+   const r=await task('SEARCH_WEB modelo novo');await poll(r.id,'completed');
+   assert.equal((await query('SELECT 1 FROM tool_calls WHERE run_id=$1',[r.id])).length,1,'usou ferramenta sem teste manual');
+   assert.equal((await one("SELECT tools FROM model_capabilities WHERE id='modelo-novo'")).tools,true,'resultado gravado');
+   agent.model='sem-ferramentas';await request('PUT','/agents/'+agent.id,agent);
+   const r2=await task('Olá, modelo sem ferramentas');await poll(r2.id,'completed');
+   assert.deepEqual(chatTools.at(-1),[],'modelo sem ferramentas não recebe ferramentas');
+   assert.equal((await one("SELECT tools FROM model_capabilities WHERE id='sem-ferramentas'")).tools,false);
+  }finally{agent.model=original;await request('PUT','/agents/'+agent.id,agent);}
  });
  await t.test('fixar até 3 agentes, renomear e mover de seção pelo menu',async()=>{
   const all=await request('GET','/agents');const others=all.filter((a:any)=>!a.archived&&!a.pinned);

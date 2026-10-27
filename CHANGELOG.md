@@ -5,6 +5,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Ícone do Cell Host na bandeja do Windows (perto do relógio): colorido quando está rodando, cinza quando parado. O menu tem **Iniciar**, **Parar**, **Abrir o Cell**, **Ver registro** e **Fechar (parar e sair)**; um duplo clique inicia quando está parado. Se o Cell Host cair, a bandeja o reinicia sozinha (até 5 vezes seguidas, depois avisa).
+- Atalho **Cell Host** no menu Iniciar para abrir de novo depois de fechar. Abrir uma segunda cópia só avisa que já está rodando.
+
+### Corrigido
+- Modelos que nunca tinham passado pelo teste de capacidades (por exemplo, o Grok) não recebiam **nenhuma ferramenta**: respondiam só em texto, sem gerar imagem, usar aplicativos ou o computador. Agora o modelo é testado automaticamente na primeira execução e o resultado é gravado; se o teste não puder ser feito, o Cell assume que o modelo usa ferramentas. Era a causa principal de o Artista com o Grok não gerar a imagem.
+- O instalador do Cell Host encerra versões anteriores em execução antes de instalar.
+
+### Como foi verificado
+- **Real:** no worker de produção, o Cell Host respondeu pelo `host.docker.internal` com o token. Um pedido real ao Coordenador (Grok) mostrou que o modelo recebia zero ferramentas (3,5 mil tokens de entrada), o que levou à correção. Ícones da bandeja renderizados.
+- **Simulado:** teste de integração: modelo novo é testado uma vez, recebe ferramentas e o resultado fica gravado; modelo sem suporte não recebe ferramentas.
+- **Não verificado:** a bandeja rodando de fato (precisa reinstalar o Cell Host com `.\scripts\host.ps1`).
+
 ## [0.22.0] - 2026-10-27
 
 ### Adicionado

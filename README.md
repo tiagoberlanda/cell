@@ -280,7 +280,7 @@ Instale **uma vez, no próprio computador** (PowerShell, na pasta do Cell; preci
 
 O que o instalador faz:
 
-- cria uma **tarefa agendada** que liga o Cell Host quando você entra no Windows, sem janela;
+- cria uma **tarefa agendada** que liga o Cell Host quando você entra no Windows, com um **ícone na bandeja** (perto do relógio): colorido quando está rodando, cinza quando parado. Clique com o botão direito para **Iniciar**, **Parar**, **Abrir o Cell**, **Ver registro** ou **Fechar**. Depois de fechar, abra de novo pelo atalho **Cell Host** no menu Iniciar;
 - roda com o **seu usuário, sem administrador**; comandos que exigem administrador falham;
 - escuta **só em `127.0.0.1`**, sem nenhuma porta aberta para a rede ou a internet, com um token gerado na instalação (guardado em `%LOCALAPPDATA%\Cell\host.json` e no `.env`).
 
