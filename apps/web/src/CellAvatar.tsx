@@ -5,7 +5,6 @@ import type {CSSProperties,ReactNode} from 'react';
 type Cell={name:string;eyes:[number,number,number];art:ReactNode};
 const ring=(n:number,r1:number,r2:number,cx=50,cy=50)=>Array.from({length:n},(_,i)=>{const a=i*2*Math.PI/n,c=Math.cos(a),s=Math.sin(a);return <line key={i} x1={cx+r1*c} y1={cy+r1*s} x2={cx+r2*c} y2={cy+r2*s}/>;});
 const cells:Record<string,Cell>={
- cell:{name:'Cell',eyes:[55,37,.82],art:<path d="M45 57C61 21 132 30 151 65C180 115 135 161 84 157C33 151 24 103 45 57Z" transform="scale(.5208)" fill="currentColor"/>},
  animal:{name:'Animal',eyes:[55,40,1],art:<>
   <circle cx="50" cy="50" r="42" fill="currentColor"/><circle cx="50" cy="50" r="36.5" className="c-in"/>
   <circle cx="34" cy="62" r="13" className="c-md"/><circle cx="31" cy="60" r="5" className="c-dk"/>
@@ -74,10 +73,10 @@ const cells:Record<string,Cell>={
 };
 export const cellNames:Record<string,string>=Object.fromEntries(Object.entries(cells).map(([k,v])=>[k,v.name]));
 const labels:Record<string,string>={running:'Trabalhando',queued:'Na fila',waiting_agent:'Aguardando agente',waiting_approval:'Aguardando aprovação',completed:'Concluído',failed:'Falhou',cancelled:'Cancelado'};
-export function CellAvatar({shape='cell',color='#b3efbc',state,size=44}:{shape?:string;color?:string;state?:string|null;size?:number}){
+export function CellAvatar({shape='ameba',color='#b3efbc',state,size=44}:{shape?:string;color?:string;state?:string|null;size?:number}){
  const ref=useRef<HTMLSpanElement>(null),[visible,setVisible]=useState(true),[celebrate,setCelebrate]=useState(false);
  useEffect(()=>{const observer=new IntersectionObserver(([entry])=>setVisible(entry.isIntersecting));if(ref.current)observer.observe(ref.current);return()=>observer.disconnect();},[]);
  useEffect(()=>{if(state==='completed'){setCelebrate(true);const timer=setTimeout(()=>setCelebrate(false),900);return()=>clearTimeout(timer);}setCelebrate(false);},[state]);
- const cell=cells[shape]||cells.cell,[ex,ey,es]=cell.eyes;
- return <span ref={ref} className={`cell-avatar ${state==='running'?'is-running':''} ${celebrate?'is-complete':''} ${!visible?'offscreen':''}`} style={{width:size,height:size,'--cell-color':color} as CSSProperties} role="img" aria-label={`Célula ${cell.name} — ${labels[state||'']||'Ocioso'}`}><svg viewBox="0 0 100 100" aria-hidden="true"><g className="cell-body">{cell.art}<g transform={`translate(${ex} ${ey}) scale(${es})`}><g className="cell-eyes" transform="rotate(-22)"><rect x="-13.5" y="-10.5" width="8" height="21" rx="4" fill="#101313"/><rect x="5.5" y="-10.5" width="8" height="21" rx="4" fill="#101313"/></g></g></g></svg>{['failed','waiting_approval','queued','waiting_agent'].includes(state||'')&&<i className={`state-dot ${state}`}/>}</span>;
+ const cell=cells[shape]||cells.ameba,[ex,ey,es]=cell.eyes;
+ return <span ref={ref} className={`cell-avatar ${state==='running'?'is-running':''} ${celebrate?'is-complete':''} ${!visible?'offscreen':''}`} style={{width:size,height:size,'--cell-color':color} as CSSProperties} role="img" aria-label={`Célula ${cell.name} — ${labels[state||'']||'Ocioso'}`}><svg viewBox="0 0 100 100" aria-hidden="true"><g className="cell-body">{cell.art}<g transform={`translate(${ex} ${ey}) scale(${es})`}><g className="cell-eyes" transform="rotate(-22)"><rect x="-13.5" y="-10.5" width="8" height="21" rx="4" fill="#101313"/><rect x="5.5" y="-10.5" width="8" height="21" rx="4" fill="#101313"/></g></g></g></svg>{['running','failed','waiting_approval','queued','waiting_agent'].includes(state||'')&&<i className={`state-dot ${state}`}/>}</span>;
 }

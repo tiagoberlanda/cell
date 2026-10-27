@@ -6,7 +6,7 @@ import {completion,type RouterConfig} from '../apps/server/src/router.js';
 import {stripThinking} from '../packages/shared/src/index.js';
 const chunk=(delta:any,finish:string|null=null,extra:any={})=>`data: ${JSON.stringify({choices:[{index:0,delta,finish_reason:finish}],...extra})}\n\n`;
 async function stream(body:string,onVisible:(t:string)=>Promise<void>=async()=>{}){
- const server=createServer((req,res)=>{res.writeHead(200,{'Content-Type':'text/event-stream'});res.end(body);});
+ const server=createServer((req,res)=>{req.resume();res.writeHead(200,{'Content-Type':'text/event-stream'});res.end(body);});
  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
  const c:RouterConfig={baseUrl:`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,token:'t',defaultModel:'m',timezone:'UTC',concurrency:1,maxSteps:1,maxDepth:0};
  try{return await completion(c,'m',[{role:'user',content:'oi'}],[],onVisible);}finally{server.close();}

@@ -5,6 +5,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Sistema de comandos slash ("/") no compositor com menu suspenso interativo: `/clean`, `/imagem`, `/plan`, `/new`, `/search`, `/settings` e `/help`.
+- Indicador luminoso LED verde pulsante (`.state-dot.running`) no avatar da célula enquanto um agente está em execução, com suporte a acessibilidade (`prefers-reduced-motion`).
+- Vinculação direta das chamadas de ferramentas à respectiva mensagem de resposta do assistente (componente `ToolActivityCard`), em vez de acumular todas em um único bloco ao final da conversa.
+- Migração `0010_message_run_id` adiciona `run_id` à tabela `messages` e vincula o histórico existente.
+
+### Modificado
+- Modo mobile: ações de arquivar conversa e histórico de conversas tornadas visíveis e acessíveis no cabeçalho.
+- Modo mobile: gaveta lateral da lista de agentes expandida para ocupar 100% da tela (`max-width: 100vw; inset: 0`), eliminando a fresta lateral do chat e incluindo botão de fechar.
+
+### Restaurado
+- Restaurados os ícones biológicos padrão do sistema: o Coordenador volta a usar a célula Animal em tom claro (#f1f0e9), o avatar padrão do sistema volta a ser a Ameba com organelas (#b3efbc) e os 12 tipos clássicos de células ficam disponíveis.
+- Migração `0009_restore_cell_icons` restaura o Coordenador e agentes ao formato clássico de células.
+
 ## [0.9.0] - 2026-10-27
 
 ### Alterado
