@@ -5,6 +5,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Mensagem da tela offline do Service Worker (sw.js): corrigida codificação de caracteres com charset=utf-8 no cabeçalho Content-Type, meta tag charset e entidades HTML seguras, eliminando erros de acentuação (Cell está offline).
+- Cache do Service Worker atualizado para cell-shell-v4 com suporte a ícone e layout Cell.
+
 ### Adicionado
 - Sistema de comandos slash ("/") no compositor com menu suspenso interativo: `/clean`, `/imagem`, `/plan`, `/new`, `/search`, `/settings` e `/help`.
 - Indicador luminoso LED verde pulsante (`.state-dot.running`) no avatar da célula enquanto um agente está em execução, com suporte a acessibilidade (`prefers-reduced-motion`).
