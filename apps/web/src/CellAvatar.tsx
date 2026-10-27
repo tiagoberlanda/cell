@@ -73,10 +73,10 @@ const cells:Record<string,Cell>={
 };
 export const cellNames:Record<string,string>=Object.fromEntries(Object.entries(cells).map(([k,v])=>[k,v.name]));
 const labels:Record<string,string>={running:'Trabalhando',queued:'Na fila',waiting_agent:'Aguardando agente',waiting_approval:'Aguardando aprovação',completed:'Concluído',failed:'Falhou',cancelled:'Cancelado'};
-export function CellAvatar({shape='ameba',color='#b3efbc',state,size=44}:{shape?:string;color?:string;state?:string|null;size?:number}){
+export function CellAvatar({shape='animal',color='#f1f0e9',state,size=44}:{shape?:string;color?:string;state?:string|null;size?:number}){
  const ref=useRef<HTMLSpanElement>(null),[visible,setVisible]=useState(true),[celebrate,setCelebrate]=useState(false);
  useEffect(()=>{const observer=new IntersectionObserver(([entry])=>setVisible(entry.isIntersecting));if(ref.current)observer.observe(ref.current);return()=>observer.disconnect();},[]);
  useEffect(()=>{if(state==='completed'){setCelebrate(true);const timer=setTimeout(()=>setCelebrate(false),900);return()=>clearTimeout(timer);}setCelebrate(false);},[state]);
- const cell=cells[shape]||cells.ameba,[ex,ey,es]=cell.eyes;
+ const cell=cells[shape]||cells.animal,[ex,ey,es]=cell.eyes;
  return <span ref={ref} className={`cell-avatar ${state==='running'?'is-running':''} ${celebrate?'is-complete':''} ${!visible?'offscreen':''}`} style={{width:size,height:size,'--cell-color':color} as CSSProperties} role="img" aria-label={`Célula ${cell.name} — ${labels[state||'']||'Ocioso'}`}><svg viewBox="0 0 100 100" aria-hidden="true"><g className="cell-body">{cell.art}<g transform={`translate(${ex} ${ey}) scale(${es})`}><g className="cell-eyes" transform="rotate(-22)"><rect x="-13.5" y="-10.5" width="8" height="21" rx="4" fill="#101313"/><rect x="5.5" y="-10.5" width="8" height="21" rx="4" fill="#101313"/></g></g></g></svg>{['running','failed','waiting_approval','queued','waiting_agent'].includes(state||'')&&<i className={`state-dot ${state}`}/>}</span>;
 }
