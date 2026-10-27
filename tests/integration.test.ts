@@ -96,5 +96,15 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal((await request('GET','/sections')).some((s:any)=>s.name==='Arte'),false);
  });
  await t.test('execução interrompida por reinício do worker é retomada',async()=>{const r=await task('SLOW_TEST retomada');await poll(r.id,'running');const old=worker!;await new Promise(done=>{old.once('exit',done);old.kill();});assert.equal((await one('SELECT state FROM runs WHERE id=$1',[r.id])).state,'running');launch();await poll(r.id,'completed',120000);});
+ await t.test('arquivar conversa abre outra vazia e guarda a antiga no histórico',async()=>{
+  const r=await task('Conversa para arquivar');await poll(r.id,'completed');const old=(await one('SELECT conversation_id FROM runs WHERE id=$1',[r.id])).conversation_id;
+  const fresh=await request('POST',`/conversations/${old}/archive`);assert.notEqual(fresh.id,old);assert.equal(fresh.archived_at,null);
+  assert.equal((await request('GET','/conversations/'+fresh.id)).messages.length,0,'nova conversa começa vazia');
+  const list=await request('GET',`/agents/${agent.id}/conversations`);const archivedRow=list.find((c:any)=>c.id===old);assert.ok(archivedRow.archived_at);assert.ok(archivedRow.message_count>=2);
+  assert.ok(list.findIndex((c:any)=>c.id===fresh.id)<list.findIndex((c:any)=>c.id===old),'ativas antes das arquivadas');
+  assert.ok((await request('GET','/conversations/'+old)).messages.length>=2,'histórico preservado');
+  await assert.rejects(request('POST',`/conversations/${old}/messages`,{content:'oi'}),/arquivada/);await assert.rejects(request('POST',`/conversations/${old}/archive`),/já está arquivada/);
+  await request('POST',`/conversations/${old}/restore`);assert.equal((await one('SELECT archived_at FROM conversations WHERE id=$1',[old])).archived_at,null);
+ });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });
