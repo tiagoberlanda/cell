@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.18.0] - 2026-10-27
+
 ### Adicionado
 - Chamada de voz: botão de telefone no topo da conversa abre uma tela de chamada com o agente. Você fala e, ao fazer uma pausa, o Cell envia o trecho; a célula do agente mostra que está pensando (anéis girando e pontinhos), depois responde falando (ondas sonoras) e volta a ouvir sozinha. Legendas mostram o que você disse e o que o agente respondeu. Dá para desligar o microfone, enviar na hora, interromper a fala do agente e encerrar. A tela fica acesa durante a chamada.
 - Na chamada o agente sempre responde em voz, mesmo que esteja configurado para responder áudios em texto. Fora da chamada vale a opção do agente.
