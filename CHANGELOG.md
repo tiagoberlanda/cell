@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.17.2] - 2026-10-27
+
 ### Corrigido
 - Aprovar uma ação travava a execução: o Cell guardava a impressão dos parâmetros na ordem enviada pelo modelo, mas o banco reordena as chaves. Ao conferir, a ordem não batia e a execução falhava com "Parâmetros mudaram após a aprovação", deixando a aprovação na tela. A impressão agora ignora a ordem das chaves (alteração real dos parâmetros continua bloqueando).
 - Execuções encerradas (falha, conclusão ou cancelamento) agora fecham as aprovações pendentes, que deixam de aparecer com botões. A migração `0017_stale_approvals` limpa as que ficaram presas.
