@@ -100,6 +100,8 @@ npm run build   # build da interface
 npm run dev     # Vite em http://127.0.0.1:5173 (proxy /api → 127.0.0.1:3101)
 ```
 
+Diálogos da interface: use sempre os helpers de `apps/web/src/dialogs.ts` (SweetAlert2 / `Swal.fire`). Nunca use `alert`, `confirm` ou `prompt` nativos.
+
 Testes (o de integração só roda com um banco descartável cujo nome termina em `_test`):
 
 ```powershell

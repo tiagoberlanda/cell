@@ -5,6 +5,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Alterado
+- Confirmações e campos de nome usam SweetAlert2 (`Swal.fire`) com o tema do Cell, no lugar de `confirm`/`prompt` nativos; os helpers ficam em `apps/web/src/dialogs.ts`.
+
 ## [0.6.0] - 2026-10-27
 
 ### Adicionado

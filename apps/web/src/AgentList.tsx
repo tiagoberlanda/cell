@@ -5,6 +5,7 @@ import {Pin,PinOff,Plus,MoreHorizontal,Pencil,Trash2} from 'lucide-react';
 import type {Agent} from '../../../packages/shared/src/index';
 import {CellAvatar} from './CellAvatar';
 import {api} from './api';
+import {confirmDialog,promptDialog} from './dialogs';
 type Group={name:string;ids:string[]};
 type Drag={kind:'agent'|'section';id:string;x:number;y:number;pointer:string;timer?:ReturnType<typeof setTimeout>;active:boolean};
 const HOLD_MS=350;
@@ -55,9 +56,9 @@ export function AgentList({agents,sections,selected,onSelect,onTogglePin,onChang
   return()=>{cancelAnimationFrame(frame);window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',end);window.removeEventListener('pointercancel',end);document.removeEventListener('touchmove',block);};
  },[]);
  const run=async(fn:()=>Promise<any>)=>{try{await fn();await onChanged();}catch(e:any){notify(e.message);}};
- const createSection=()=>{const name=prompt('Nome da nova seção');if(name?.trim())run(()=>api('/sections','POST',{name:name.trim()}));};
- const renameSection=(from:string)=>{const name=prompt('Novo nome da seção',from);if(name?.trim()&&name.trim()!==from)run(()=>api('/sections/'+encodeURIComponent(from),'PUT',{name:name.trim()}));};
- const deleteSection=(name:string)=>run(()=>api('/sections/'+encodeURIComponent(name),'DELETE'));
+ const createSection=async()=>{const name=await promptDialog('Nova seção',{placeholder:'Ex.: Criativos',confirm:'Criar'});if(name)run(()=>api('/sections','POST',{name}));};
+ const renameSection=async(from:string)=>{const name=await promptDialog('Renomear seção',{value:from});if(name&&name!==from)run(()=>api('/sections/'+encodeURIComponent(from),'PUT',{name}));};
+ const deleteSection=async(name:string)=>{if(await confirmDialog(`Excluir a seção ${name}?`,undefined,{confirm:'Excluir',danger:true}))run(()=>api('/sections/'+encodeURIComponent(name),'DELETE'));};
  return <div ref={list} className={`agent-list ${dragging?'is-dragging':''}`}>
   {view.map(g=><section key={g.name} data-drop="section" data-key={g.name} data-section-box={g.name} className={dragging===g.name?'dragging':''}>
    <div className="section-label" data-drop="section-head" data-key={g.name} onPointerDown={e=>press(e,'section',g.name)} onContextMenu={e=>e.preventDefault()} title="Segure e arraste para reordenar a seção"><span>{g.name}</span><span className="section-tools"><span>{g.ids.length}</span>
