@@ -7,7 +7,10 @@ import { randomBytes } from 'node:crypto';
 // Connections created from the catalog use one fixed callback (Google requires the exact URL to be registered); the state
 // carries the connection id. Older connections keep their per-connection callback.
 export const fixedCallback=()=>`${appOrigins()[0]}/api/connections/oauth/callback`;
-const callbackFor=(connection:any,oauth:any)=>oauth.fixedRedirect?fixedCallback():`${appOrigins()[0]}/api/connections/${connection.id}/oauth/callback`;
+// Some servers (Canva) only accept loopback return addresses from unlisted apps. Nothing listens there: the browser shows an
+// unreachable page and the owner pastes its address into Cell, which completes the exchange.
+export const loopbackCallback='http://127.0.0.1:53682/cell/oauth/callback';
+const callbackFor=(connection:any,oauth:any)=>oauth.loopback?loopbackCallback:oauth.fixedRedirect?fixedCallback():`${appOrigins()[0]}/api/connections/${connection.id}/oauth/callback`;
 export const newState=(connectionId:string)=>`${connectionId}.${randomBytes(24).toString('hex')}`;
 // OAuth provider for the MCP SDK. Dynamic registration when the server allows it; a pre-registered client (oauth.client)
 // otherwise. Google needs offline access and a consent prompt to issue refresh tokens.

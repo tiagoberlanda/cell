@@ -132,9 +132,10 @@ Com o campo de mensagem vazio, toque no microfone para gravar (até 5 minutos) e
 
 Menu do usuário → **Conectar aplicativos**.
 
-- **Um clique:** Notion, Canva, Todoist, Linear e Jira/Confluence. Toque em **Conectar**, autorize no próprio serviço e volte ao Cell; as ferramentas ficam disponíveis para todos os agentes. Ferramentas de leitura (anotadas como somente leitura pelo servidor, ou com nomes como `search`, `list`, `get`) rodam direto; as demais sempre pedem sua aprovação. Em **⋯ → Ferramentas e permissões** dá para ajustar quais são confiáveis para leitura.
+- **Um clique:** Notion, Todoist, Linear, Jira/Confluence, ClickUp, monday.com, Airtable, Miro, Zapier, Stripe, PayPal, Wix, Webflow, Supabase, Sentry, Cloudflare e Hugging Face. Toque em **Conectar**, autorize no próprio serviço e volte ao Cell; as ferramentas ficam disponíveis para todos os agentes. Ferramentas de leitura (anotadas como somente leitura pelo servidor, ou com nomes como `search`, `list`, `get`) rodam direto; as demais sempre pedem sua aprovação. Em **⋯ → Ferramentas e permissões** dá para ajustar quais são confiáveis para leitura.
 - **Google (Gmail, Drive, Agenda e Tarefas):** o Google exige um cliente OAuth próprio, criado uma vez. Em **Google → Como configurar**, o Cell mostra o comando para ativar as APIs, o URI de redirecionamento exato para cadastrar (`https://<seu domínio>/api/connections/oauth/callback`) e os campos para Client ID e Client Secret (guardado cifrado). Depois, cada serviço conecta com um clique. Gmail, Drive e Agenda usam os servidores MCP oficiais do Google (em prévia); o Google Tarefas é integrado diretamente (listar, criar, concluir e excluir tarefas, com renovação automática do acesso).
 - O retorno da autorização usa sempre o primeiro endereço de `APP_ORIGIN` (o domínio público). Ele funciona mesmo que você tenha iniciado a conexão pela rede local.
+- **Canva:** o Canva só devolve a autorização para um endereço local. Depois de autorizar, abre uma página que não carrega (`http://127.0.0.1:53682/...`); copie o endereço dela e cole no Cell para concluir.
 - Outros servidores MCP continuam em **Conexões MCP personalizadas (avançado)**.
 
 ## Acompanhamento e diagnóstico

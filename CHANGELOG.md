@@ -5,6 +5,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Janela de contexto: nova configuração "Janela de contexto (tokens)" em Configurações → Execução, com padrão de 16 mil. Cada execução envia ao modelo só o que cabe nela (instruções, a nova mensagem e o histórico mais recente; anexos usam no máximo metade). Antes o limite era fixo em 120 mil caracteres.
+- Nos detalhes do agente, "Janela de contexto" mostra quanto a última execução da conversa usou em relação ao máximo, com barra (amarela acima de 70%, vermelha acima de 90%).
+- Treze aplicativos novos no catálogo, todos testados com o endereço de retorno do Cell: ClickUp, monday.com, Airtable, Miro, Zapier, Stripe, PayPal, Wix, Webflow, Supabase, Sentry, Cloudflare e Hugging Face. O catálogo agora é agrupado por categoria.
+
+### Corrigido
+- Canva: a conexão falhava com "Invalid redirect URI", porque o Canva só aceita retorno para endereço local de aplicativos que ele não aprovou. Agora o Cell usa o retorno local: depois de autorizar, a página que não carrega tem o endereço com a autorização; basta colá-lo no Cell para concluir.
+
+### Como foi verificado
+- **Real:** consulta aos servidores MCP de 25 serviços com o endereço de retorno do Cell. Os 13 adicionados aceitaram; Asana, Box, Dropbox, Figma, GitHub, HubSpot, Vercel e Intercom só aceitam aplicativos pré-aprovados e ficaram de fora. O Canva aceitou o retorno local.
+- **Simulado:** teste de integração do fluxo de colar o endereço (retorno local, código trocado uma vez, endereço de outro aplicativo recusado) e da janela de contexto (padrão de 16 mil, histórico antigo cortado em 2 mil tokens, uso medido). Testes de navegador em cinco larguras.
+- **Não verificado:** conexão real com as contas desses serviços.
+
 ## [0.16.1] - 2026-10-27
 
 ### Adicionado

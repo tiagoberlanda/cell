@@ -2,10 +2,10 @@ import {useCallback,useEffect,useState} from 'react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {Check,Copy,MoreHorizontal,RefreshCw,Settings2,Unplug,ChevronDown,AlertTriangle} from 'lucide-react';
 import {api} from './api';
-import {confirmDialog} from './dialogs';
+import {confirmDialog,promptDialog} from './dialogs';
 import {brandIcons} from './brandIcons';
 type Notice={notify:(m:string)=>void};
-type Connector={key:string;name:string;description:string;category:string;color:string;auth:'oauth'|'google'|'google-native';preview:boolean;connectionId:string|null;status:string;tools:number};
+type Connector={key:string;name:string;description:string;category:string;color:string;auth:'oauth'|'google'|'google-native';preview:boolean;manualReturn:boolean;connectionId:string|null;status:string;tools:number};
 const initials=(name:string)=>name.split(/\s+/).filter(w=>/^[A-Za-zÀ-ú]/.test(w)&&!['e','de'].includes(w)).slice(0,2).map(w=>w[0]).join('').toUpperCase();
 const dark=(hex:string)=>{const n=parseInt(hex.slice(1),16);return ((n>>16)*299+((n>>8)&255)*587+(n&255)*114)/1000<150;};
 // Brand glyph on a white tile when Simple Icons has it; otherwise a colored initial.
@@ -17,7 +17,15 @@ export function AppsCatalog({notify,onManage}:{onManage:(connectionId:string)=>v
  const [data,setData]=useState<{connectors:Connector[];googleConfigured:boolean;googleClientId:string;redirectUri:string}|null>(null),[busy,setBusy]=useState<string|null>(null),[googleOpen,setGoogleOpen]=useState(false),[google,setGoogle]=useState({clientId:'',clientSecret:''});
  const load=useCallback(()=>api('/connectors').then(setData).catch((e:any)=>notify(e.message)),[notify]);
  useEffect(()=>{load();const onVisible=()=>{if(document.visibilityState==='visible')load();};document.addEventListener('visibilitychange',onVisible);return()=>document.removeEventListener('visibilitychange',onVisible);},[load]);
- const connect=async(c:Connector)=>{setBusy(c.key);try{const r=await api(`/connectors/${c.key}/connect`,'POST');if(r.authorizationUrl){window.location.assign(r.authorizationUrl);return;}notify(`${c.name} conectado: ${r.tools} ferramentas.`);await load();}catch(e:any){notify(e.message);await load();}finally{setBusy(null);}};
+ const connect=async(c:Connector)=>{setBusy(c.key);try{const r=await api(`/connectors/${c.key}/connect`,'POST');if(r.authorizationUrl){if(r.manualReturn){await manualReturn(c,r.authorizationUrl);return;}window.location.assign(r.authorizationUrl);return;}notify(`${c.name} conectado: ${r.tools} ferramentas.`);await load();}catch(e:any){notify(e.message);await load();}finally{setBusy(null);}};
+ // Apps that only return to a loopback address: authorize in a new tab, then paste the address of the page it lands on.
+ const manualReturn=async(c:Connector,url:string)=>{
+  if(!await confirmDialog('Conectar '+c.name,'O '+c.name+' só devolve a autorização para um endereço local. Depois de autorizar, vai abrir uma página que não carrega. Copie o endereço dessa página e cole aqui.',{confirm:'Abrir o '+c.name})){await load();return;}
+  const tab=window.open(url,'_blank');if(tab)tab.opener=null;else{notify('O navegador bloqueou a nova aba. Libere pop-ups para o Cell e tente de novo.');await load();return;}
+  const pasted=await promptDialog('Cole o endereço da página',{text:'É o endereço que começa com http://127.0.0.1, mostrado depois de autorizar.',placeholder:'http://127.0.0.1:53682/cell/oauth/callback?code=…',confirm:'Concluir conexão',required:'Cole o endereço.'});
+  if(!pasted){await load();return;}
+  const done=await api('/connectors/'+c.key+'/complete','POST',{url:pasted});notify(c.name+' conectado: '+done.tools+' ferramentas.');await load();
+ };
  const disconnect=async(c:Connector)=>{if(!await confirmDialog(`Desconectar ${c.name}?`,'Os agentes deixam de usar as ferramentas deste aplicativo.',{confirm:'Desconectar',danger:true}))return;try{await api('/connectors/'+c.key,'DELETE');notify(`${c.name} desconectado.`);await load();}catch(e:any){notify(e.message);}};
  const saveGoogle=async()=>{try{await api('/connectors/google','PUT',{clientId:google.clientId,...(google.clientSecret?{clientSecret:google.clientSecret}:{})});setGoogle({clientId:'',clientSecret:''});setGoogleOpen(false);notify('Google configurado. Agora conecte os serviços com um clique.');await load();}catch(e:any){notify(e.message);}};
  if(!data)return <p className="hint">Carregando aplicativos…</p>;
@@ -32,7 +40,7 @@ export function AppsCatalog({notify,onManage}:{onManage:(connectionId:string)=>v
  const others=data.connectors.filter(c=>c.category!=='Google'),googleApps=data.connectors.filter(c=>c.category==='Google');
  return <div className="stack apps-catalog">
   <div><h3>Aplicativos</h3><p className="hint">Conecte com um clique e autorize no próprio serviço. As ferramentas ficam disponíveis para todos os agentes; ações de escrita sempre pedem sua aprovação.</p></div>
-  <div className="app-grid">{others.map(card)}</div>
+  {[...new Set(others.map(c=>c.category))].map(cat=><div className="app-group" key={cat}><h4>{cat}</h4><div className="app-grid">{others.filter(c=>c.category===cat).map(card)}</div></div>)}
   <div className="row wrap app-section"><h3>Google</h3><span className="hint">{data.googleConfigured?`Configurado · ${data.googleClientId.slice(0,22)}…`:'Requer uma configuração única no Google Cloud.'}</span><button className="text-button" onClick={()=>setGoogleOpen(!googleOpen)}><ChevronDown size={14}/>{data.googleConfigured?'Alterar configuração':'Como configurar'}</button></div>
   {googleOpen&&<div className="google-setup stack">
    <p className="hint">O Google não permite conexão automática de apps independentes: crie uma vez um cliente OAuth no seu projeto do Google Cloud. Depois, cada serviço conecta com um clique.</p>

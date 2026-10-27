@@ -7,16 +7,29 @@ import { discover,finishOAuth,fixedCallback,newState,startAuthorization } from '
 import type { Tool } from './tools.js';
 
 const G='https://www.googleapis.com/auth/';
-export type CatalogEntry={key:string;name:string;description:string;category:string;color:string;auth:'oauth'|'google'|'google-native';url?:string;scopes?:string[];preview?:boolean};
+export type CatalogEntry={key:string;name:string;description:string;category:string;color:string;auth:'oauth'|'google'|'google-native';url?:string;scopes?:string[];preview?:boolean;loopback?:boolean};
 // One-click connectors. 'oauth': remote MCP with dynamic client registration (nothing to configure).
 // 'google': Google's official MCP servers (developer preview), which need the owner's Google OAuth client once.
 // 'google-native': Google Tasks has no MCP server, so Cell talks to the Tasks API directly with the same client.
 export const catalog:CatalogEntry[]=[
  {key:'notion',name:'Notion',description:'Busque, leia e crie páginas e bancos de dados.',category:'Documentos',color:'#f5f5f2',auth:'oauth',url:'https://mcp.notion.com/mcp'},
- {key:'canva',name:'Canva',description:'Crie, encontre e edite designs.',category:'Criação',color:'#7d2ae8',auth:'oauth',url:'https://mcp.canva.com/mcp'},
+ {key:'canva',name:'Canva',description:'Crie, encontre e edite designs.',category:'Criação',color:'#7d2ae8',auth:'oauth',url:'https://mcp.canva.com/mcp',loopback:true},
  {key:'todoist',name:'Todoist',description:'Tarefas, projetos e prazos.',category:'Tarefas',color:'#e44332',auth:'oauth',url:'https://ai.todoist.net/mcp'},
  {key:'linear',name:'Linear',description:'Issues, projetos e ciclos.',category:'Projetos',color:'#5e6ad2',auth:'oauth',url:'https://mcp.linear.app/mcp'},
  {key:'atlassian',name:'Jira e Confluence',description:'Issues do Jira e páginas do Confluence.',category:'Projetos',color:'#0c66e4',auth:'oauth',url:'https://mcp.atlassian.com/v1/mcp'},
+ {key:'clickup',name:'ClickUp',description:'Tarefas, listas e documentos.',category:'Tarefas',color:'#7b68ee',auth:'oauth',url:'https://mcp.clickup.com/mcp'},
+ {key:'monday',name:'monday.com',description:'Quadros, itens e atualizações.',category:'Projetos',color:'#6161ff',auth:'oauth',url:'https://mcp.monday.com/mcp'},
+ {key:'airtable',name:'Airtable',description:'Bases, tabelas e registros.',category:'Dados',color:'#18bfff',auth:'oauth',url:'https://mcp.airtable.com/mcp'},
+ {key:'miro',name:'Miro',description:'Quadros, notas e diagramas.',category:'Criação',color:'#ffd02f',auth:'oauth',url:'https://mcp.miro.com/'},
+ {key:'zapier',name:'Zapier',description:'Ações em milhares de aplicativos.',category:'Automação',color:'#ff4f00',auth:'oauth',url:'https://mcp.zapier.com/api/mcp/mcp'},
+ {key:'stripe',name:'Stripe',description:'Clientes, cobranças e pagamentos.',category:'Negócios',color:'#635bff',auth:'oauth',url:'https://mcp.stripe.com'},
+ {key:'paypal',name:'PayPal',description:'Faturas, pedidos e transações.',category:'Negócios',color:'#002991',auth:'oauth',url:'https://mcp.paypal.com/mcp'},
+ {key:'wix',name:'Wix',description:'Sites, loja e conteúdo.',category:'Sites',color:'#0c6efc',auth:'oauth',url:'https://mcp.wix.com/mcp'},
+ {key:'webflow',name:'Webflow',description:'Sites, coleções e páginas.',category:'Sites',color:'#146ef5',auth:'oauth',url:'https://mcp.webflow.com/mcp'},
+ {key:'supabase',name:'Supabase',description:'Projetos, bancos e tabelas.',category:'Desenvolvimento',color:'#3fcf8e',auth:'oauth',url:'https://mcp.supabase.com/mcp'},
+ {key:'sentry',name:'Sentry',description:'Erros e incidentes das aplicações.',category:'Desenvolvimento',color:'#362d59',auth:'oauth',url:'https://mcp.sentry.dev/mcp'},
+ {key:'cloudflare',name:'Cloudflare',description:'Documentação, Workers e contas.',category:'Desenvolvimento',color:'#f38020',auth:'oauth',url:'https://mcp.cloudflare.com/mcp'},
+ {key:'huggingface',name:'Hugging Face',description:'Modelos, datasets e Spaces.',category:'Desenvolvimento',color:'#ffd21e',auth:'oauth',url:'https://huggingface.co/mcp'},
  {key:'gmail',name:'Gmail',description:'Pesquise e leia e-mails e crie rascunhos.',category:'Google',color:'#ea4335',auth:'google',url:'https://gmailmcp.googleapis.com/mcp/v1',scopes:[G+'gmail.readonly',G+'gmail.compose'],preview:true},
  {key:'google-drive',name:'Google Drive',description:'Encontre, leia e envie arquivos.',category:'Google',color:'#1fa463',auth:'google',url:'https://drivemcp.googleapis.com/mcp/v1',scopes:[G+'drive.readonly',G+'drive.file'],preview:true},
  {key:'google-calendar',name:'Google Agenda',description:'Consulte horários livres e gerencie eventos.',category:'Google',color:'#4285f4',auth:'google',url:'https://calendarmcp.googleapis.com/mcp/v1',scopes:[G+'calendar.calendarlist.readonly',G+'calendar.events.freebusy',G+'calendar.events'],preview:true},
@@ -88,7 +101,7 @@ export function registerConnectors(app:FastifyInstance){
  app.get('/api/connectors',async()=>{
   const rows=await query('SELECT id,catalog_key,status,jsonb_array_length(tools) AS tools FROM connections WHERE catalog_key IS NOT NULL');
   const client=await googleClient();
-  return {googleConfigured:!!client,googleClientId:client?.client_id||'',redirectUri:fixedCallback(),connectors:catalog.map(e=>{const c=rows.find(r=>r.catalog_key===e.key);return {key:e.key,name:e.name,description:e.description,category:e.category,color:e.color,auth:e.auth,preview:!!e.preview,connectionId:c?.id||null,status:c?.status||'disconnected',tools:c?.tools||0};})};
+  return {googleConfigured:!!client,googleClientId:client?.client_id||'',redirectUri:fixedCallback(),connectors:catalog.map(e=>{const c=rows.find(r=>r.catalog_key===e.key);return {key:e.key,name:e.name,description:e.description,category:e.category,color:e.color,auth:e.auth,preview:!!e.preview,manualReturn:!!e.loopback,connectionId:c?.id||null,status:c?.status||'disconnected',tools:c?.tools||0};})};
  });
  app.put('/api/connectors/google',async req=>{
   const d=z.object({clientId:z.string().trim().regex(/^[\w.-]+\.apps\.googleusercontent\.com$/,'Client ID do Google inválido (termina em .apps.googleusercontent.com).'),clientSecret:z.string().trim().min(10).max(200).optional()}).parse(req.body);
@@ -106,14 +119,14 @@ export function registerConnectors(app:FastifyInstance){
   if(!c)c=await one("INSERT INTO connections(name,url,catalog_key,all_agents,kind,read_tools) VALUES($1,$2,$3,true,$4,'[]') RETURNING *",[entry.name,native?google().tasks:urlOf(entry),entry.key,native?'native':'mcp']);
   await query("UPDATE connections SET status='connecting' WHERE id=$1",[c.id]);
   if(native)return {authorizationUrl:await startNativeGoogle(c,entry)};
-  const oauth:any={fixedRedirect:true,state:newState(c.id)};
+  const oauth:any={fixedRedirect:true,state:newState(c.id),...(entry.loopback?{loopback:true}:{})};
   if(entry.auth==='google'){const g=(await googleClient())!;oauth.client={client_id:g.client_id,client_secret:g.client_secret,redirect_uris:[fixedCallback()],token_endpoint_auth_method:'client_secret_post'};oauth.staticClient=true;oauth.scope=entry.scopes!.join(' ');}
   await saveOAuth(c.id,oauth);
   // Catalog apps always authorize first (fresh state each click); tools are listed only with a token.
-  try{const url=await startAuthorization({...c,oauth:encrypt(oauth)});if(url)return {authorizationUrl:url};const tools=await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));await event('connection',{id:c.id});return {connected:true,tools:tools.length};}
+  try{const url=await startAuthorization({...c,oauth:encrypt(oauth)});if(url)return {authorizationUrl:url,manualReturn:!!entry.loopback};const tools=await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));await event('connection',{id:c.id});return {connected:true,tools:tools.length};}
   catch(e){
    const after=decrypt<any>((await one('SELECT oauth FROM connections WHERE id=$1',[c.id])).oauth);
-   if(after.authorizationUrl)return {authorizationUrl:after.authorizationUrl};
+   if(after.authorizationUrl)return {authorizationUrl:after.authorizationUrl,manualReturn:!!entry.loopback};
    await query("UPDATE connections SET status='error' WHERE id=$1",[c.id]);throw new Error(`Não foi possível conectar ${entry.name}: ${safeError(e)}`);
   }
  });
@@ -139,5 +152,18 @@ export function registerConnectors(app:FastifyInstance){
   let pending=callbacks.get(parsed.data.state);
   if(!pending){pending=completeCallback(parsed.data.state,parsed.data.code);callbacks.set(parsed.data.state,pending);setTimeout(()=>callbacks.delete(parsed.data.state),10*60000).unref();}
   const r=await pending;return r.error?fail(r.error):reply.redirect('/?connected='+encodeURIComponent(r.key!));
+ });
+ // Loopback-return apps: the owner pastes the address of the unreachable page the provider sent them to.
+ app.post('/api/connectors/:key/complete',async req=>{
+  const entry=catalog.find(e=>e.key===(req.params as any).key);if(!entry)throw new Error('Conector desconhecido.');
+  let back:URL;try{back=new URL(z.object({url:z.string().trim().min(10).max(4000)}).parse(req.body).url);}catch{throw new Error('Cole o endereço completo da página (começa com http://127.0.0.1).');}
+  if(back.searchParams.get('error'))throw new Error(back.searchParams.get('error_description')||back.searchParams.get('error')!);
+  const code=back.searchParams.get('code'),state=back.searchParams.get('state')||'';
+  const c=await one('SELECT id FROM connections WHERE catalog_key=$1',[entry.key]);
+  if(!code||!c||!state.startsWith(c.id+'.'))throw new Error('Este endereço não tem a autorização do '+entry.name+'. Copie o endereço da página aberta depois de autorizar.');
+  let pending=callbacks.get(state);
+  if(!pending){pending=completeCallback(state,code);callbacks.set(state,pending);setTimeout(()=>callbacks.delete(state),10*60000).unref();}
+  const res=await pending;if(res.error)throw new Error(res.error);
+  const row=await one('SELECT jsonb_array_length(tools) AS tools FROM connections WHERE id=$1',[c.id]);return {connected:true,tools:row.tools};
  });
 }

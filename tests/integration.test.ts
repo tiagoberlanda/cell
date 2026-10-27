@@ -88,7 +88,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.post('/google/tasks/lists/:list/tasks',async(req:any,reply)=>{if(!gAuth(req,reply))return;const t={id:'t'+(tasksDb.length+1),status:'needsAction',...req.body};tasksDb.push(t);return t;});
  fake.patch('/google/tasks/lists/:list/tasks/:id',async(req:any,reply)=>{if(!gAuth(req,reply))return;const t=tasksDb.find(x=>x.id===req.params.id);Object.assign(t,req.body);return t;});
  await fake.listen({host:'127.0.0.1',port:0});const base=`http://127.0.0.1:${(fake.server.address() as any).port}`;
- fakeBase=base;process.env.CONNECTOR_URL_OVERRIDES=JSON.stringify({notion:base+'/oauth-mcp',gmail:base+'/google-mcp'});process.env.GOOGLE_OAUTH_AUTHORIZE=base+'/google/authorize';process.env.GOOGLE_OAUTH_TOKEN=base+'/google/token';process.env.GOOGLE_TASKS_API=base+'/google/tasks';process.env.NINEROUTER_BASE_URL=base+'/v1';process.env.NINEROUTER_API_KEY='test-secret';process.env.NINEROUTER_DEFAULT_MODEL='cell-test';
+ fakeBase=base;process.env.CONNECTOR_URL_OVERRIDES=JSON.stringify({notion:base+'/oauth-mcp',canva:base+'/oauth-mcp',gmail:base+'/google-mcp'});process.env.GOOGLE_OAUTH_AUTHORIZE=base+'/google/authorize';process.env.GOOGLE_OAUTH_TOKEN=base+'/google/token';process.env.GOOGLE_TASKS_API=base+'/google/tasks';process.env.NINEROUTER_BASE_URL=base+'/v1';process.env.NINEROUTER_API_KEY='test-secret';process.env.NINEROUTER_DEFAULT_MODEL='cell-test';
  // TEST_DATABASE_URL must point at a disposable test database; never production.
  assert.ok(new URL(process.env.TEST_DATABASE_URL!).pathname.endsWith('_test'),'Use um banco com sufixo _test.');
  await query('DROP SCHEMA IF EXISTS pgboss CASCADE');await query('DROP SCHEMA public CASCADE');await query('CREATE SCHEMA public');await migrate();await seed();await startQueue();
@@ -188,6 +188,20 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await poll(r2.id,'completed');const ctx=(await one('SELECT context FROM runs WHERE id=$1',[r2.id])).context;
   const answer=ctx.findIndex((m:any)=>m.role==='assistant'&&String(m.content).includes('Resultado concluído')),question=ctx.findIndex((m:any)=>m.role==='user'&&String(m.content).includes('Segunda pergunta'));
   assert.ok(answer>0&&answer<question,'resposta anterior entra antes da nova pergunta');
+ });
+ await t.test('janela de contexto limita o histórico enviado e mede o uso',async()=>{
+  const {hasToken,...base}=await request('GET','/settings');assert.equal(base.contextTokens,16000,'padrão de 16 mil tokens');
+  await request('PUT','/settings',{...base,contextTokens:2000});
+  try{
+   const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
+   assert.equal((await request('GET',`/conversations/${cv.id}/context`)).used,null);
+   // Six old messages of ~500 tokens each: only the newest ones fit in a 2,000-token window.
+   for(let i=1;i<=6;i++)await query("INSERT INTO messages(conversation_id,role,content,created_at) VALUES($1,'user',$2,now()-make_interval(mins=>10-i))".replace('10-i',String(10-i)),[cv.id,`ANTIGA-${i} `+'palavra '.repeat(250)]);
+   const r=await request('POST',`/conversations/${cv.id}/messages`,{content:'Pergunta atual'});await poll(r.id,'completed');
+   const sent=JSON.stringify((await one('SELECT context FROM runs WHERE id=$1',[r.id])).context);
+   assert.ok(sent.includes('Pergunta atual'));assert.ok(sent.includes('ANTIGA-6'),'a mais recente entra');assert.ok(!sent.includes('ANTIGA-1'),'a mais antiga fica de fora');
+   const meter=await request('GET',`/conversations/${cv.id}/context`);assert.equal(meter.max,2000);assert.ok(meter.used>500&&meter.used<=2200,'uso '+meter.used);
+  }finally{await request('PUT','/settings',{...base,contextTokens:16000});}
  });
  await t.test('limite de uma etapa executa a ferramenta pendente e conclui',async()=>{
   const {hasToken,...base}=await request('GET','/settings');await request('PUT','/settings',{...base,maxSteps:1});
@@ -335,6 +349,13 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal(forAgent.find((x:any)=>x.name.endsWith('create_page')).write,true,'escrita pede aprovação');
   assert.match(await forAgent.find((x:any)=>x.name.endsWith('search_pages')).execute({query:'atas'},{},{}),/1 página encontrada para atas/);
   const forged=await app.inject({method:'GET',url:`/api/connections/oauth/callback?code=x&state=${row.id}.${'0'.repeat(48)}`});assert.match(String(forged.headers.location),/connector_error/);
+  // Canva-like: only loopback returns are accepted, so the owner pastes the address of the page the provider opened.
+  const cv=await request('POST','/connectors/canva/connect');assert.equal(cv.manualReturn,true);assert.equal(new URL(cv.authorizationUrl).searchParams.get('redirect_uri'),'http://127.0.0.1:53682/cell/oauth/callback');
+  const landed=(await fetch(cv.authorizationUrl,{redirect:'manual'})).headers.get('location')!;assert.ok(landed.startsWith('http://127.0.0.1:53682/cell/oauth/callback?code='),landed);
+  await assert.rejects(request('POST','/connectors/canva/complete',{url:landed.replace(/state=[^&]+/,'state='+row.id+'.abc')}),/400/,'endereço de outro aplicativo é recusado');
+  assert.deepEqual(await request('POST','/connectors/canva/complete',{url:'  '+landed+' '}),{connected:true,tools:3});
+  assert.equal((await request('POST','/connectors/canva/complete',{url:landed})).connected,true,'colar de novo não gasta o código outra vez');
+  assert.equal((await request('GET','/connectors')).connectors.find((c:any)=>c.key==='canva').status,'connected');
   // Google services need the owner's OAuth client once; the secret is stored encrypted.
   await assert.rejects(request('POST','/connectors/gmail/connect'),/Configure o Google/);await assert.rejects(request('PUT','/connectors/google',{clientId:'abc',clientSecret:'x'.repeat(12)}),/400/);
   await request('PUT','/connectors/google',{clientId:'123-abc.apps.googleusercontent.com',clientSecret:'gsecret-1234567'});assert.ok(!(await one("SELECT client_secret FROM oauth_clients WHERE provider='google'")).client_secret.includes('gsecret'));
@@ -348,7 +369,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await sleep(1200);const listed=JSON.parse(await gt.find((x:any)=>x.name==='gtasks_list_tasks').execute({},{},{}));assert.equal(listed[0].title,'Comprar pão');assert.ok(googleRefreshes>=1,'token renovado');
   await gt.find((x:any)=>x.name==='gtasks_complete_task').execute({taskId:listed[0].id},{},{});assert.equal(JSON.parse(await gt.find((x:any)=>x.name==='gtasks_list_tasks').execute({},{},{})).length,0);
   assert.deepEqual((await toolsFor({agent_id:targetAgent,mode:'plan'},{agent:{tools:[]}})).map((x:any)=>x.name).filter((n:string)=>n.startsWith('gtasks_')).sort(),['gtasks_list_tasklists','gtasks_list_tasks']);
-  for(const key of ['notion','gmail','google-tasks'])await request('DELETE','/connectors/'+key);
+  for(const key of ['notion','canva','gmail','google-tasks'])await request('DELETE','/connectors/'+key);
   assert.ok((await request('GET','/connectors')).connectors.every((c:any)=>c.status==='disconnected'));await request('DELETE','/connectors/google');
  });
  await t.test('mensagem de voz: transcrição e resposta em áudio conforme o agente',async()=>{
