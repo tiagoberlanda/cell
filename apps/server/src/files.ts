@@ -1,20 +1,30 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdir,writeFile,readFile,unlink } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import mammoth from 'mammoth';
+import ExcelJS from 'exceljs';
 import { one,query } from './db.js';
 import { contained } from './security.js';
-const require=createRequire(import.meta.url);
+// PDF text runs in a plain Node process (see pdf-text.cjs), with a time limit for broken files.
+const pdfText=(data:Buffer,max:number)=>new Promise<string>((resolve,reject)=>{
+ const child=spawn(process.execPath,[fileURLToPath(new URL('./pdf-text.cjs',import.meta.url)),String(max)],{stdio:['pipe','pipe','ignore'],timeout:30000});
+ const out:Buffer[]=[];child.stdout.on('data',c=>out.push(c));child.on('error',reject);
+ child.on('close',()=>{try{const r=JSON.parse(Buffer.concat(out).toString('utf8'));if(r.error)reject(new Error(r.error));else resolve(String(r.text||''));}catch{reject(new Error('Não foi possível ler o PDF.'));}});
+ child.stdin.on('error',()=>{});child.stdin.end(data);
+});
 export const workspace=path.resolve(process.env.WORKSPACE_PATH||'./data');
 export const storage=path.join(workspace,'files');
-const types:Record<string,string>={'.txt':'text/plain','.md':'text/markdown','.csv':'text/csv','.json':'application/json','.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.webm':'audio/webm','.ogg':'audio/ogg','.mp3':'audio/mpeg','.m4a':'audio/mp4','.wav':'audio/wav'};
+const types:Record<string,string>={'.txt':'text/plain','.md':'text/markdown','.csv':'text/csv','.json':'application/json','.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.webm':'audio/webm','.ogg':'audio/ogg','.mp3':'audio/mpeg','.m4a':'audio/mp4','.wav':'audio/wav'};
 // Text of a document by extension (txt, md, csv, json, pdf, docx); null for formats without text.
 export async function extractText(name:string,data:Buffer):Promise<{text:string;warning:string}|null>{
  const ext=path.extname(name).toLowerCase();let text='',warning='';
  if(['.txt','.md','.csv','.json'].includes(ext))text=data.toString('utf8');
- else if(ext==='.pdf'){const pdf=require('pdf-parse/lib/pdf-parse.js');try{text=(await pdf(data,{max:100})).text;if(!text.trim())warning='PDF sem texto extraível. OCR não está incluído.';}catch{warning='Não foi possível extrair o texto deste PDF.';}}
+ else if(ext==='.pdf'){try{text=await pdfText(data,100);if(!text.trim())warning='PDF sem texto extraível. OCR não está incluído.';}catch{warning='Não foi possível extrair o texto deste PDF.';}}
  else if(ext==='.docx'){try{text=(await mammoth.extractRawText({buffer:data})).value;}catch{warning='Não foi possível extrair o texto deste DOCX.';}}
+ // Spreadsheets as text: one section per sheet, cells separated by ";" (formulas show their computed value when saved).
+ else if(ext==='.xlsx'){try{const wb=new ExcelJS.Workbook();await wb.xlsx.load(data as any);text=wb.worksheets.map(ws=>{const rows:string[]=[];ws.eachRow(r=>{rows.push((r.values as any[]).slice(1).map(v=>v&&typeof v==='object'?('result' in v&&v.result!==undefined?v.result:'formula' in v?'='+v.formula:'text' in v?v.text:v instanceof Date?v.toISOString().slice(0,10):''):v??'').join(';'));});return `## ${ws.name}\n${rows.join('\n')}`;}).join('\n\n');}catch{warning='Não foi possível ler esta planilha.';}}
  else return null;
  return {text,warning};
 }

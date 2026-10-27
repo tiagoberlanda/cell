@@ -19,6 +19,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  const {migrate}=await import('../apps/server/src/migrate.js');
  const {buildApp,seed}=await import('../apps/server/src/api.js');
  const {startQueue,boss,enqueue}=await import('../apps/server/src/runtime.js');
+ const {fileData,saveFile}=await import('../apps/server/src/files.js');
  const fake=Fastify();let writes=0,reads=0,worker:ChildProcess|undefined;let workerErrors='';
  let targetAgent='';let mcpName='';let mcpFailName='';const summaryRequests:any[]=[];
  fake.get('/v1/models',async(req,reply)=>req.headers.authorization==='Bearer test-secret'?{data:[{id:'cell-test',name:'Modelo de teste'}]}:reply.code(401).send({error:'unauthorized'}));
@@ -50,6 +51,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    if(text.includes('DELEGATE')){tool='delegate';args={agentId:/DELEGATE_TO:([0-9a-f-]{36})/.exec(text)?.[1]||targetAgent,task:'Responda como especialista.'};}
    if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
    // Keys in an order jsonb rewrites (it sorts by length): the approval must survive the round trip through the database.
+   if(text.includes('MAKE_SHEET')){tool='create_spreadsheet';args={name:'Vendas: 3º trimestre.xlsx',sheets:[{name:'Resumo',columns:['Mês','Vendas','Meta','Atingido'],rows:[['Julho',120,100,'=B2/C2'],['Agosto',98,110,'=B3/C3']]}]};}
    if(text.includes('PC_ACCESS')){tool='pc_request_access';args={path:'k:/Downloads/',reason:'Organizar os downloads'};}
    if(text.includes('CALL_MCP_ORDER')){tool=mcpName;args={value:'ordem',properties:{Status:'Sugestões',TAG:'Natureza',Nome:'Florestas'}};}
   }
@@ -457,6 +459,32 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await assert.rejects(pc(agent.id,'pc_rename',{path:'K:\\Downloads\\foto.jpg',newName:'..\\fuga.jpg'}),/inválido/i);
   // Revoking is immediate.
   await request('DELETE','/host-access/'+access.grants[0].id);await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso/);
+ });
+ await t.test('documentos: planilha, CSV, PDF, Word e PowerPoint vão para a biblioteca e para a resposta',async()=>{
+  // The model asks for a spreadsheet: the file is saved and attached to the answer.
+  const r=await task('MAKE_SHEET');await poll(r.id,'completed');
+  const cvId=(await one('SELECT conversation_id FROM runs WHERE id=$1',[r.id])).conversation_id;
+  const reply=(await request('GET','/conversations/'+cvId)).messages.filter((m:any)=>m.role==='assistant').at(-1);
+  assert.equal(reply.attachments[0].name,'Vendas 3º trimestre.xlsx','nome sem caracteres inválidos');assert.equal(reply.attachments[0].mime,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  assert.match((await one('SELECT extracted FROM files WHERE id=$1',[reply.attachments[0].id])).extracted,/## Resumo\nMês;Vendas;Meta;Atingido\nJulho;120;100;=B2\/C2/);
+  const {toolsFor}=await import('../apps/server/src/tools.js');
+  const tools=await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}});
+  const make=async(name:string,args:any)=>JSON.parse(await tools.find((x:any)=>x.name===name)!.execute(args,{agent_id:agent.id},{}));
+  assert.ok(!tools.find((x:any)=>x.name==='create_pdf')!.write,'criar arquivo na biblioteca não pede aprovação');
+  assert.equal((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:[]}})).some((x:any)=>x.name.startsWith('create_')),false,'modo plano não gera arquivos');
+  const csv=await make('create_spreadsheet',{name:'contatos',format:'csv',sheets:[{name:'A',columns:['Nome','Cidade'],rows:[['Ana','São Paulo'],['Bruno; Jr','Rio "RJ"']]}]});
+  assert.equal(csv.name,'contatos.csv');const csvText=(await fileData(csv.id)).data.toString('utf8');
+  assert.ok(csvText.startsWith('\ufeffNome;Cidade\r\n'),'BOM e ponto e vírgula');assert.match(csvText,/"Bruno; Jr";"Rio ""RJ"""/);
+  const md='# Relatório\n\nTexto com **negrito** e acentuação: ação, café.\n\n| Mês | Vendas |\n|---|---|\n| Julho | 120 |\n\n- item um\n- item dois\n\n---\n\n## Página 2\n\nFim.';
+  const pdf=await make('create_pdf',{name:'relatorio',title:'Relatório Q3',markdown:md});assert.equal(pdf.mime,'application/pdf');
+  const pdfRow=await one('SELECT extracted,warning FROM files WHERE id=$1',[pdf.id]);assert.equal(pdfRow.warning,null,'texto do PDF lido (sem o problema do tsx)');assert.match(pdfRow.extracted,/acentuação: ação, café/);assert.match(pdfRow.extracted,/Página 2/);
+  const docx=await make('create_docx',{name:'relatorio.docx',title:'Relatório Q3',markdown:md});assert.equal(docx.name,'relatorio.docx');
+  assert.match((await one('SELECT extracted FROM files WHERE id=$1',[docx.id])).extracted,/Texto com negrito e acentuação[\s\S]*Julho[\s\S]*item dois/);
+  const img=await saveFile('capa.png',png,agent.id);
+  const deck=await make('create_presentation',{name:'Plano',title:'Plano 2027',subtitle:'Equipe',color:'#18b99c',slides:[{title:'Objetivos',bullets:['Crescer','  - no Brasil'],notes:'Falar devagar',imageId:img.id},{title:'Números',table:{columns:['Mês','Vendas'],rows:[['Jul','120']]}}]});
+  assert.equal(deck.name,'Plano.pptx');assert.equal(deck.slides,3);const zip=(await fileData(deck.id)).data;assert.equal(zip.subarray(0,2).toString(),'PK','arquivo Office (zip)');
+  assert.ok(zip.includes(Buffer.from('ppt/slides/slide3.xml'))&&zip.includes(Buffer.from('ppt/notesSlides/')),'3 slides com anotações');
+  await assert.rejects(make('create_presentation',{name:'x',title:'x',slides:[]}),/./,'precisa de pelo menos um slide');
  });
  await t.test('fixar até 3 agentes, renomear e mover de seção pelo menu',async()=>{
   const all=await request('GET','/agents');const others=all.filter((a:any)=>!a.archived&&!a.pinned);

@@ -4,6 +4,7 @@ import { routerRequest,generateImage } from './router.js';
 import { mcpCall } from './mcp.js';
 import { googleTasksTools } from './connectors.js';
 import { hostFileTools,mountedDrives } from './hostfiles.js';
+import { documentTools } from './documents.js';
 import { saveFile } from './files.js';
 import { createRun } from './runtime.js';
 import { nextOccurrence } from './schedule.js';
@@ -33,6 +34,8 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
   if(c.kind==='native'){if(c.catalog_key==='google-tasks')result.push(...googleTasksTools(c).filter(t=>c.all_agents||enabled.includes(t.name)));continue;}
   for(const t of c.tools){const name=`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64);if(!c.all_agents&&!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
  }
+ // Office files (spreadsheets, PDF, Word, PowerPoint) only add to the library, so every agent has them.
+ result.push(...documentTools());
  // Computer folders, for every agent when the host drives are mounted; access itself is granted per folder by the owner.
  if((await mountedDrives()).length)result.push(...hostFileTools());
  return run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','pc_list','pc_read'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;

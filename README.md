@@ -1,203 +1,418 @@
 # Cell
 
-Plataforma auto-hospedada de agentes de IA para um único usuário. Os agentes usam modelos via [9router](http://192.168.0.200:20128) (API compatível com OpenAI) e podem ter memória, skills, ferramentas MCP e rotinas agendadas.
+**Cell** é uma plataforma de agentes de IA que roda no seu próprio computador. Você monta uma equipe de agentes (cada um com cargo, instruções, memória e ferramentas), conversa com eles pelo navegador ou pelo celular, e eles pesquisam na web, geram imagens, planilhas, PDFs e apresentações, organizam pastas do seu computador, usam aplicativos como Notion e Google Agenda, delegam tarefas entre si e trabalham em rotinas agendadas. Toda ação que muda algo fora do Cell pede a sua aprovação.
 
-Componentes (Docker Compose):
+É feito para **um único usuário** (você) e fica **inteiramente sob seu controle**: os dados, as conversas e os arquivos ficam num banco PostgreSQL e numa pasta na sua máquina.
 
-| Serviço  | Função                                              |
-|----------|-----------------------------------------------------|
-| `db`     | PostgreSQL 17                                       |
-| `api`    | API Fastify (porta interna 3001)                    |
-| `worker` | Executa as tarefas dos agentes e as rotinas         |
-| `web`    | Caddy: serve a interface e faz HTTPS nas portas 80/443 |
+---
 
-## Instalação
+## Sumário
 
-Requisitos: Docker Desktop e PowerShell.
+1. [O que o Cell faz](#o-que-o-cell-faz)
+2. [Como funciona por dentro](#como-funciona-por-dentro)
+3. [Antes de começar](#antes-de-começar)
+4. [Instalação passo a passo](#instalação-passo-a-passo)
+5. [Primeiro uso](#primeiro-uso)
+6. [Ferramentas dos agentes](#ferramentas-dos-agentes)
+7. [Usando o Cell no dia a dia](#usando-o-cell-no-dia-a-dia)
+8. [Acesso por outros aparelhos e pela internet](#acesso-por-outros-aparelhos-e-pela-internet)
+9. [Manutenção: backup, atualização e senha](#manutenção-backup-atualização-e-senha)
+10. [Solução de problemas](#solução-de-problemas)
+11. [Configuração avançada (.env)](#configuração-avançada-env)
+12. [Desenvolvimento](#desenvolvimento)
+
+---
+
+## O que o Cell faz
+
+- **Equipe de agentes:** crie quantos quiser, cada um com nome, cargo, descrição, instruções, memória, modelo de IA, ferramentas, cor e um ícone de célula. O **Coordenador** é o agente principal: organiza a equipe e pode criar e excluir agentes.
+- **Conversas** com anexos (PDF, Word, Excel, imagens, textos), histórico, arquivamento e busca.
+- **Ferramentas:** pesquisa na web, leitura de páginas, geração de imagens, **planilhas Excel/CSV, PDF, Word e PowerPoint**, pastas do computador, delegação entre agentes, rotinas e mais de 20 aplicativos (Notion, Google, Todoist…).
+- **Aprovações:** o agente para e pergunta antes de qualquer ação que altere algo fora do Cell.
+- **Rotinas:** tarefas agendadas (todo dia, toda semana, uma vez ou cron).
+- **Voz:** envie áudios, receba respostas faladas e faça **chamadas de voz** com o agente.
+- **Notificações** no celular e no computador.
+- **App no celular** (PWA) para Android e iPhone.
+
+## Como funciona por dentro
+
+O Cell roda em quatro containers Docker:
+
+| Serviço  | O que faz |
+|----------|-----------|
+| `db`     | Banco PostgreSQL: agentes, conversas, configurações (segredos ficam cifrados). |
+| `api`    | Servidor da aplicação (Fastify). É o único serviço exposto pela interface web. |
+| `worker` | Executa as tarefas dos agentes, as ferramentas e as rotinas. |
+| `web`    | Caddy: entrega a interface e faz o HTTPS nas portas 80 e 443. |
+
+Os modelos de IA **não** rodam dentro do Cell. Ele conversa com um provedor compatível com a API da OpenAI, chamado neste projeto de **9router** (veja a seguir).
+
+## Antes de começar
+
+Você vai precisar de:
+
+| Item | Para quê | Como obter |
+|------|----------|------------|
+| **Windows 10 ou 11** | Os scripts são em PowerShell. | Linux e macOS funcionam com [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) e Docker, exceto o script de pastas do computador, que é só para Windows. |
+| **Docker Desktop** | Roda os containers. | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Deixe-o aberto. |
+| **Git** | Baixar o projeto. | [git-scm.com](https://git-scm.com/download/win) |
+| **Um provedor de modelos** | É quem responde (a "inteligência"). | Veja abaixo. |
+| Node.js 24 (opcional) | Só para rodar testes e verificar backups. | [nodejs.org](https://nodejs.org/) |
+
+### O provedor de modelos (9router)
+
+O Cell fala com qualquer serviço **compatível com a API da OpenAI** (`/v1/chat/completions`). Ele foi feito para o **9router**, um roteador que reúne vários modelos e provedores num endereço só. O que cada recurso usa:
+
+| Recurso | Rota usada | Funciona com |
+|---------|-----------|--------------|
+| Conversa e ferramentas | `/chat/completions` | Qualquer provedor compatível (9router, OpenAI, OpenRouter, Ollama, LM Studio…) |
+| Gerar imagem | `/images/generations` | 9router, OpenAI e compatíveis |
+| Transcrever áudio | `/audio/transcriptions` | 9router, OpenAI e compatíveis |
+| Resposta em voz | `/audio/speech` | 9router, OpenAI e compatíveis. Sem modelo de voz, o próprio aparelho lê a resposta. |
+| Pesquisa na web e leitura de páginas | `/search`, `/web/fetch` | Só 9router. Com outro provedor, conecte um aplicativo de pesquisa (MCP). |
+
+Você vai precisar do **endereço** (ex.: `http://192.168.0.200:20128/v1` ou `https://api.openai.com/v1`) e do **token** (chave de API) do seu provedor.
+
+## Instalação passo a passo
+
+### 1. Baixe o projeto
+
+Abra o **PowerShell** e rode:
 
 ```powershell
-.\scripts\setup.ps1 -HostName '192.168.0.200,localhost'
+git clone https://github.com/tiagoberlanda/cell.git
+cd cell
 ```
 
-O script cria o `.env` com segredos aleatórios (se ainda não existir), sobe os containers e pede a senha inicial da conta `cell`.
+### 2. Descubra o endereço do computador na rede
 
-`-HostName` aceita vários endereços separados por vírgula: todos os endereços pelos quais o Cell será aberto no navegador (IP da rede, IP do Tailscale, `localhost`). O primeiro é o padrão quando o navegador abre o site pelo IP. Para mudar depois, edite no `.env`:
-
-```ini
-CELL_HOST=192.168.0.200, 100.106.241.14, localhost
-CELL_DEFAULT_SNI=192.168.0.200
-APP_ORIGIN=https://192.168.0.200,https://100.106.241.14,https://localhost
-```
-
-e rode `.\scripts\deploy.ps1`. Um endereço que não esteja em `APP_ORIGIN` mostra a página, mas o login responde "Origem não permitida".
-
-## Configurar a senha da conta
-
-Se a conta ainda não existir (por exemplo, quando o `.env` foi criado à mão e os containers foram iniciados com `docker compose up -d --build` em vez do `setup.ps1`), crie-a na pasta do projeto:
+Para abrir o Cell de outros aparelhos (celular, notebook), você precisa do IP deste computador:
 
 ```powershell
-Write-Host 'Senha: ' -NoNewline; $s = Read-Host -AsSecureString; $env:CELL_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)); "cell" | docker compose exec -T -e CELL_ADMIN_PASSWORD api npm run admin; Remove-Item Env:CELL_ADMIN_PASSWORD
+ipconfig
 ```
 
-- A senha precisa ter pelo menos 12 caracteres. Ao final aparece **"Conta configurada."**
-- `"cell"` é o nome de usuário; troque se quiser outro.
-- A senha é passada por variável de ambiente e nunca como argumento, para não ficar no histórico.
-- O prompt é escrito com `Write-Host` separado de propósito: com `Read-Host 'Senha'`, o PowerShell interpreta senhas que começam com `!` como comando de prompt e as rejeita.
+Procure "Endereço IPv4" (algo como `192.168.0.10`). Se for usar só neste computador, pode pular e usar `localhost`.
 
-Para **trocar a senha** de uma conta existente, use o mesmo comando trocando `npm run admin` por `npm run admin -- --reset`. Todas as sessões abertas são encerradas. A senha também pode ser trocada pela interface, em Configurações.
+### 3. Rode a instalação
 
-## Primeiro acesso
+Troque `192.168.0.10` pelo seu IP:
 
-1. Abra `https://192.168.0.200` (ou outro endereço do `CELL_HOST`) e entre com o usuário e a senha.
-2. Em **Configurações**, informe o token do 9router e escolha o modelo padrão.
-3. Teste as ferramentas e a visão do modelo pela própria tela de configurações.
+```powershell
+.\scripts\setup.ps1 -HostName '192.168.0.10,localhost'
+```
 
-## Certificado HTTPS
+O script:
 
-O Caddy emite um certificado local (`tls internal`). Para os navegadores não mostrarem o aviso de segurança, exporte a CA raiz e instale-a nos dispositivos que vão acessar o Cell:
+1. cria o arquivo `.env` com senhas e chaves aleatórias;
+2. monta e sobe os containers (a primeira vez leva alguns minutos);
+3. pede a **senha da sua conta** (mínimo de 12 caracteres). O usuário é `cell`.
+
+Ao final aparece **"Cell pronto em https://…"**.
+
+> Se o PowerShell disser que a execução de scripts está desabilitada, rode antes `Set-ExecutionPolicy -Scope Process Bypass` (vale só para essa janela).
+
+### 4. Abra no navegador
+
+Acesse `https://localhost` (ou `https://SEU-IP`). O navegador vai mostrar um **aviso de segurança**. Isso é esperado: o Cell usa um certificado próprio, emitido na sua máquina. Você pode clicar em "Avançado → Continuar" ou, melhor, [instalar o certificado](#certificado-https-sem-aviso-do-navegador) para o aviso sumir de vez.
+
+Entre com o usuário **`cell`** e a senha que você criou.
+
+## Primeiro uso
+
+1. **Configure o provedor:** menu do usuário (canto inferior esquerdo) → **Configurações** → **9router**:
+   - **Endereço** do provedor (ex.: `http://192.168.0.200:20128/v1`) e **Token** (chave de API);
+   - clique em **Testar conexão e atualizar modelos** para confirmar o acesso e carregar a lista;
+   - escolha o **Modelo padrão** e salve. A tela mostra se o modelo sabe usar ferramentas e ver imagens;
+   - opcional: modelos de imagem, de transcrição e de voz.
+2. **Converse com o Coordenador:** ele já vem criado, junto com Pesquisador, Redator e Revisor. Experimente:
+   - *"Pesquise as novidades sobre carros elétricos no Brasil e faça um PDF de uma página."*
+   - *"Monte uma planilha com meus gastos: aluguel 1500, mercado 800, transporte 300, com o total."*
+   - *"Crie uma apresentação de 5 slides sobre o plano de marketing do próximo trimestre."*
+3. **Crie seus agentes:** botão **+** na lista, ou peça ao Coordenador: *"crie um agente Analista Financeiro que acompanha meus investimentos"*.
+
+---
+
+## Ferramentas dos agentes
+
+As ferramentas são o que o agente consegue **fazer** além de responder. Ele decide sozinho quando usar cada uma. Ferramentas que **mudam algo fora do Cell** param e pedem sua aprovação na conversa (botões **Aprovar** e **Negar**).
+
+### Pesquisa e conteúdo
+
+| Ferramenta | O que faz | Pede aprovação? |
+|-----------|-----------|:---:|
+| `web_search` | Pesquisa na web e traz as fontes. | Não |
+| `web_fetch` | Lê o conteúdo de uma página pública (sem seguir instruções escondidas nela). | Não |
+| `generate_image` | Gera uma imagem a partir de uma descrição e salva na biblioteca. Atalho: `/imagem <descrição>`. | Não |
+
+### Documentos e arquivos (sempre disponíveis para todos os agentes)
+
+| Ferramenta | O que faz | Pede aprovação? |
+|-----------|-----------|:---:|
+| `create_spreadsheet` | **Excel (.xlsx)** com várias abas, cabeçalho destacado, filtros e **fórmulas** (`=B2*C2`), ou **CSV** (com `;` por padrão, abre direto no Excel em português, acentos preservados). | Não |
+| `create_pdf` | **PDF** (A4, páginas numeradas) com títulos, parágrafos, listas, tabelas, negrito e itálico. `---` começa uma nova página. | Não |
+| `create_docx` | **Word (.docx)** com os mesmos recursos do PDF, para você editar depois. | Não |
+| `create_presentation` | **PowerPoint (.pptx, 16:9)**: capa, um slide por tópico, subtópicos, tabelas, imagens da biblioteca (por exemplo, geradas com `generate_image`) e anotações do apresentador, na cor que você escolher. | Não |
+| `write_file` | Arquivo de texto simples (txt, md, csv, json). | Não |
+| `list_files` / `read_file` | Lista e lê os arquivos da biblioteca (inclusive o texto de PDFs, Word e planilhas que você anexou). | Não |
+
+Os arquivos gerados aparecem **anexados à resposta** do agente (toque para baixar) e ficam na **Biblioteca** (painel do agente → Biblioteca).
+
+### Equipe e organização
+
+| Ferramenta | O que faz | Pede aprovação? |
+|-----------|-----------|:---:|
+| `list_agents` | Lista os agentes da equipe. | Não |
+| `delegate` | Passa uma tarefa para outro agente e espera o resultado (aparece na árvore da execução). | Não |
+| `propose_routine` | Propõe uma rotina agendada. Ela só começa quando você clica em **Ativar rotina**. | Ativação manual |
+| `create_agent` | Cria um agente (só o **Coordenador**). | Não |
+| `delete_agent` | Exclui um agente (só o **Coordenador**). | **Sim** |
+
+### Pastas do computador ([como ativar](#pastas-do-computador))
+
+| Ferramenta | O que faz | Pede aprovação? |
+|-----------|-----------|:---:|
+| `pc_request_access` | Pede acesso a uma pasta (ex.: `K:\Downloads`). Ao aprovar, a pasta fica liberada para aquele agente. | **Sim** |
+| `pc_list` / `pc_read` | Lista e lê arquivos das pastas liberadas. | Não |
+| `pc_move` | Move arquivos e pastas, vários de uma vez (uma aprovação para a lista toda). Nunca sobrescreve. | **Sim** |
+| `pc_rename` / `pc_mkdir` | Renomeia e cria pastas. | **Sim** |
+
+Os agentes **não apagam** arquivos do computador.
+
+### Aplicativos ([como conectar](#aplicativos-notion-google-e-outros))
+
+Cada aplicativo conectado traz suas próprias ferramentas (ex.: buscar páginas no Notion, criar evento na Agenda). As de **leitura** rodam direto; as que **criam, alteram ou apagam** pedem aprovação. O **Google Tarefas** vem integrado: listar listas e tarefas, criar, concluir e excluir.
+
+### Ligar e desligar ferramentas por agente
+
+Editar agente → aba **Ferramentas**. As ferramentas de documentos e as de pastas do computador valem para todos os agentes.
+
+### Modo planejamento (`/plan`)
+
+Comece a mensagem com `/plan` (ex.: `/plan lançar a loja online`). Nesse modo o servidor **só libera ferramentas de leitura e pesquisa**: o agente investiga e entrega um plano, sem criar arquivos nem executar ações.
+
+---
+
+## Usando o Cell no dia a dia
+
+### Agentes
+
+- **Criar:** botão **+** na lista de agentes.
+- **Editar:** painel do agente (ícone à direita no topo) → **Editar agente**. Abas: perfil (nome, cargo, descrição, seção, modelo), célula e cor, memória e instruções, ferramentas.
+- **Menu rápido:** no **celular**, segure e solte sobre o agente; no **computador**, use os **três pontos** (ou o clique direito). Opções: **fixar no topo** (até 3 agentes), **renomear** e **mover para outra seção**.
+- **Reordenar:** segure e arraste agentes e seções.
+- **Seções:** agrupe agentes (ex.: "Equipe", "Pessoal"). Crie em **Nova seção**.
+
+### Conversas
+
+- **Anexos:** botão **+** → Anexar arquivos (até 25 MB cada): txt, md, csv, json, pdf, docx, xlsx, png, jpg, webp. O agente lê o texto de PDFs, Word e planilhas.
+- **Comandos** (digite `/` no campo de mensagem):
+
+  | Comando | O que faz |
+  |---------|-----------|
+  | `/new` | Nova conversa com o agente. |
+  | `/clean` | Arquiva a conversa atual e começa outra. |
+  | `/plan <objetivo>` | Modo planejamento (só leitura e pesquisa). |
+  | `/imagem <descrição>` | Gera uma imagem. |
+  | `/search` | Busca nas mensagens. |
+  | `/settings` | Abre as configurações. |
+  | `/help` | Lista os comandos. |
+
+- **Histórico:** ícone de relógio no topo mostra as conversas anteriores; o de caixa arquiva a atual.
+- **Ensinar uma tarefa:** botão **+** → *Ensinar uma tarefa* transforma a conversa numa **habilidade** reutilizável, que você liga aos agentes.
+
+### Memória e resumo
+
+Cada agente tem uma **memória** (preferências e fatos que você quer que ele lembre) e cada conversa longa ganha um **resumo** automático. Painel do agente → *Ver e editar memória e resumo*. Todas as versões ficam no histórico.
+
+### Rotinas
+
+Painel do agente → **Rotinas** → *Nova rotina*: o agente recebe a tarefa no horário marcado (diária, semanal, uma vez ou expressão cron) e responde na conversa. O interruptor liga e desliga; a lixeira exclui; *Executar agora* testa na hora; *Histórico* mostra as execuções. O fuso padrão é `America/Sao_Paulo`.
+
+### Aprovações
+
+Quando o agente quer fazer algo que precisa de permissão, a conversa mostra o pedido em linguagem simples, com **Aprovar** e **Negar**. O sino do topo lista as aprovações pendentes, e o celular recebe um aviso. Se os parâmetros mudarem depois da aprovação, a ação é bloqueada.
+
+### Notificações
+
+Em cada aparelho: menu do usuário → **Notificações** → *Ativar notificações neste aparelho* → *Enviar teste*. Você é avisado quando um agente ou rotina responde e quando há aprovação pendente; tocar no aviso abre a conversa. Para silenciar um agente: painel do agente → *Notificações ativadas/desativadas*.
+
+- Precisa de HTTPS confiável (domínio público ou [certificado instalado](#certificado-https-sem-aviso-do-navegador)). No iPhone, só com o app instalado na tela inicial.
+- Se a conversa já estiver aberta e visível em algum aparelho, o aviso não é enviado.
+
+### Voz
+
+- **Mensagem de voz:** com o campo vazio, toque no **microfone**, fale (até 5 minutos) e envie. O áudio é transcrito e vira a mensagem.
+- **Resposta em áudio:** no cadastro do agente, marque *Responder com áudio quando eu enviar áudio*.
+- **Chamada de voz:** toque no **telefone** no topo da conversa. Fale normalmente; ao fazer uma pausa, o agente pensa (a célula se anima) e responde falando, depois volta a ouvir. Botões: desligar microfone, enviar na hora, interromper e encerrar.
+- **Vozes:** Configurações → 9router: modelo de transcrição, modelo e voz de resposta (*Testar voz*) e a voz do próprio aparelho. Cada agente pode ter sua voz (*Voz deste agente*).
+
+### Pastas do computador
+
+Os agentes podem organizar arquivos do computador onde o Cell roda. Ative uma vez (e de novo se adicionar um disco):
+
+```powershell
+.\scripts\drives.ps1
+.\scripts\deploy.ps1
+```
+
+O script libera os discos locais para o `worker` (do `C:` só a sua pasta de usuário) no arquivo `compose.override.yaml`, que fica só na sua máquina. Para desligar: `.\scripts\drives.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
+
+Depois peça, por exemplo: *"organize a pasta K:\Downloads por tipo de arquivo"*. O agente pede acesso, você aprova, e ele lista, propõe a reorganização e pede aprovação antes de mover. Arquivos ocultos e de sistema (como `.env`) ficam bloqueados. Veja e remova acessos em **Configurações → Computador**.
+
+### Aplicativos (Notion, Google e outros)
+
+Menu do usuário → **Conectar aplicativos**.
+
+- **Um clique:** Notion, Todoist, Linear, Jira/Confluence, ClickUp, monday.com, Airtable, Miro, Zapier, Stripe, PayPal, Wix, Webflow, Supabase, Sentry, Cloudflare e Hugging Face. Toque em **Conectar**, autorize no próprio serviço e volte.
+- **Canva:** o Canva só devolve a autorização para um endereço local. Depois de autorizar, abre uma página que não carrega (`http://127.0.0.1:53682/...`); copie o endereço dela e cole no Cell.
+- **Google (Gmail, Drive, Agenda, Tarefas):** o Google exige um cliente OAuth seu, criado uma vez no Google Cloud. Em **Google → Como configurar**, o Cell mostra o passo a passo, o comando para ativar as APIs e o endereço de retorno exato para cadastrar. Depois, cada serviço conecta com um clique.
+- **Permissões:** em **⋯ → Ferramentas e permissões** você escolhe quais ferramentas de cada aplicativo rodam sem aprovação.
+- Outros servidores MCP: **Conexões MCP personalizadas (avançado)**.
+
+> O retorno da autorização usa o primeiro endereço de `APP_ORIGIN`. Para conectar aplicativos de fora da sua rede, configure o [acesso pela internet](#acesso-pela-internet-cloudflare-tunnel).
+
+### Acompanhar o que os agentes estão fazendo
+
+- **Central de atividade** (ícone de atividade no topo): todas as execuções, com filtros, modelo, tempo, tokens, ferramentas usadas, arquivos, árvore de delegações e botões para aprovar, negar e cancelar.
+- **Janela de contexto** (painel do agente): quanto da memória de trabalho do modelo a última execução usou. O limite (padrão de 16 mil tokens) fica em Configurações → Execução.
+- **Diagnóstico** (Configurações → Diagnóstico): saúde do worker, banco, fila, provedor, conexões e aplicativos, sem mostrar segredos.
+
+---
+
+## Acesso por outros aparelhos e pela internet
+
+### Pela rede de casa
+
+Abra `https://SEU-IP` em qualquer aparelho da mesma rede. O endereço precisa estar no `-HostName` usado no setup (ou em `CELL_HOST` e `APP_ORIGIN` no `.env`; depois rode `.\scripts\deploy.ps1`).
+
+### Certificado HTTPS sem aviso do navegador
 
 ```powershell
 .\scripts\export-cert.ps1
 ```
 
-Isso gera `cell-root.crt`. No Windows, abra o arquivo → Instalar certificado → Máquina local → "Autoridades de Certificação Raiz Confiáveis". No Android/iOS, instale-o como certificado de CA nas configurações de segurança.
+Isso gera `cell-root.crt`. Instale-o em cada aparelho:
 
-## Acesso pela internet (Cloudflare)
+- **Windows:** abra o arquivo → *Instalar certificado* → *Máquina local* → *Autoridades de Certificação Raiz Confiáveis*.
+- **Android:** Configurações → Segurança → Criptografia e credenciais → Instalar certificado → *Certificado de CA*.
+- **iPhone:** abra o arquivo, instale o perfil e ative em Ajustes → Geral → Sobre → *Ajustes de Confiança de Certificado*.
 
-Use um **Cloudflare Tunnel** (`cloudflared`). Assim nenhuma porta do roteador precisa ser aberta: o túnel sai da sua máquina até a Cloudflare.
+### App no celular (PWA)
 
-1. **Não abra as portas 80/443 no roteador.** Todo acesso externo deve passar pelo túnel.
-2. No `.env`, acrescente o domínio público aos hosts e às origens permitidas (exemplo com `cell.seudominio.com`):
+Abra o Cell no Chrome do Android (ou Safari do iPhone) e use **⋮ → Instalar app** (ou *Compartilhar → Adicionar à Tela de Início*). Pela rede local, instale o certificado antes. Pelo domínio público, funciona direto.
+
+Se perder o celular: Configurações → Conta → *Sair de todos os outros dispositivos* e troque a senha.
+
+### Acesso pela internet (Cloudflare Tunnel)
+
+Com um **Cloudflare Tunnel** você acessa o Cell de qualquer lugar **sem abrir portas no roteador**.
+
+1. **Não abra as portas 80/443 no roteador.**
+2. No `.env`, inclua o domínio (exemplo `cell.seudominio.com`) e rode `.\scripts\deploy.ps1`:
    ```ini
-   CELL_HOST=cell.seudominio.com, 192.168.0.200, localhost
-   APP_ORIGIN=https://cell.seudominio.com,https://192.168.0.200,https://localhost
+   CELL_HOST=cell.seudominio.com, 192.168.0.10, localhost
+   APP_ORIGIN=https://cell.seudominio.com,https://192.168.0.10,https://localhost
    ```
-   e rode `.\scripts\deploy.ps1`. Sem isso, a página abre pelo domínio mas o login responde "Origem não permitida".
-3. No túnel (Zero Trust → Networks → Tunnels → Public Hostname), aponte `cell.seudominio.com` para `https://192.168.0.200:443` (ou `https://localhost:443` se o `cloudflared` roda nesta máquina), com:
-   - **Origin Server Name**: `cell.seudominio.com`
-   - **No TLS Verify**: ativado. O Caddy usa um certificado local (`tls internal`); o trecho Cloudflare → navegador continua com o certificado público da Cloudflare.
-4. Em **Speed → Optimization**, desative **Rocket Loader**, em **Scrape Shield** desative **Email Address Obfuscation** e, em **Analytics & Logs → Web Analytics**, desative a injeção automática para este domínio. Todos injetam scripts que a política de segurança (CSP) do Cell bloqueia.
-5. Recomendado: proteja o domínio com **Cloudflare Access** (Zero Trust → Access → Applications, política "e-mails permitidos" com código por e-mail). É uma segunda camada de login antes de a página do Cell sequer carregar.
+3. Na Cloudflare (Zero Trust → Networks → Tunnels → Public Hostname), aponte `cell.seudominio.com` para `https://localhost:443`, com **Origin Server Name** `cell.seudominio.com` e **No TLS Verify** ativado.
+4. Desative **Rocket Loader**, **Email Address Obfuscation** e a injeção do **Web Analytics** para esse domínio (eles injetam scripts que a política de segurança do Cell bloqueia).
+5. Recomendado: proteja o domínio com **Cloudflare Access** (login extra por e-mail antes da página carregar).
+6. Recomendado: para o limite de tentativas de login usar o IP real do visitante, gere um segredo (`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`), coloque no `.env` como `CELL_PROXY_SECRET=...` e crie na Cloudflare uma **Transform Rule → Modify Request Header** que envie `X-Cell-Proxy-Secret` com esse valor. Rode `.\scripts\deploy.ps1`.
 
-6. Recomendado: faça só o túnel informar o IP real do visitante. Gere um segredo (`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`), coloque-o no `.env` como `CELL_PROXY_SECRET=...` e, na Cloudflare, crie **Rules → Transform Rules → Modify Request Header** para o hostname do Cell definindo o cabeçalho `X-Cell-Proxy-Secret` com esse valor. Depois rode `.\scripts\deploy.ps1`.
+---
 
-O limite de tentativas de login (10 a cada 15 minutos) é contado por IP real do visitante. Com `CELL_PROXY_SECRET`, o `CF-Connecting-IP` só é aceito em requisições que trazem o segredo, então nem a internet nem a rede local conseguem falsificá-lo. Sem ele, o cabeçalho é aceito de redes privadas (ou só dos endereços em `TRUSTED_PROXIES`, lista de CIDRs); no Docker Desktop toda a rede local chega pelo mesmo gateway, por isso o segredo é a opção segura. O estado atual aparece em Configurações → Diagnóstico.
+## Manutenção: backup, atualização e senha
 
-## Instalar no Android (PWA)
-
-Pelo domínio público da Cloudflare o certificado já é válido, então basta abrir `https://cell.seudominio.com` no Chrome do Android, entrar e usar **menu ⋮ → Instalar app** (ou "Adicionar à tela inicial").
-
-Pela rede local (`https://192.168.0.200`), o Android só permite instalar depois de confiar no certificado local: exporte-o com `.\scripts\export-cert.ps1` e instale `cell-root.crt` em Configurações → Segurança → Criptografia e credenciais → Instalar certificado → Certificado de CA.
-
-Se perder o celular: Configurações → Conta → **Sair de todos os outros dispositivos**, e troque a senha.
-
-### Notificações no celular
-
-Em cada aparelho: menu do usuário → **Notificações** → **Ativar notificações neste aparelho**, aceite a permissão e toque em **Enviar teste**. O aparelho passa a avisar quando um agente ou uma rotina enviar mensagem e quando uma ação precisar da sua aprovação; tocar no aviso abre a conversa. Se a conversa estiver aberta em algum aparelho, o aviso não é enviado (o Cell espera 10 segundos e só notifica o que ainda não foi lido).
-
-- Funciona no Chrome do Android, no navegador ou no app instalado, pelo domínio público (o HTTPS precisa ser confiável). No iPhone, só com o Cell instalado na tela inicial.
-- O conteúdo vai cifrado de ponta a ponta até o aparelho (padrão Web Push); o serviço de push do navegador (Google, no Chrome) só repassa.
-- Sair da conta desativa as notificações daquele aparelho. A lista de aparelhos inscritos fica na mesma tela, com a opção de remover.
-- No computador funciona igual (Chrome ou Edge): ative em Notificações no próprio PC. Os avisos aparecem na central de notificações do Windows.
-- **Por agente:** no painel do agente, o botão **Notificações ativadas/desativadas** (ou "Receber notificações deste agente" no editor) liga ou silencia aquele agente em tudo: push, avisos no app e sino. Agentes silenciados mostram um sino cortado na lista.
-- **Dentro do app:** o sino do cabeçalho lista mensagens não lidas e aprovações pendentes (com "Marcar como lidas"); mensagens de outras conversas aparecem num aviso com **Abrir**; a aba do navegador e o ícone do app instalado mostram a contagem.
-- Uma conversa só conta como lida com a tela visível: deixar o Cell aberto numa aba em segundo plano não impede o aviso.
-
-## Backup e restauração
+### Backup
 
 ```powershell
-.\scripts\backup.ps1                       # cria backups/AAAAMMDD-HHmmss
+.\scripts\backup.ps1                                   # cria backups\AAAAMMDD-HHmmss
+npm run backup:verify -- backups\20261026-120000      # confere se o backup restaura (precisa do Node.js)
 .\scripts\restore.ps1 -Backup .\backups\20261026-120000
 ```
 
-O backup para a API, o worker e a web por alguns segundos, exporta o banco e os arquivos (com as contagens de registros no `manifest.json`) e depois os reinicia. Guarde o `.env` separadamente: a restauração exige a mesma `SECRET_KEY`, pois os tokens e as credenciais são criptografados com ela.
+O backup pausa o Cell por alguns segundos e salva o banco e os arquivos. **Guarde o `.env` junto, em lugar seguro:** a restauração precisa da mesma `SECRET_KEY`, porque tokens e credenciais são cifrados com ela. A verificação restaura o backup num banco temporário e confere tudo, sem tocar no Cell em uso.
 
-**Verifique cada backup** antes de confiar nele:
-
-```powershell
-npm run backup:verify -- backups\20261026-120000
-```
-
-O comando restaura o backup num PostgreSQL temporário e isolado (com os mesmos parâmetros do `restore.ps1`), confere as migrações, compara as contagens com o manifesto e checa se todo arquivo citado no banco está na pasta `files/`. Nada de produção é tocado; o container temporário é removido no fim. Sai com código 0 e `"ok": true` quando o backup está íntegro.
-
-## Mensagens de voz
-
-Com o campo de mensagem vazio, toque no microfone para gravar (até 5 minutos) e toque em enviar. O áudio é transcrito pelo 9router e a transcrição vira a mensagem; o áudio fica anexado.
-
-- **Responder com áudio:** marque "Responder com áudio quando eu enviar áudio" no cadastro do agente. Desmarcado, ele sempre responde em texto.
-- **Modelos:** em Configurações → 9router, escolha o modelo de transcrição e, se tiver, o de síntese e a voz ("Testar voz" toca um exemplo). Sem modelo de síntese, o próprio aparelho lê a resposta em português.
-- Gravar exige HTTPS confiável (domínio público ou certificado instalado) e permissão do microfone.
-- **Voz por agente:** no cadastro do agente, "Voz deste agente" escolhe outro modelo de voz ou outra voz; vazio usa o padrão. A "Voz do aparelho" (Configurações → 9router) escolhe a voz do próprio celular ou computador e vale só para ele.
-
-### Chamada de voz
-
-Toque no telefone no topo da conversa. Fale normalmente: ao fazer uma pausa de pouco mais de um segundo, o Cell envia o trecho, a célula mostra o agente pensando e ele responde falando; depois volta a ouvir. Na chamada o agente sempre responde em voz. Use os botões para desligar o microfone, enviar na hora, interromper a resposta ou encerrar. Use fones de ouvido em lugares com barulho.
-
-## Pastas do computador
-
-Os agentes podem organizar arquivos do computador onde o Cell roda. Para liberar os discos (uma vez, e de novo se adicionar um disco):
+### Atualizar para uma versão nova
 
 ```powershell
-./scripts/drives.ps1
-./scripts/deploy.ps1
+.\scripts\backup.ps1
+git pull
+.\scripts\deploy.ps1
 ```
 
-O script monta no worker os discos locais (do `C:` só a sua pasta de usuário) em `compose.override.yaml`, que não vai para o Git. Para desligar: `./scripts/drives.ps1 -Remove` e depois o deploy.
+As migrações do banco rodam sozinhas. A versão instalada aparece no menu do usuário. O que mudou em cada versão está no [CHANGELOG.md](CHANGELOG.md). Para voltar a uma versão: `git checkout vX.Y.Z` e `.\scripts\deploy.ps1` (as migrações só avançam, por isso o backup antes).
 
-Mesmo com os discos montados, nenhum agente acessa nada até você aprovar. Peça, por exemplo, "organize a pasta K:\Downloads por tipo de arquivo": o agente pede acesso à pasta, você aprova na conversa e ela fica liberada para aquele agente (com subpastas). Listar e ler são livres; mover (várias de uma vez, numa única aprovação), renomear e criar pastas sempre pedem aprovação. Os agentes não apagam nem sobrescrevem arquivos, e arquivos ocultos ou de sistema ficam bloqueados. Em **Configurações → Computador** você vê e remove os acessos.
+### Senha
 
-## Aplicativos (MCP com um clique)
+- **Trocar:** Configurações → Conta.
+- **Esqueci a senha / criar a conta à mão:**
+  ```powershell
+  Write-Host 'Senha: ' -NoNewline; $s = Read-Host -AsSecureString; $env:CELL_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)); "cell" | docker compose exec -T -e CELL_ADMIN_PASSWORD api npm run admin -- --reset; Remove-Item Env:CELL_ADMIN_PASSWORD
+  ```
+  Sem `-- --reset`, o comando cria a conta (se ainda não existir). A senha precisa de 12 caracteres ou mais e nunca vai para o histórico do PowerShell. Trocar a senha encerra as sessões abertas.
 
-Menu do usuário → **Conectar aplicativos**.
+---
 
-- **Um clique:** Notion, Todoist, Linear, Jira/Confluence, ClickUp, monday.com, Airtable, Miro, Zapier, Stripe, PayPal, Wix, Webflow, Supabase, Sentry, Cloudflare e Hugging Face. Toque em **Conectar**, autorize no próprio serviço e volte ao Cell; as ferramentas ficam disponíveis para todos os agentes. Ferramentas de leitura (anotadas como somente leitura pelo servidor, ou com nomes como `search`, `list`, `get`) rodam direto; as demais sempre pedem sua aprovação. Em **⋯ → Ferramentas e permissões** dá para ajustar quais são confiáveis para leitura.
-- **Google (Gmail, Drive, Agenda e Tarefas):** o Google exige um cliente OAuth próprio, criado uma vez. Em **Google → Como configurar**, o Cell mostra o comando para ativar as APIs, o URI de redirecionamento exato para cadastrar (`https://<seu domínio>/api/connections/oauth/callback`) e os campos para Client ID e Client Secret (guardado cifrado). Depois, cada serviço conecta com um clique. Gmail, Drive e Agenda usam os servidores MCP oficiais do Google (em prévia); o Google Tarefas é integrado diretamente (listar, criar, concluir e excluir tarefas, com renovação automática do acesso).
-- O retorno da autorização usa sempre o primeiro endereço de `APP_ORIGIN` (o domínio público). Ele funciona mesmo que você tenha iniciado a conexão pela rede local.
-- **Canva:** o Canva só devolve a autorização para um endereço local. Depois de autorizar, abre uma página que não carrega (`http://127.0.0.1:53682/...`); copie o endereço dela e cole no Cell para concluir.
-- Outros servidores MCP continuam em **Conexões MCP personalizadas (avançado)**.
+## Solução de problemas
 
-## Acompanhamento e diagnóstico
+| Problema | O que fazer |
+|----------|-------------|
+| **"Origem não permitida"** ao entrar | O endereço que você usou não está em `APP_ORIGIN`. Adicione no `.env` (com `https://`) e rode `.\scripts\deploy.ps1`. |
+| Aviso de **"conexão não segura"** | Normal com o certificado local. [Instale o certificado](#certificado-https-sem-aviso-do-navegador). |
+| `setup.ps1` **não roda** | `Set-ExecutionPolicy -Scope Process Bypass` e tente de novo. |
+| **Docker não sobe** / porta em uso | Abra o Docker Desktop. Se outro programa usa as portas 80 ou 443 (IIS, Skype antigo, outro servidor web), feche-o. |
+| Agente **não responde** / "9router: HTTP 401" | Confira endereço e token em Configurações → 9router e clique em **Testar conexão e atualizar modelos**. O Diagnóstico mostra o estado do provedor. |
+| **Pesquisa na web** indisponível | Seu provedor não é o 9router. Conecte um aplicativo de pesquisa ou use o 9router. |
+| **Microfone** não grava | Precisa de HTTPS confiável (domínio público ou certificado instalado) e permissão de microfone no navegador. |
+| **Notificações** não chegam | Ative no próprio aparelho (menu → Notificações → Enviar teste). No iPhone, só com o app instalado na tela inicial. |
+| **Rotina** não disparou | Confira se o interruptor está ligado, o horário e o fuso. O *Histórico* da rotina mostra o que aconteceu. |
+| Agente **não acha uma pasta** do PC | Rode `.\scripts\drives.ps1` e `.\scripts\deploy.ps1`; confira os discos em Configurações → Computador. |
+| Algo travou | Configurações → **Diagnóstico** mostra o que está com problema. `docker compose logs -f api worker` mostra os registros. |
 
-- **Central de atividade** (ícone de atividade no cabeçalho ou menu do usuário): todas as execuções de todos os agentes, com filtros por estado e agente, resumo do que está trabalhando, na fila, aguardando aprovação ou com falha. Cada execução mostra modelo, duração, tokens, ferramentas, documentos usados, arquivos e a árvore de delegações, com os botões de aprovar, negar e cancelar.
-- **Diagnóstico** (Configurações → Diagnóstico): saúde do worker (sinal a cada 10 s), banco, fila, execuções paradas (sem sinal há mais de 2 minutos), 9router, conexões MCP e a confiança no IP do proxy. Nenhum segredo é exibido.
-- **Memória e resumo** (painel do agente → "Ver e editar memória e resumo"): edite a memória do agente e o resumo da conversa; cada versão fica no histórico com a origem (usuário, editor do agente ou resumo automático).
-- **Modo `/plan`**: a execução fica marcada como plano e o servidor só libera ferramentas de pesquisa e leitura, mesmo que o modelo tente outras.
+---
 
-## Versionamento
+## Configuração avançada (.env)
 
-O Cell segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/) (`MAJOR.MINOR.PATCH`). A versão vive no `package.json` da raiz e aparece no menu do usuário (canto inferior esquerdo), em `GET /api/health` e nas tags das imagens Docker. As mudanças ficam no [CHANGELOG.md](CHANGELOG.md).
+O `setup.ps1` cria o `.env` sozinho. Os campos principais:
 
-Fluxo de uma nova versão:
+| Variável | Para que serve |
+|----------|----------------|
+| `POSTGRES_PASSWORD` | Senha do banco (aleatória). |
+| `SECRET_KEY` | Chave que cifra tokens e credenciais. **Não perca:** sem ela os segredos salvos não abrem. |
+| `CELL_HOST` | Endereços pelos quais o Cell é aberto, separados por vírgula. |
+| `CELL_DEFAULT_SNI` | Endereço usado quando o navegador abre pelo IP. |
+| `APP_ORIGIN` | Os mesmos endereços, com `https://`. O primeiro é usado no retorno dos aplicativos. |
+| `NINEROUTER_BASE_URL` / `NINEROUTER_API_KEY` / `NINEROUTER_DEFAULT_MODEL` | Valores iniciais do provedor (também ajustáveis na interface). |
+| `CELL_PROXY_SECRET` | Segredo opcional enviado pelo Cloudflare Tunnel (veja acima). |
+| `TRUSTED_PROXIES` | Lista de redes (CIDR) de proxies confiáveis, se não usar o segredo. |
 
-1. Durante o desenvolvimento, descreva cada mudança em `## [Não lançado]` no `CHANGELOG.md`.
-2. Com tudo commitado, gere a versão:
-   ```powershell
-   npm run release -- patch   # correções       0.2.0 → 0.2.1
-   npm run release -- minor   # funcionalidades 0.2.0 → 0.3.0
-   npm run release -- major   # incompatível    0.2.0 → 1.0.0
-   ```
-   O script atualiza os `package.json` e o lockfile, dá data à seção do CHANGELOG, faz o commit `release: vX.Y.Z` e cria a tag `vX.Y.Z`.
-3. Publique no Docker:
-   ```powershell
-   .\scripts\deploy.ps1
-   ```
-   Gera as imagens `cell-server:X.Y.Z` e `cell-web:X.Y.Z` e reinicia os containers. Para voltar a uma versão anterior: `git checkout vX.Y.Z` e rode o `deploy.ps1` de novo. As migrações do banco só avançam, então faça um backup antes de atualizar.
+Depois de editar o `.env`, rode `.\scripts\deploy.ps1`.
 
 ## Desenvolvimento
 
 ```powershell
 npm install
-npm run check   # TypeScript da raiz e da web
-npm run build   # build da interface
-npm run dev     # Vite em http://127.0.0.1:5173 (proxy /api → 127.0.0.1:3101)
+npm run check      # verificação de tipos (TypeScript)
+npm run build      # build da interface
+npm run dev        # interface em http://127.0.0.1:5173 (proxy /api → 127.0.0.1:3101)
+npm run test:db    # testes de integração com PostgreSQL temporário no Docker
+npm run test:e2e   # testes de navegador (Chrome) em 360, 390, 768, 1024 e 1440 px
 ```
 
-Diálogos da interface: use sempre os helpers de `apps/web/src/dialogs.ts` (SweetAlert2 / `Swal.fire`). Nunca use `alert`, `confirm` ou `prompt` nativos.
+Estrutura:
 
-Testes de navegador: `npm run test:e2e` sobe uma pilha isolada (PostgreSQL temporário, API e build da interface com agentes em todos os estados) e roda o Playwright no Google Chrome instalado em 360, 390, 768, 1024 e 1440 px. Capturas ficam em `test-results/`.
+| Pasta | Conteúdo |
+|-------|----------|
+| `apps/server/src` | API (`api.ts`), worker (`worker.ts`), ferramentas (`tools.ts`, `documents.ts`, `hostfiles.ts`, `connectors.ts`), provedor de modelos (`router.ts`). |
+| `apps/server/migrations` | Migrações do banco, em ordem. |
+| `apps/web/src` | Interface React. |
+| `packages/shared` | Tipos e validações compartilhados. |
+| `scripts` | Instalação, deploy, backup, restauração, certificado, discos e versões. |
+| `tests` | Testes de integração e de navegador. |
 
-Testes de integração (`npm run test:db` sobe um PostgreSQL temporário no Docker, roda tudo e remove o container; para usar um banco próprio, ele precisa terminar em `_test`):
+Convenções:
 
-```powershell
-$env:TEST_DATABASE_URL = 'postgres://cell:cell-test-only@127.0.0.1:55439/cell_test'; npm test
-```
+- Diálogos da interface usam sempre os helpers de `apps/web/src/dialogs.ts` (SweetAlert2). Nunca `alert`, `confirm` ou `prompt` nativos.
+- Versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/). Descreva cada mudança em `## [Não lançado]` no `CHANGELOG.md` e, com tudo commitado, rode `npm run release -- patch|minor|major` e depois `.\scripts\deploy.ps1`.
+- Para usar um banco próprio nos testes, o nome dele precisa terminar em `_test`: `$env:TEST_DATABASE_URL = 'postgres://usuario:senha@127.0.0.1:5432/cell_test'; npm test`.

@@ -5,6 +5,23 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Novas ferramentas para todos os agentes, com o arquivo anexado à resposta e salvo na biblioteca:
+  - `create_spreadsheet`: Excel (.xlsx) com várias abas, cabeçalho destacado, filtros, colunas ajustadas e fórmulas; ou CSV com `;` e BOM (abre direto no Excel em português, acentos preservados).
+  - `create_pdf`: PDF A4 com páginas numeradas a partir de Markdown (títulos, parágrafos, listas, tabelas, negrito, itálico e `---` para nova página).
+  - `create_docx`: documento Word com os mesmos recursos, para edição.
+  - `create_presentation`: PowerPoint 16:9 com capa, tópicos em dois níveis, tabelas, imagens da biblioteca, anotações do apresentador e cor de destaque.
+- Planilhas Excel enviadas na conversa agora são lidas pelo agente (uma seção por aba).
+- README reescrito como guia passo a passo: requisitos, instalação, primeiro uso, todas as ferramentas, recursos, acesso externo, manutenção e solução de problemas.
+
+### Corrigido
+- O texto de PDFs não era extraído no servidor: o `tsx`, que roda a aplicação, quebra o pdf.js embutido no `pdf-parse` ("bad XRef entry"). A leitura agora roda num processo Node separado, com tempo limite. Afetava PDFs anexados e os lidos nas pastas do computador.
+
+### Como foi verificado
+- **Real:** arquivos gerados e reabertos: PDF renderizado (2 páginas, tabela, listas, acentos), Word e planilha lidos de volta, apresentação com 3 slides e anotações. Leitura de PDF sob `tsx` confirmada com falha antes e sucesso depois.
+- **Simulado:** teste de integração com o modelo pedindo uma planilha (arquivo anexado à resposta, nome saneado, fórmulas lidas), CSV com aspas e separador, PDF com texto extraído, Word, PowerPoint com imagem da biblioteca, modo plano sem geração de arquivos.
+- **Não verificado:** abertura dos arquivos no Excel, Word e PowerPoint de verdade (os arquivos seguem os formatos Office e foram validados pelas bibliotecas de leitura).
+
 ## [0.19.0] - 2026-10-27
 
 ### Adicionado
