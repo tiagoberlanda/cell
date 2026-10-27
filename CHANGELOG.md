@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.16.1] - 2026-10-27
+
 ### Adicionado
 - Rotinas: interruptor para ativar ou desativar direto no cartão (no lugar do ícone de pausar) e botão de excluir com confirmação. Ativar recusa rotinas cujo horário já passou.
 
