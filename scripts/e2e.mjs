@@ -60,6 +60,8 @@ async function seed() {
   // One routine per viewport: the routines test toggles and deletes its own.
   for (const w of [360, 390, 768, 1024, 1440]) await q("INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,enabled,next_at) VALUES($1,$2,'Resuma as novidades','daily','09:00','America/Sao_Paulo',true,now()+interval '1 day')", [agents['Pesquisador'], 'Relatório ' + w]);
   await q("INSERT INTO messages(conversation_id,role,content,created_at) VALUES($1,'user','[Rotina agendada: Bom dia] Pergunte se preciso de algo',now()-interval '1 minute')", [coord]);
+  // An abandoned connection attempt: diagnostics must not count it as active.
+  await q("INSERT INTO connections(name,url,catalog_key,all_agents,status) VALUES('Miro','https://mcp.miro.com/','miro',true,'connecting')");
   await q("INSERT INTO connections(name,url,catalog_key,all_agents,status,tools,read_tools) VALUES('Todoist','https://ai.todoist.net/mcp','todoist',true,'connected','[{\"name\":\"find_tasks\"},{\"name\":\"add_task\"}]','[\"find_tasks\"]')");
   const voiceCv = await conv('Revisor', 'Conversa por voz');
   const audioFile = (await q("INSERT INTO files(name,mime,size,storage_name) VALUES('audio-teste.webm','audio/webm',4000,'audio-teste.webm') RETURNING id"))[0].id;

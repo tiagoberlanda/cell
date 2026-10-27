@@ -5,6 +5,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Aprovar uma ação travava a execução: o Cell guardava a impressão dos parâmetros na ordem enviada pelo modelo, mas o banco reordena as chaves. Ao conferir, a ordem não batia e a execução falhava com "Parâmetros mudaram após a aprovação", deixando a aprovação na tela. A impressão agora ignora a ordem das chaves (alteração real dos parâmetros continua bloqueando).
+- Execuções encerradas (falha, conclusão ou cancelamento) agora fecham as aprovações pendentes, que deixam de aparecer com botões. A migração `0017_stale_approvals` limpa as que ficaram presas.
+- O diagnóstico contava como conexões MCP as tentativas de conexão não concluídas. Agora mostra quantas estão ativas e lista as não concluídas à parte.
+
+### Como foi verificado
+- **Real:** a falha foi confirmada no banco de produção (execução encerrada no mesmo instante em que a aprovação foi criada).
+- **Simulado:** teste de integração com argumentos em ordem que o banco reordena: aprovação, escrita e conclusão; execução encerrada fecha a aprovação e o botão responde "não está mais pendente". Teste de navegador do diagnóstico com uma conexão ativa e uma não concluída.
+
 ## [0.17.1] - 2026-10-27
 
 ### Corrigido

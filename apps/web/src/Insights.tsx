@@ -10,6 +10,12 @@ const callStatus:Record<string,string>={done:'Concluída',denied:'Negada',error:
 const docStatus:Record<string,string>={included:'Incluído',truncated:'Incluído em parte',omitted:'Omitido',unavailable:'Indisponível'};
 const filters:[string,string][]=[['all','Todas'],['active','Em andamento'],['waiting_approval','Aprovações'],['queued','Na fila'],['failed','Falhas'],['completed','Concluídas']];
 const fmt=(d?:string|null)=>d?new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+// Only connected servers count as active; abandoned or failed connection attempts are listed apart.
+const connectionStates:Record<string,string>={connecting:'aguardando autorização',error:'falhou',disconnected:'desconectado'};
+function McpSummary({connections}:{connections:any[]}){
+ const active=connections.filter(c=>c.status==='connected'),other=connections.filter(c=>c.status!=='connected');
+ return <div><p>{active.length===1?'1 conexão ativa':`${active.length} conexões ativas`}</p>{active.map(c=><p key={c.id}><strong>{c.name}</strong> · {c.url} · {c.tools} ferramentas</p>)}{other.length>0&&<p className="hint">Não concluídas: {other.map(c=>`${c.name} (${connectionStates[c.status]||c.status})`).join(', ')}</p>}</div>;
+}
 export function duration(run:any){const start=run.started_at||run.created_at,end=run.finished_at||(['completed','failed','cancelled'].includes(run.state)?run.updated_at:null);if(!start)return '—';const s=Math.max(0,Math.round(((end?new Date(end):new Date()).getTime()-new Date(start).getTime())/1000));return s<60?`${s} s`:s<3600?`${Math.floor(s/60)} min ${s%60} s`:`${Math.floor(s/3600)} h ${Math.floor(s%3600/60)} min`;}
 const tokens=(u:any)=>u&&(u.prompt_tokens||u.completion_tokens)?`${(u.prompt_tokens||0).toLocaleString('pt-BR')} entrada · ${(u.completion_tokens||0).toLocaleString('pt-BR')} saída`:'—';
 const bytes=(n:number)=>n>1e9?`${(n/1e9).toFixed(1)} GB`:n>1e6?`${(n/1e6).toFixed(1)} MB`:`${Math.round(n/1e3)} KB`;
@@ -77,7 +83,7 @@ export function DiagnosticsPanel({notify}:Notice){
    {card('Fila de execução',Activity,d.queue,<p>{Object.entries(d.queue.jobs||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'Sem tarefas na fila'}</p>)}
    {card('Execuções',Activity,{ok:d.runs.ok&&!d.runs.stalled?.length,error:d.runs.error||`${d.runs.stalled?.length} execução(ões) sem sinal há mais de 2 min: ${d.runs.stalled?.map((s:any)=>s.agent_name).join(', ')}`},<p>{Object.entries(d.runs.byState||{}).map(([k,v])=>`${runStateNames[k]||k}: ${v}`).join(' · ')}</p>)}
    {card('9router',Zap,d.router,<p>{d.router.origin} · {d.router.models} modelos · {d.router.latencyMs} ms<br/>Token {d.router.hasToken?'configurado':'ausente'} · padrão: {d.router.defaultModel||'nenhum'}</p>)}
-   {card('Conexões MCP',Plug,d.mcp,<div>{d.mcp.connections?.length?d.mcp.connections.map((c:any)=><p key={c.id}><strong>{c.name}</strong> · {c.url} · {c.status==='connected'?`${c.tools} ferramentas`:c.status}</p>):<p>Nenhuma conexão.</p>}</div>)}
+   {card('Conexões MCP',Plug,d.mcp,<McpSummary connections={d.mcp.connections||[]}/>)}
    {card('Proxy e IP real',Shield,{ok:true},<p>{d.proxy.mode==='secret'?'CF-Connecting-IP aceito só com o segredo do túnel (recomendado).':d.proxy.mode==='proxies'?`CF-Connecting-IP aceito só de: ${d.proxy.proxies.join(', ')}.`:'CF-Connecting-IP aceito de qualquer rede privada. Defina CELL_PROXY_SECRET (veja o README) para que só o túnel informe o IP real.'}</p>)}
   </div>
   <p className="hint">Backups: rode <code>.\scripts\backup.ps1</code> e depois <code>npm run backup:verify -- backups\&lt;pasta&gt;</code>, que restaura o backup num banco temporário isolado e confere o conteúdo.</p>

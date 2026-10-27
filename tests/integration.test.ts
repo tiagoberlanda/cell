@@ -44,6 +44,8 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    if(text.includes('CALL_MCP')){tool=mcpName;args={value:'resultado'};}
    if(text.includes('DELEGATE')){tool='delegate';args={agentId:/DELEGATE_TO:([0-9a-f-]{36})/.exec(text)?.[1]||targetAgent,task:'Responda como especialista.'};}
    if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
+   // Keys in an order jsonb rewrites (it sorts by length): the approval must survive the round trip through the database.
+   if(text.includes('CALL_MCP_ORDER')){tool=mcpName;args={value:'ordem',properties:{Status:'Sugestões',TAG:'Natureza',Nome:'Florestas'}};}
   }
   reply.hijack();reply.raw.writeHead(200,{'Content-Type':'text/event-stream'});
   const packet=(p:any)=>reply.raw.write('data: '+JSON.stringify(p)+'\n\n');
@@ -113,7 +115,16 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  let connectionId='';
  await t.test('MCP descobre ferramentas; escrita espera aprovação',async()=>{const c=await request('POST','/connections',{name:'MCP teste',url:base+'/mcp',headers:{Authorization:'Bearer mcp-secret'},readTools:['read_public']});connectionId=c.id;const discovery=await request('POST',`/connections/${c.id}/test`);assert.equal(discovery.tools.length,3);mcpName=(await request('GET','/tools')).find((x:any)=>x.label.includes('write_external')).name;agent.tools.push(mcpName);await request('PUT','/agents/'+agent.id,agent);const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');assert.equal(writes,0);const approval=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+approval.id,{decision:'approved'});await poll(r.id,'completed');assert.equal(writes,1);await enqueue(r.id);await sleep(500);assert.equal(writes,1);});
  await t.test('negar uma chamada impede escrita externa',async()=>{const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');const a=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+a.id,{decision:'denied'});await poll(r.id,'completed');assert.equal(writes,1);});
- await t.test('mudança de parâmetros invalida a aprovação',async()=>{const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');const a=await one('SELECT a.id,a.call_id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await query('UPDATE tool_calls SET args=$2 WHERE id=$1',[a.call_id,JSON.stringify({value:'changed'})]);await request('POST','/approvals/'+a.id,{decision:'approved'});await poll(r.id,'failed');assert.equal(writes,1);});
+ await t.test('aprovação sobrevive à reordenação de chaves do banco e expira se a execução acaba',async()=>{
+  const r=await task('CALL_MCP_ORDER');await poll(r.id,'waiting_approval');
+  const a=await one('SELECT a.id,a.status FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);assert.equal(a.status,'pending');
+  const before=writes;await request('POST','/approvals/'+a.id,{decision:'approved'});await poll(r.id,'completed');assert.equal(writes,before+1);
+  const {setState}=await import('../apps/server/src/runtime.js');
+  const r2=await task('CALL_MCP_ORDER');await poll(r2.id,'waiting_approval');await setState(r2.id,'failed','Falha simulada');
+  const a2=await one('SELECT a.id,a.status FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r2.id]);assert.equal(a2.status,'cancelled','aprovação de execução encerrada não fica pendente');
+  await assert.rejects(request('POST','/approvals/'+a2.id,{decision:'approved'}),/não está mais pendente/);
+ });
+ await t.test('mudança de parâmetros invalida a aprovação',async()=>{const w=writes;const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');const a=await one('SELECT a.id,a.call_id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await query('UPDATE tool_calls SET args=$2 WHERE id=$1',[a.call_id,JSON.stringify({value:'changed'})]);await request('POST','/approvals/'+a.id,{decision:'approved'});await poll(r.id,'failed');assert.equal(writes,w,'nenhuma escrita com parâmetros alterados');});
  await t.test('delegação volta ao pai sem bloquear a fila',async()=>{const r=await task('DELEGATE');await poll(r.id,'completed',50000);const child=await one('SELECT * FROM runs WHERE parent_id=$1',[r.id]);assert.equal(child.state,'completed');assert.equal(child.agent_id,targetAgent);});
  await t.test('cancelar streaming não grava mensagem final',async()=>{const r=await task('SLOW_TEST');await poll(r.id,'running');await request('POST','/runs/'+r.id+'/cancel');await sleep(3000);assert.equal((await one('SELECT state FROM runs WHERE id=$1',[r.id])).state,'cancelled');});
  await t.test('streaming incompleto é marcado como falha',async()=>{const r=await task('BROKEN_STREAM');await poll(r.id,'failed');});

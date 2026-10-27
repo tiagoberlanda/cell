@@ -79,6 +79,10 @@ test('diagnóstico mostra a saúde sem segredos', async ({ page }) => {
   await expect(page.locator('.diag-card')).toHaveCount(7);
   await expect(page.locator('.diag-card', { hasText: 'Banco de dados' }).locator('.diag-led')).toHaveText('OK');
   await expect(page.locator('.diag-card', { hasText: '9router' }).locator('.diag-led')).toHaveText('Falha');
+  const mcp = page.locator('.diag-card', { hasText: 'Conexões MCP' });
+  await expect(mcp).toContainText('1 conexão ativa');
+  await expect(mcp).toContainText('Todoist');
+  await expect(mcp).toContainText('Não concluídas: Miro (aguardando autorização)');
   await noHorizontalScroll(page);
 });
 
