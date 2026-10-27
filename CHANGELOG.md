@@ -5,6 +5,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Alterado
+- O Coordenador usa o mesmo ícone do aplicativo (a célula verde do logo). O novo tipo de célula "Cell" é reservado ao agente principal; o logo da barra lateral e a tela de login também passaram a usar exatamente esse desenho.
+- Migração `0008_master_app_icon` aplica o ícone e a cor ao Coordenador existente.
+
 ## [0.8.1] - 2026-10-27
 
 ### Corrigido
