@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.8.0] - 2026-10-27
+
 ### Segurança
 - O limite de tentativas de login era compartilhado por todos (o servidor via só o IP do Caddy): 7 erros de qualquer pessoa bloqueavam o login de todos. Agora o limite é por IP real do visitante, com `CF-Connecting-IP` aceito apenas vindo de um endereço local (túnel da Cloudflare), e ficou em 10 tentativas a cada 15 minutos.
 - Login com usuário inexistente leva o mesmo tempo que com senha errada (não revela usuários válidos); tentativas recusadas são registradas com o IP.
