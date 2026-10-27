@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.22.0] - 2026-10-27
+
 ### Adicionado
 - Comandos no computador: com o **Cell Host** instalado no Windows (`.\scripts\host.ps1`), os agentes podem rodar comandos PowerShell no computador, pedindo pelo celular ou pelo PC. O Cell Host roda no login, com o seu usuário e sem administrador, escuta só no `127.0.0.1` (a rede local e a internet não o alcançam), exige um token e recusa chamadas de navegadores.
   - `pc_run` roda um comando, **sempre com aprovação**, mostrando o script, a pasta e o tempo limite (até 10 minutos; o processo e os filhos são encerrados no limite). A saída volta limitada a 20 mil caracteres.
