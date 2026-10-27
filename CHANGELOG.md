@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.19.0] - 2026-10-27
+
 ### Adicionado
 - Pastas do computador: os agentes podem organizar arquivos do PC onde o Cell roda. Para usar uma pasta (ex.: `K:\Downloads`), o agente pede acesso e você aprova na conversa; o acesso vale para aquele agente, com subpastas. Na pasta liberada, listar e ler (txt, md, csv, json, pdf, docx) é livre; mover (em lote, com uma única aprovação), renomear e criar pastas sempre pedem aprovação. Não há ferramenta para apagar, nada é sobrescrito e arquivos ocultos ou de sistema (incluindo `.env`) ficam bloqueados.
 - Configurações → Computador: discos disponíveis e pastas liberadas por agente, com botão para remover o acesso.
