@@ -263,3 +263,32 @@ test('campo de mensagem volta ao tamanho original depois de enviar', async ({ pa
   await expect(box).toHaveValue('');
   await expect.poll(async () => (await box.boundingBox())!.height).toBeLessThanOrEqual(original + 1);
 });
+
+test('canva: diálogos funcionam dentro da janela de aplicativos', async ({ page }) => {
+  // Stub the provider round trip: the point is that the dialogs inside the modal take clicks, focus and typing.
+  await page.route('**/api/connectors/canva/connect', route => route.fulfill({ json: { authorizationUrl: 'about:blank', manualReturn: true } }));
+  let pasted = '';
+  await page.route('**/api/connectors/canva/complete', route => { pasted = route.request().postDataJSON().url; return route.fulfill({ json: { connected: true, tools: 3 } }); });
+  await openAgents(page);
+  if (tablet(page)) await page.locator('.profile').click(); else await page.getByRole('button', { name: /e2e/ }).click();
+  await page.getByRole('menuitem', { name: 'Conectar aplicativos' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Conectar aplicativos' });
+  await dialog.locator('.app-card', { hasText: 'Canva' }).getByRole('button', { name: 'Conectar' }).click();
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Abrir o Canva' }).click();
+  await (await popup).close();
+  const field = page.locator('.swal2-input');
+  await expect(field).toBeVisible();
+  await field.fill('http://127.0.0.1:53682/cell/oauth/callback?code=abc&state=xyz');
+  await expect(field).toBeFocused();
+  await page.getByRole('button', { name: 'Concluir conexão' }).click();
+  await expect(page.getByText('Canva conectado: 3 ferramentas.')).toBeVisible();
+  expect(pasted).toContain('code=abc');
+  await expect(dialog).toBeVisible();
+  // Escape closes only the dialog on top, not the window behind it.
+  await dialog.locator('.app-card', { hasText: 'Canva' }).getByRole('button', { name: 'Conectar' }).click();
+  await expect(page.getByRole('button', { name: 'Abrir o Canva' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Abrir o Canva' })).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+});
