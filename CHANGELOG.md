@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.17.1] - 2026-10-27
+
 ### Corrigido
 - Os diálogos de confirmação não aceitavam toque quando abertos sobre uma janela (por exemplo, "Abrir o Canva" em Conectar aplicativos, "Desconectar" ou "Excluir rotina" no editor): a janela bloqueia cliques e foco fora dela. Agora o diálogo é exibido dentro da janela aberta, aceita toque e digitação, e o Esc fecha só o diálogo.
 
