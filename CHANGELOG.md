@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.20.0] - 2026-10-27
+
 ### Adicionado
 - Novas ferramentas para todos os agentes, com o arquivo anexado à resposta e salvo na biblioteca:
   - `create_spreadsheet`: Excel (.xlsx) com várias abas, cabeçalho destacado, filtros, colunas ajustadas e fórmulas; ou CSV com `;` e BOM (abre direto no Excel em português, acentos preservados).
