@@ -16,7 +16,7 @@ import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
 import { storage,saveFile,fileData,deleteFile } from './files.js';
 import { contained,allowedOrigin,clientIp } from './security.js';
 import { discover,finishOAuth } from './mcp.js';
-import { nativeToolNames,deleteAgent } from './tools.js';
+import { nativeToolNames,deleteAgent,mcpToolName } from './tools.js';
 import { nextOccurrence } from './schedule.js';
 import { registerInsights } from './insights.js';
 import { registerPush } from './push.js';
@@ -154,7 +154,7 @@ export async function buildApp(){
  app.post('/api/connections/:id/test',async req=>{const c=await one('SELECT * FROM connections WHERE id=$1',[id(req)]);if(!c)throw new Error('Conexão não encontrada.');try{return {tools:await discover(c)};}catch{await query("UPDATE connections SET status='error' WHERE id=$1",[c.id]);const updated=await one('SELECT oauth FROM connections WHERE id=$1',[c.id]);return {error:'Conexão indisponível ou autenticação necessária.',authorizationUrl:updated?.oauth?decrypt<any>(updated.oauth).authorizationUrl:null};}});
  app.get('/api/connections/:id/oauth/callback',async(req,reply)=>{const input=z.object({code:z.string(),state:z.string()}).parse(req.query);const c=await one('SELECT * FROM connections WHERE id=$1',[id(req)]);const o=c?.oauth?decrypt<any>(c.oauth):null;if(!o?.state||!safeEqual(o.state,input.state))throw new Error('Estado OAuth inválido.');await finishOAuth(c,input.code);await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));reply.redirect('/');});
  app.delete('/api/connections/:id',async req=>{await query('DELETE FROM connections WHERE id=$1',[id(req)]);return {ok:true};});
- app.get('/api/tools',async()=>{const tools:any[]=nativeToolNames.map(name=>({name,label:name,read:true}));for(const c of await query('SELECT * FROM connections'))for(const t of c.tools)tools.push({name:c.kind==='native'?t.name:`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64),label:`${c.name}: ${t.name}`,read:c.read_tools.includes(t.name),allAgents:c.all_agents});return tools;});
+ app.get('/api/tools',async()=>{const tools:any[]=nativeToolNames.map(name=>({name,label:name,read:true}));for(const c of await query('SELECT * FROM connections'))for(const t of c.tools)tools.push({name:c.kind==='native'?t.name:mcpToolName(c.id,t.name),label:`${c.name}: ${t.name}`,read:c.read_tools.includes(t.name),allAgents:c.all_agents});return tools;});
  app.get('/api/usage',async()=>({runs:await query('SELECT state,count(*)::int AS count FROM runs GROUP BY state'),models:await query("SELECT model,sum(COALESCE((usage->>'prompt_tokens')::bigint,0)) AS input_tokens,sum(COALESCE((usage->>'completion_tokens')::bigint,0)) AS output_tokens FROM runs GROUP BY model")}));
  app.get('/api/events',async(req,reply)=>{
   const header=String(req.headers['last-event-id']||''),qs=(req.query as any).after;let cursor=/^\d+$/.test(header)?Number(header):/^\d+$/.test(String(qs||''))?Number(qs):Number((await one('SELECT COALESCE(max(id),0) AS id FROM events')).id);

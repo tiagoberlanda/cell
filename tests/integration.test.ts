@@ -506,3 +506,12 @@ test('vozes conhecidas por modelo de síntese',async()=>{
  const tts1=ttsVoices('openrouter/openai/tts-1-hd').map(v=>v.id);assert.equal(tts1.length,9);assert.ok(!tts1.includes('ballad'),'tts-1 não tem ballad');
  assert.deepEqual(ttsVoices('nvidia/fastpitch'),[]);assert.ok(ttsVoices('edge/tts').some(v=>v.id==='pt-BR-FranciscaNeural'));
 });
+
+test('nomes de ferramentas MCP longos não colidem (Grok recusa duplicados)',async()=>{
+ const {mcpToolName}=await import('../apps/server/src/tools.js');
+ const id='8f39d201-c135-4291-b0f4-b50da4c10fcb';
+ const a=mcpToolName(id,'notion-calendar-list-calendars'),b=mcpToolName(id,'notion-calendar-list-calendar-events');
+ assert.notEqual(a,b);assert.ok(a.length<=64&&b.length<=64);assert.match(a,/^[a-zA-Z0-9_-]+$/);
+ assert.equal(mcpToolName(id,'notion-fetch'),'mcp_8f39d201c1354291b0f4b50da4c10fcb_notion-fetch','nomes curtos não mudam');
+ assert.equal(mcpToolName(id,'notion-calendar-list-calendars'),a,'estável');
+});

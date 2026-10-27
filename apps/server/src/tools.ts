@@ -11,6 +11,13 @@ import { nextOccurrence } from './schedule.js';
 import { z } from 'zod';
 import { hash } from './security.js';
 export interface Tool {name:string;description:string;parameters:any;write:boolean;target?:string;binding?:string;execute:(args:any,run:any,cfg:any)=>Promise<string>}
+// Function name for an MCP tool. Providers cap names at 64 characters; plain truncation made distinct tools collide
+// (notion-calendar-list-calendars vs notion-calendar-list-calendar-events), which xAI/Grok rejects as a duplicate
+// definition. Names that fit stay as they were (saved agent settings keep working); longer ones get a hash suffix.
+export function mcpToolName(connectionId:string,toolName:string){
+ const full=`mcp_${connectionId.replaceAll('-','')}_${String(toolName).replace(/[^a-zA-Z0-9_-]/g,'_')}`;
+ return full.length<=64?full:`${full.slice(0,56)}_${hash(full).slice(0,7)}`;
+}
 const object=(properties:any,required:string[])=>({type:'object',properties,required,additionalProperties:false});
 const str={type:'string'};
 export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
@@ -32,12 +39,16 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  for(const c of await query('SELECT * FROM connections WHERE status=\'connected\'')){
   // Catalog connections are available to every agent (all_agents); others only where the agent enabled the tool.
   if(c.kind==='native'){if(c.catalog_key==='google-tasks')result.push(...googleTasksTools(c).filter(t=>c.all_agents||enabled.includes(t.name)));continue;}
-  for(const t of c.tools){const name=`mcp_${c.id.replaceAll('-','')}_${String(t.name).replace(/[^a-zA-Z0-9_-]/g,'_')}`.slice(0,64);if(!c.all_agents&&!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
+  for(const t of c.tools){const name=mcpToolName(c.id,t.name);if(!c.all_agents&&!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
  }
  // Office files (spreadsheets, PDF, Word, PowerPoint) only add to the library, so every agent has them.
  result.push(...documentTools());
  // Computer folders, for every agent when the host drives are mounted; access itself is granted per folder by the owner.
  if((await mountedDrives()).length)result.push(...hostFileTools());
+ // A repeated name makes some providers reject the whole request; keep the first definition.
+ const seen=new Set<string>();
+ const unique=result.filter(t=>!seen.has(t.name)&&seen.add(t.name));
+ result.length=0;result.push(...unique);
  return run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','pc_list','pc_read'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
 }
 const palette=['#258cff','#18b99c','#fcad24','#9b6bff','#fc733f','#df8da9','#b3efbc','#9c713f'];

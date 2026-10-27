@@ -5,6 +5,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Agentes com modelos Grok não usavam nenhuma ferramenta (gerar imagem, Canva, etc.) e respondiam que "não conseguiam". O nome de cada ferramenta de aplicativo era cortado em 64 caracteres, e duas ferramentas do Notion (`notion-calendar-list-calendars` e `notion-calendar-list-calendar-events`) ficavam com o mesmo nome. O Gemini aceitava a duplicata; o Grok recusa a lista inteira ("Duplicate function definition"), e a resposta saía sem ferramentas. Nomes longos agora recebem um sufixo curto que os torna únicos (nomes que cabem em 64 caracteres não mudam), e a lista enviada ao modelo nunca repete um nome.
+
+### Como foi verificado
+- **Real:** pelo 9router de produção, com as 133 ferramentas do agente Artista: antes, o Grok respondia erro 400 de definição duplicada; depois, tanto o Grok quanto o Gemini chamaram `generate_image`.
+- **Simulado:** teste de integração dos nomes (sem colisão, até 64 caracteres, nomes curtos inalterados, estáveis).
+
 ## [0.20.0] - 2026-10-27
 
 ### Adicionado
