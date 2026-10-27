@@ -8,7 +8,7 @@ import { contained } from './security.js';
 const require=createRequire(import.meta.url);
 export const workspace=path.resolve(process.env.WORKSPACE_PATH||'./data');
 export const storage=path.join(workspace,'files');
-const types:Record<string,string>={'.txt':'text/plain','.md':'text/markdown','.csv':'text/csv','.json':'application/json','.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
+const types:Record<string,string>={'.txt':'text/plain','.md':'text/markdown','.csv':'text/csv','.json':'application/json','.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.webm':'audio/webm','.ogg':'audio/ogg','.mp3':'audio/mpeg','.m4a':'audio/mp4','.wav':'audio/wav'};
 export async function saveFile(name:string,data:Buffer,agentId?:string,sourceCallId?:string){
  if(sourceCallId){const existing=await one('SELECT id,name,mime,size,warning FROM files WHERE source_call_id=$1',[sourceCallId]);if(existing)return existing;}
  const ext=path.extname(name).toLowerCase(),mime=types[ext];if(!mime)throw new Error('Formato não suportado.');if(data.length>25*1024*1024)throw new Error('Limite de 25 MB por arquivo.');

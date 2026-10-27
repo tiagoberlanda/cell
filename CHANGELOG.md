@@ -5,6 +5,24 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Mensagens de voz: botão de microfone no campo de mensagem (aparece quando o campo está vazio), barra "Gravando" com tempo e Cancelar, limite de 5 minutos. O áudio é transcrito pelo 9router (modelo de transcrição escolhido em Configurações), a transcrição vira o texto da mensagem e o áudio fica anexado para ouvir.
+- Opção "Responder com áudio quando eu enviar áudio" no cadastro do agente. Marcada: uma mensagem de voz recebe resposta em áudio, tocada automaticamente. Desmarcada (padrão): a resposta é sempre em texto. Mensagens digitadas sempre recebem texto.
+- Voz da resposta: modelo e voz de síntese do 9router em Configurações, com "Testar voz". Sem modelo de síntese, o próprio aparelho lê a resposta em português ("Ouvir resposta").
+- Logotipos oficiais dos aplicativos no catálogo (Notion, Gmail, Google Drive, Agenda, Tarefas, Todoist, Linear, Jira), do Simple Icons (CC0). O Canva continua com a inicial.
+- Migração `0016_voice`.
+
+### Corrigido
+- Conectar o Notion (e outros aplicativos) pelo app instalado no Android falhava com "Grant not found or authorization code expired": o Android entrega o retorno da autorização duas vezes e o código só vale uma vez. A segunda entrega agora reaproveita o resultado da primeira.
+
+### Segurança
+- `Permissions-Policy` libera o microfone só para o próprio site (`microphone=(self)`).
+
+### Como foi verificado
+- **Real:** transcrição pelo 9router (`cx/transcribe`) de um WAV e de uma gravação WebM/Opus do Chrome. Duplicação do retorno do Notion confirmada nos logs de produção (mesmo código recebido duas vezes, com 3 s de intervalo).
+- **Simulado:** teste de integração com transcrição e síntese falsas (resposta em texto ou áudio conforme o agente, sem modelo de síntese, áudio servido inline, formato recusado) e retorno OAuth repetido em paralelo e depois. Testes de navegador com microfone falso: gravar, cancelar, mensagens de áudio, opção do agente e logotipos.
+- **Não verificado:** síntese de voz real, porque os modelos de voz do 9router atual falham (o aparelho lê a resposta até um provedor de voz ser configurado no 9router).
+
 ## [0.15.1] - 2026-10-27
 
 ### Corrigido

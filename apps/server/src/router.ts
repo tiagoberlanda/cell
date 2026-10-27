@@ -1,8 +1,8 @@
 import { one,query } from './db.js';
 import { decrypt,encrypt,validateEndpoint } from './security.js';
 import { stripThinking } from '../../../packages/shared/src/index.js';
-export interface RouterConfig {baseUrl:string;token:string;defaultModel:string;imageModel?:string;timezone:string;concurrency:number;maxSteps:number;maxDepth:number;maxTokens?:number}
-export async function config():Promise<RouterConfig>{const row=await one('SELECT value FROM settings WHERE id=1');const v=row?.value||{};return {baseUrl:v.baseUrl??process.env.NINEROUTER_BASE_URL??'http://192.168.0.200:20128/v1',token:v.token!==undefined?(v.token?decrypt<string>(v.token):''):(process.env.NINEROUTER_API_KEY||''),defaultModel:v.defaultModel??process.env.NINEROUTER_DEFAULT_MODEL??'',imageModel:v.imageModel||'',timezone:v.timezone||'America/Sao_Paulo',concurrency:v.concurrency??3,maxSteps:v.maxSteps??20,maxDepth:v.maxDepth??3,maxTokens:v.maxTokens??4096};}
+export interface RouterConfig {baseUrl:string;token:string;defaultModel:string;imageModel?:string;sttModel?:string;ttsModel?:string;ttsVoice?:string;timezone:string;concurrency:number;maxSteps:number;maxDepth:number;maxTokens?:number}
+export async function config():Promise<RouterConfig>{const row=await one('SELECT value FROM settings WHERE id=1');const v=row?.value||{};return {baseUrl:v.baseUrl??process.env.NINEROUTER_BASE_URL??'http://192.168.0.200:20128/v1',token:v.token!==undefined?(v.token?decrypt<string>(v.token):''):(process.env.NINEROUTER_API_KEY||''),defaultModel:v.defaultModel??process.env.NINEROUTER_DEFAULT_MODEL??'',imageModel:v.imageModel||'',sttModel:v.sttModel||'',ttsModel:v.ttsModel||'',ttsVoice:v.ttsVoice||'',timezone:v.timezone||'America/Sao_Paulo',concurrency:v.concurrency??3,maxSteps:v.maxSteps??20,maxDepth:v.maxDepth??3,maxTokens:v.maxTokens??4096};}
 export async function publicConfig(){const c=await config();const {token,...rest}=c;return {...rest,hasToken:!!token};}
 export async function saveConfig(input:any){const prev=(await one('SELECT value FROM settings WHERE id=1'))?.value||{};const next={...prev,...input,baseUrl:validateEndpoint(input.baseUrl),token:input.token===undefined?prev.token:(input.token?encrypt(input.token):'')};await query('INSERT INTO settings(id,value) VALUES(1,$1) ON CONFLICT(id) DO UPDATE SET value=$1',[JSON.stringify(next)]);}
 export async function routerRequest(c:RouterConfig,route:string,body?:unknown,signal?:AbortSignal){
@@ -23,6 +23,23 @@ export async function generateImage(c:RouterConfig,prompt:string,size?:string,si
  if(item?.b64_json)return {data:Buffer.from(item.b64_json,'base64'),mime:'image/png',model};
  if(item?.url){const img=await fetch(item.url,{signal:AbortSignal.timeout(60000)});if(!img.ok)throw new Error('Não foi possível baixar a imagem gerada.');return {data:Buffer.from(await img.arrayBuffer()),mime:(img.headers.get('content-type')||'image/png').split(';')[0],model};}
  throw new Error('O 9router não retornou imagem.');
+}
+export async function audioModels(c?:RouterConfig){const cfg=c||await config();const list=async(kind:string)=>{try{return ((await (await routerRequest(cfg,'/models/'+kind)).json() as any).data||[]).map((m:any)=>({id:String(m.id),name:m.name||m.id}));}catch{return [];}};return {stt:await list('stt'),tts:await list('tts')};}
+// Speech to text (OpenAI-compatible). No language field: some providers (Codex) reject it and detect the language anyway.
+export async function transcribe(c:RouterConfig,data:Buffer,mime:string,name:string){
+ const model=c.sttModel||(await audioModels(c)).stt[0]?.id;if(!model)throw new Error('Nenhum modelo de transcrição disponível no 9router.');
+ const form=new FormData();form.append('model',model);form.append('file',new Blob([new Uint8Array(data)],{type:mime}),name);
+ const res=await fetch(validateEndpoint(c.baseUrl)+'/audio/transcriptions',{method:'POST',headers:{Authorization:`Bearer ${c.token}`},body:form,signal:AbortSignal.timeout(120000)});
+ const body=await res.json().catch(()=>({})) as any;if(!res.ok)throw new Error(`Transcrição falhou (${model}): ${String(body?.error?.message||res.status).slice(0,200)}`);
+ const text=String(body.text||'').trim();if(!text)throw new Error('Não foi possível entender o áudio.');return text;
+}
+// Text to speech. Needs a configured voice model (model or model/voice, as the 9router expects).
+export async function synthesize(c:RouterConfig,text:string){
+ if(!c.ttsModel)throw new Error('Nenhum modelo de voz configurado.');
+ const model=c.ttsVoice?`${c.ttsModel}/${c.ttsVoice}`:c.ttsModel;
+ const res=await fetch(validateEndpoint(c.baseUrl)+'/audio/speech',{method:'POST',headers:{Authorization:`Bearer ${c.token}`,'Content-Type':'application/json'},body:JSON.stringify({model,input:text}),signal:AbortSignal.timeout(90000)});
+ if(!res.ok){const b=await res.json().catch(()=>({})) as any;throw new Error(`Voz falhou (${model}): ${String(b?.error?.message||res.status).slice(0,200)}`);}
+ const mime=(res.headers.get('content-type')||'audio/mpeg').split(';')[0].replace('audio/mp3','audio/mpeg');return {data:Buffer.from(await res.arrayBuffer()),mime};
 }
 export type ChatMessage={role:string;content:any;tool_calls?:any[];tool_call_id?:string};
 export async function completion(c:RouterConfig,model:string,messages:ChatMessage[],tools:any[],onVisible:(text:string)=>Promise<void>,signal?:AbortSignal){

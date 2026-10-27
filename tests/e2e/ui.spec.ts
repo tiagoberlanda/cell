@@ -178,3 +178,52 @@ test('volta do OAuth com erro abre o painel e explica', async ({ page }) => {
   await expect(page.locator('.toast')).toContainText('Acesso negado pelo usuário');
   expect(new URL(page.url()).search).toBe('');
 });
+
+test('voz: gravar, mensagens de áudio e resposta falada', async ({ page }) => {
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  await expect(page.locator('.voice-tag')).toContainText('Você · áudio');
+  await expect(page.locator('audio.audio-attachment')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Ouvir resposta' })).toBeVisible();
+  const mic = page.getByRole('button', { name: 'Gravar áudio' });
+  await expect(mic).toBeVisible();
+  await page.locator('#composer').fill('texto');
+  await expect(mic).toHaveCount(0);
+  await page.locator('#composer').fill('');
+  await mic.click();
+  await expect(page.locator('.recording-bar')).toContainText(/Gravando 0:0[1-9]/, { timeout: 5000 });
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `test-results/voz-${page.viewportSize()!.width}.png` });
+  await page.locator('.recording-bar').getByRole('button', { name: 'Cancelar' }).click();
+  await expect(page.locator('.recording-bar')).toHaveCount(0);
+  await mic.click();
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', { name: 'Enviar áudio' }).click();
+  // No 9router in this stack: transcription fails and the error is shown instead of a silent loss.
+  await expect(page.locator('.toast')).toContainText(/Transcrição|transcrição|9router|modelo/i, { timeout: 15000 });
+});
+
+test('agente: opção de responder com áudio e logotipos dos aplicativos', async ({ page }) => {
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  await page.getByLabel('Detalhes do agente').click();
+  await page.getByRole('button', { name: 'Editar agente' }).click();
+  // Independent of the starting value: flip it, check it was saved, then restore it.
+  const box = page.getByLabel(/Responder com áudio quando eu enviar áudio/);
+  const before = await box.isChecked();
+  await box.setChecked(!before);
+  await page.getByRole('button', { name: 'Salvar agente' }).click();
+  await page.getByRole('button', { name: 'Editar agente' }).click();
+  if (before) await expect(box).not.toBeChecked(); else await expect(box).toBeChecked();
+  await box.setChecked(before);
+  await page.getByRole('button', { name: 'Salvar agente' }).click();
+  await page.getByLabel('Fechar detalhes').click();
+  await openAgents(page);
+  if (tablet(page)) await page.locator('.profile').click(); else await page.getByRole('button', { name: /e2e/ }).click();
+  await page.getByRole('menuitem', { name: 'Conectar aplicativos' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Conectar aplicativos' });
+  await expect(dialog.locator('.app-card', { hasText: 'Notion' }).locator('.app-logo.brand svg')).toBeVisible();
+  await expect(dialog.locator('.app-card', { hasText: 'Gmail' }).locator('.app-logo.brand svg')).toBeVisible();
+  await expect(dialog.locator('.app-card', { hasText: 'Canva' }).locator('.app-logo:not(.brand)')).toHaveText('C');
+  await page.screenshot({ path: `test-results/logos-${page.viewportSize()!.width}.png` });
+});

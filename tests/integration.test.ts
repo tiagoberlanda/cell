@@ -24,6 +24,12 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  const pushes:{id:string;headers:any;body:Buffer}[]=[];
  fake.addContentTypeParser('application/octet-stream',{parseAs:'buffer'},(_req:any,body:any,done:any)=>done(null,body));
  fake.post('/push/:id',async(req:any,reply)=>{pushes.push({id:req.params.id,headers:req.headers,body:req.body});return reply.code(req.params.id==='gone'?410:201).send();});
+ // Fake speech services: transcription (multipart, like Whisper) and text to speech (raw MP3 bytes).
+ const transcriptionRequests:string[]=[],speechRequests:any[]=[];
+ fake.addContentTypeParser(/^multipart\/form-data/,{parseAs:'buffer'},(_req:any,body:any,done:any)=>done(null,body));
+ fake.get('/v1/models/stt',async()=>({data:[{id:'test/stt'}]}));fake.get('/v1/models/tts',async()=>({data:[{id:'test/tts'}]}));
+ fake.post('/v1/audio/transcriptions',async(req:any)=>{transcriptionRequests.push(req.body.toString('latin1'));return {text:'Quais são as tarefas de amanhã?'};});
+ fake.post('/v1/audio/speech',async(req:any,reply)=>{speechRequests.push(req.body);return reply.type('audio/mpeg').send(Buffer.from('ID3fake-mp3-audio-'.repeat(20)));});
  fake.get('/v1/models/web',async()=>({data:[{id:'test/search',kind:'webSearch'},{id:'test/fetch',kind:'webFetch'}]}));
  fake.post('/v1/search',async()=>({results:[{title:'Fonte de teste',url:'https://example.com',snippet:'Resultado controlado.'}]}));
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
@@ -319,7 +325,10 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   // Notion-like: dynamic registration, PKCE and the fixed callback; the callback works without a session cookie.
   const start=await request('POST','/connectors/notion/connect');const u=new URL(start.authorizationUrl);
   assert.equal(u.searchParams.get('redirect_uri'),'http://localhost:5173/api/connections/oauth/callback');assert.equal(u.searchParams.get('code_challenge_method'),'S256');assert.ok(registered.at(-1).redirect_uris.includes('http://localhost:5173/api/connections/oauth/callback'));
-  const cb=await follow(start.authorizationUrl);assert.equal(cb.statusCode,302);assert.equal(cb.headers.location,'/?connected=notion');
+  // Android delivers the return twice (browser, then the installed app): the single-use code is exchanged once and both succeed.
+  const ret=new URL((await fetch(start.authorizationUrl,{redirect:'manual'})).headers.get('location')!),back={method:'GET' as const,url:ret.pathname+ret.search};
+  const [cb,dup]=await Promise.all([app.inject(back),app.inject(back)]);assert.equal(cb.statusCode,302);assert.equal(cb.headers.location,'/?connected=notion');assert.equal(dup.headers.location,'/?connected=notion');
+  assert.equal((await app.inject(back)).headers.location,'/?connected=notion','repetição tardia também não quebra');
   const notion=(await request('GET','/connectors')).connectors.find((c:any)=>c.key==='notion');assert.equal(notion.status,'connected');assert.equal(notion.tools,3);
   const row=await one("SELECT id,read_tools,all_agents FROM connections WHERE catalog_key='notion'");assert.deepEqual([...row.read_tools].sort(),['list_items','search_pages']);assert.equal(row.all_agents,true);
   const forAgent:any[]=(await toolsFor({agent_id:targetAgent},{agent:{tools:[]}})).filter((x:any)=>x.target?.startsWith('Notion'));assert.equal(forAgent.length,3,'liberado para todos os agentes');
@@ -341,6 +350,32 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.deepEqual((await toolsFor({agent_id:targetAgent,mode:'plan'},{agent:{tools:[]}})).map((x:any)=>x.name).filter((n:string)=>n.startsWith('gtasks_')).sort(),['gtasks_list_tasklists','gtasks_list_tasks']);
   for(const key of ['notion','gmail','google-tasks'])await request('DELETE','/connectors/'+key);
   assert.ok((await request('GET','/connectors')).connectors.every((c:any)=>c.status==='disconnected'));await request('DELETE','/connectors/google');
+ });
+ await t.test('mensagem de voz: transcrição e resposta em áudio conforme o agente',async()=>{
+  const sendAudio=async(cvId:string,type='audio/webm',name='audio.webm')=>{const form=new FormData();form.append('mode','execute');form.append('audio',new Blob([Buffer.alloc(4000,1)],{type}),name);const r=new Request('http://cell/upload',{method:'POST',body:form});
+   return app.inject({method:'POST',url:`/api/conversations/${cvId}/audio`,headers:{cookie,'x-csrf-token':csrf,origin:'http://localhost:5173','content-type':r.headers.get('content-type')!},payload:Buffer.from(await r.arrayBuffer())});};
+  const lastReply=async(cvId:string)=>(await request('GET','/conversations/'+cvId)).messages.filter((m:any)=>m.role==='assistant').at(-1);
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});transcriptionRequests.length=0;speechRequests.length=0;
+  // Agent without voice replies: transcript becomes the message, audio stays attached, reply is text.
+  const r1=await sendAudio(cv.id);assert.equal(r1.statusCode,200,r1.body);const out=r1.json();assert.equal(out.transcript,'Quais são as tarefas de amanhã?');
+  assert.ok(!transcriptionRequests[0].includes('name="language"'),'sem campo de idioma');
+  await poll(out.id,'completed');const user=(await request('GET','/conversations/'+cv.id)).messages.find((m:any)=>m.role==='user');
+  assert.equal(user.voice,true);assert.equal(user.content,'Quais são as tarefas de amanhã?');assert.equal(user.attachments[0].mime,'audio/webm');
+  assert.equal((await one('SELECT documents FROM runs WHERE id=$1',[out.id])).documents.length,0,'áudio não vira documento');
+  assert.equal((await lastReply(cv.id)).voice,false);assert.equal(speechRequests.length,0);
+  // Voice replies on, no voice model: the reply is flagged so the device reads it aloud.
+  agent.voice_reply=true;await request('PUT','/agents/'+agent.id,agent);
+  const r2=(await sendAudio(cv.id)).json();await poll(r2.id,'completed');let reply=await lastReply(cv.id);assert.equal(reply.voice,true);assert.equal(reply.attachments.length,0);
+  // With a voice model: an MP3 of the answer is attached and served inline for the player.
+  const {hasToken,...base}=await request('GET','/settings');await request('PUT','/settings',{...base,ttsModel:'test/tts',ttsVoice:'alloy'});
+  try{
+   const r3=(await sendAudio(cv.id,'audio/mp4','audio.m4a')).json();await poll(r3.id,'completed');reply=await lastReply(cv.id);
+   assert.equal(reply.voice,true);assert.equal(reply.attachments[0].mime,'audio/mpeg');assert.equal(speechRequests.at(-1).model,'test/tts/alloy');assert.match(speechRequests.at(-1).input,/Resultado concluído/);
+   assert.match(String((await app.inject({method:'GET',url:`/api/files/${reply.attachments[0].id}?inline=1`,headers:{cookie}})).headers['content-disposition']),/^inline/);
+   const r4=await request('POST',`/conversations/${cv.id}/messages`,{content:'Mensagem escrita'});await poll(r4.id,'completed');assert.equal((await lastReply(cv.id)).voice,false,'texto continua texto');
+   const vt=await app.inject({method:'POST',url:'/api/models/voice-test',headers:{cookie,'x-csrf-token':csrf,origin:'http://localhost:5173'},payload:{ttsModel:'test/tts'}});assert.equal(vt.statusCode,200);assert.match(String(vt.headers['content-type']),/audio\/mpeg/);
+   assert.equal((await sendAudio(cv.id,'text/plain','nota.txt')).statusCode,400,'formato recusado');
+  }finally{await request('PUT','/settings',{...base,ttsModel:'',ttsVoice:''});agent.voice_reply=false;await request('PUT','/agents/'+agent.id,agent);}
  });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });

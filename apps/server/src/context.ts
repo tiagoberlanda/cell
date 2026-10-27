@@ -21,6 +21,8 @@ export async function prepareContext(run:any,cfg:any):Promise<ChatMessage[]> {
   for(const id of m.files||[]){
    if(seen.has(id))continue;seen.add(id);
    const meta=await one('SELECT id,name,mime,size FROM files WHERE id=$1',[id]);
+   // Voice messages travel as their transcript (the message text), not as an attached document.
+   if(meta?.mime?.startsWith('audio/'))continue;
    if(!meta){documents.push({id,status:'unavailable',reason:'Arquivo removido'});continue;}
    let reason='';
    if(meta.mime.startsWith('image/')&&(!cfg.capabilities.vision||images>=5||Number(meta.size)>10*1024*1024))reason='Imagem omitida: capacidade ou limite de contexto';

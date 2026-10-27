@@ -13,6 +13,7 @@ export default defineConfig({
   // One retry absorbs intermittent local network stalls; retried tests are reported as flaky, not hidden.
   retries: 1,
   reporter: [['list']],
-  use: { baseURL: process.env.E2E_BASE_URL, channel: 'chrome', locale: 'pt-BR', screenshot: 'only-on-failure', storageState: authFile },
+  // Fake microphone so the real recorder can run without hardware; the fake UI accepts the prompt (granting permissions here would deny notifications).
+  use: { baseURL: process.env.E2E_BASE_URL, channel: 'chrome', locale: 'pt-BR', screenshot: 'only-on-failure', storageState: authFile, launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] } },
   projects: viewports.map(([name, width, height]) => ({ name, use: { viewport: { width, height } } })),
 });

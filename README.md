@@ -120,6 +120,14 @@ npm run backup:verify -- backups\20261026-120000
 
 O comando restaura o backup num PostgreSQL temporário e isolado (com os mesmos parâmetros do `restore.ps1`), confere as migrações, compara as contagens com o manifesto e checa se todo arquivo citado no banco está na pasta `files/`. Nada de produção é tocado; o container temporário é removido no fim. Sai com código 0 e `"ok": true` quando o backup está íntegro.
 
+## Mensagens de voz
+
+Com o campo de mensagem vazio, toque no microfone para gravar (até 5 minutos) e toque em enviar. O áudio é transcrito pelo 9router e a transcrição vira a mensagem; o áudio fica anexado.
+
+- **Responder com áudio:** marque "Responder com áudio quando eu enviar áudio" no cadastro do agente. Desmarcado, ele sempre responde em texto.
+- **Modelos:** em Configurações → 9router, escolha o modelo de transcrição e, se tiver, o de síntese e a voz ("Testar voz" toca um exemplo). Sem modelo de síntese, o próprio aparelho lê a resposta em português.
+- Gravar exige HTTPS confiável (domínio público ou certificado instalado) e permissão do microfone.
+
 ## Aplicativos (MCP com um clique)
 
 Menu do usuário → **Conectar aplicativos**.

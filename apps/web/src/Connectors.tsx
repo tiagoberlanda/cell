@@ -3,11 +3,13 @@ import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {Check,Copy,MoreHorizontal,RefreshCw,Settings2,Unplug,ChevronDown,AlertTriangle} from 'lucide-react';
 import {api} from './api';
 import {confirmDialog} from './dialogs';
+import {brandIcons} from './brandIcons';
 type Notice={notify:(m:string)=>void};
 type Connector={key:string;name:string;description:string;category:string;color:string;auth:'oauth'|'google'|'google-native';preview:boolean;connectionId:string|null;status:string;tools:number};
 const initials=(name:string)=>name.split(/\s+/).filter(w=>/^[A-Za-zÀ-ú]/.test(w)&&!['e','de'].includes(w)).slice(0,2).map(w=>w[0]).join('').toUpperCase();
 const dark=(hex:string)=>{const n=parseInt(hex.slice(1),16);return ((n>>16)*299+((n>>8)&255)*587+(n&255)*114)/1000<150;};
-function Logo({c}:{c:Connector}){return <span className="app-logo" style={{background:c.color,color:dark(c.color)?'#fff':'#111'}} aria-hidden="true">{initials(c.name)}</span>;}
+// Brand glyph on a white tile when Simple Icons has it; otherwise a colored initial.
+function Logo({c}:{c:Connector}){const icon=brandIcons[c.key];if(icon)return <span className="app-logo brand" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path d={icon.path} fill={icon.hex}/></svg></span>;return <span className="app-logo" style={{background:c.color,color:dark(c.color)?'#fff':'#111'}} aria-hidden="true">{initials(c.name)}</span>;}
 function CopyField({value,notify}:{value:string}&Notice){return <div className="copy-field"><code>{value}</code><button type="button" className="icon-btn" aria-label="Copiar" onClick={()=>navigator.clipboard.writeText(value).then(()=>notify('Copiado.')).catch(()=>notify('Não foi possível copiar.'))}><Copy size={15}/></button></div>;}
 
 // One-click app catalog: OAuth connectors connect directly; Google services after a one-time OAuth client setup.

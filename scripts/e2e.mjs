@@ -59,6 +59,10 @@ async function seed() {
   await q("INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,enabled,next_at,conversation_id) VALUES($1,'Bom dia','Pergunte se preciso de algo','daily','08:00','America/Sao_Paulo',false,now()+interval '1 day',$2)", [agents['Coordenador'], coord]);
   await q("INSERT INTO messages(conversation_id,role,content,created_at) VALUES($1,'user','[Rotina agendada: Bom dia] Pergunte se preciso de algo',now()-interval '1 minute')", [coord]);
   await q("INSERT INTO connections(name,url,catalog_key,all_agents,status,tools,read_tools) VALUES('Todoist','https://ai.todoist.net/mcp','todoist',true,'connected','[{\"name\":\"find_tasks\"},{\"name\":\"add_task\"}]','[\"find_tasks\"]')");
+  const voiceCv = await conv('Revisor', 'Conversa por voz');
+  const audioFile = (await q("INSERT INTO files(name,mime,size,storage_name) VALUES('audio-teste.webm','audio/webm',4000,'audio-teste.webm') RETURNING id"))[0].id;
+  await q("INSERT INTO messages(conversation_id,role,content,files,voice,created_at) VALUES($1,'user','Quais são minhas tarefas?',$2,true,now()-interval '30 seconds')", [voiceCv, JSON.stringify([audioFile])]);
+  await q("INSERT INTO messages(conversation_id,role,content,voice) VALUES($1,'assistant','Você tem duas tarefas para amanhã.',true)", [voiceCv]);
   await q("INSERT INTO worker_health(id,heartbeat_at) VALUES('primary',now()) ON CONFLICT(id) DO UPDATE SET heartbeat_at=now()");
   await c.end();
 }

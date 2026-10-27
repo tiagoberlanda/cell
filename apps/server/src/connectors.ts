@@ -118,18 +118,26 @@ export function registerConnectors(app:FastifyInstance){
   }
  });
  app.delete('/api/connectors/:key',async req=>{await query('DELETE FROM connections WHERE catalog_key=$1',[(req.params as any).key]);await event('connection',{key:(req.params as any).key});return {ok:true};});
+ const callbacks=new Map<string,Promise<{key?:string;error?:string}>>();
+ const completeCallback=async(state:string,code:string):Promise<{key?:string;error?:string}>=>{
+ const c=await one('SELECT * FROM connections WHERE id=$1',[state.split('.')[0]]);const oauth=c?.oauth?decrypt<any>(c.oauth):null;
+ if(!oauth?.state||!safeEqual(oauth.state,state))return {error:'Autorização expirada. Tente conectar de novo.'};
+ try{
+  if(c.kind==='native')await finishNativeGoogle(c,oauth,code);
+  else{await finishOAuth(c,code);await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));}
+ }catch(e){await query("UPDATE connections SET status='error' WHERE id=$1",[c.id]);return {error:safeError(e)};}
+ await event('connection',{id:c.id});return {key:String(c.catalog_key||c.id)};
+ };
  // Single OAuth callback for catalog connections. Protected by the random state (no session needed, so connecting from the
  // LAN address still completes even though the provider returns to the public address).
  app.get('/api/connections/oauth/callback',async(req,reply)=>{
   const q=req.query as any,fail=(m:string)=>reply.redirect('/?connector_error='+encodeURIComponent(m.slice(0,200)));
   if(q.error)return fail(q.error_description||q.error);
   const parsed=z.object({code:z.string().min(1),state:z.string().regex(/^[0-9a-f-]{36}\.[0-9a-f]+$/)}).safeParse(q);if(!parsed.success)return fail('Retorno de autorização inválido.');
-  const c=await one('SELECT * FROM connections WHERE id=$1',[parsed.data.state.split('.')[0]]);const oauth=c?.oauth?decrypt<any>(c.oauth):null;
-  if(!oauth?.state||!safeEqual(oauth.state,parsed.data.state))return fail('Autorização expirada. Tente conectar de novo.');
-  try{
-   if(c.kind==='native')await finishNativeGoogle(c,oauth,parsed.data.code);
-   else{await finishOAuth(c,parsed.data.code);await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));}
-  }catch(e){await query("UPDATE connections SET status='error' WHERE id=$1",[c.id]);return fail(safeError(e));}
-  await event('connection',{id:c.id});return reply.redirect('/?connected='+encodeURIComponent(c.catalog_key||c.id));
+  // Android delivers the same return twice when the installed app takes over the link; the code is single-use, so the
+  // repeat must reuse the first exchange instead of failing and marking the connection as broken.
+  let pending=callbacks.get(parsed.data.state);
+  if(!pending){pending=completeCallback(parsed.data.state,parsed.data.code);callbacks.set(parsed.data.state,pending);setTimeout(()=>callbacks.delete(parsed.data.state),10*60000).unref();}
+  const r=await pending;return r.error?fail(r.error):reply.redirect('/?connected='+encodeURIComponent(r.key!));
  });
 }
