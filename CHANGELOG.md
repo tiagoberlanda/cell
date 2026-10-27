@@ -13,7 +13,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ### Modificado
 - Ações de "Conectar aplicativos" e "Habilidades" movidas da barra lateral para dentro do submenu do usuário (junto a Configurações e Agentes arquivados), simplificando a barra lateral e otimizando o espaço da lista de agentes.
-- Ícone principal do aplicativo padronizado com o ícone do Coordenador (célula animal em tom claro #f1f0e9) na tela de loading, tela de login, wordmark da barra lateral e ícone do app (icon.svg / favicon).
+- Ícone principal do aplicativo padronizado com o ícone do Coordenador (célula animal em tom claro #f1f0e9) na tela de loading, tela de login, wordmark da barra lateral e em todos os assets de PWA/atalhos: icon.svg, icon-192.png, icon-512.png, icon-maskable-512.png e apple-touch-icon.png.
 - Modo mobile: ações de arquivar conversa e histórico de conversas tornadas visíveis e acessíveis no cabeçalho.
 - Modo mobile: gaveta lateral da lista de agentes expandida para ocupar 100% da tela (`max-width: 100vw; inset: 0`), eliminando a fresta lateral do chat e incluindo botão de fechar.
 
