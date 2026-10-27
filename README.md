@@ -62,6 +62,33 @@ O Caddy emite um certificado local (`tls internal`). Para os navegadores não mo
 
 Isso gera `cell-root.crt`. No Windows, abra o arquivo → Instalar certificado → Máquina local → "Autoridades de Certificação Raiz Confiáveis". No Android/iOS, instale-o como certificado de CA nas configurações de segurança.
 
+## Acesso pela internet (Cloudflare)
+
+Use um **Cloudflare Tunnel** (`cloudflared`). Assim nenhuma porta do roteador precisa ser aberta: o túnel sai da sua máquina até a Cloudflare.
+
+1. **Não abra as portas 80/443 no roteador.** Todo acesso externo deve passar pelo túnel.
+2. No `.env`, acrescente o domínio público aos hosts e às origens permitidas (exemplo com `cell.seudominio.com`):
+   ```ini
+   CELL_HOST=cell.seudominio.com, 192.168.0.200, localhost
+   APP_ORIGIN=https://cell.seudominio.com,https://192.168.0.200,https://localhost
+   ```
+   e rode `.\scripts\deploy.ps1`. Sem isso, a página abre pelo domínio mas o login responde "Origem não permitida".
+3. No túnel (Zero Trust → Networks → Tunnels → Public Hostname), aponte `cell.seudominio.com` para `https://192.168.0.200:443` (ou `https://localhost:443` se o `cloudflared` roda nesta máquina), com:
+   - **Origin Server Name**: `cell.seudominio.com`
+   - **No TLS Verify**: ativado. O Caddy usa um certificado local (`tls internal`); o trecho Cloudflare → navegador continua com o certificado público da Cloudflare.
+4. Em **Speed → Optimization**, desative **Rocket Loader**, e em **Scrape Shield** desative **Email Address Obfuscation**. Os dois injetam scripts que a política de segurança (CSP) do Cell bloqueia.
+5. Recomendado: proteja o domínio com **Cloudflare Access** (Zero Trust → Access → Applications, política "e-mails permitidos" com código por e-mail). É uma segunda camada de login antes de a página do Cell sequer carregar.
+
+O limite de tentativas de login (10 a cada 15 minutos) é contado por IP real do visitante: o Cell lê o `CF-Connecting-IP` apenas quando a requisição chega por um endereço local (o `cloudflared`), então ele não pode ser falsificado pela internet.
+
+## Instalar no Android (PWA)
+
+Pelo domínio público da Cloudflare o certificado já é válido, então basta abrir `https://cell.seudominio.com` no Chrome do Android, entrar e usar **menu ⋮ → Instalar app** (ou "Adicionar à tela inicial").
+
+Pela rede local (`https://192.168.0.200`), o Android só permite instalar depois de confiar no certificado local: exporte-o com `.\scripts\export-cert.ps1` e instale `cell-root.crt` em Configurações → Segurança → Criptografia e credenciais → Instalar certificado → Certificado de CA.
+
+Se perder o celular: Configurações → Conta → **Sair de todos os outros dispositivos**, e troque a senha.
+
 ## Backup e restauração
 
 ```powershell
@@ -102,7 +129,7 @@ npm run dev     # Vite em http://127.0.0.1:5173 (proxy /api → 127.0.0.1:3101)
 
 Diálogos da interface: use sempre os helpers de `apps/web/src/dialogs.ts` (SweetAlert2 / `Swal.fire`). Nunca use `alert`, `confirm` ou `prompt` nativos.
 
-Testes (o de integração só roda com um banco descartável cujo nome termina em `_test`):
+Testes (`npm run test:db` sobe um PostgreSQL temporário no Docker, roda tudo e remove o container; para usar um banco próprio, ele precisa terminar em `_test`):
 
 ```powershell
 $env:TEST_DATABASE_URL = 'postgres://cell:cell-test-only@127.0.0.1:55439/cell_test'; npm test

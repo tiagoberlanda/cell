@@ -5,6 +5,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Segurança
+- O limite de tentativas de login era compartilhado por todos (o servidor via só o IP do Caddy): 7 erros de qualquer pessoa bloqueavam o login de todos. Agora o limite é por IP real do visitante, com `CF-Connecting-IP` aceito apenas vindo de um endereço local (túnel da Cloudflare), e ficou em 10 tentativas a cada 15 minutos.
+- Login com usuário inexistente leva o mesmo tempo que com senha errada (não revela usuários válidos); tentativas recusadas são registradas com o IP.
+- Cookie de sessão com prefixo `__Host-` (preso a este domínio, só HTTPS). Todos os aparelhos precisam entrar de novo uma vez.
+- Erros de banco de dados e falhas internas não são mais devolvidos ao navegador; ficam só no log do servidor.
+- Cabeçalhos: HSTS, Permissions-Policy, Cross-Origin-Opener-Policy e `X-Robots-Tag: noindex`; removidos `Server` e `Via` e os cabeçalhos duplicados. Corpo de requisição limitado a 30 MB no Caddy.
+
+### Adicionado
+- Configurações → Conta → "Sair de todos os outros dispositivos".
+- Ícones PNG (192, 512, maskable e apple-touch) para instalar o Cell como app no Android.
+- `npm run test:db`: roda os testes em um PostgreSQL temporário, removido ao final.
+- README: publicação pela Cloudflare (túnel, Access, ajustes que quebram a CSP) e instalação no Android.
+
 ## [0.7.0] - 2026-10-27
 
 ### Adicionado

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {encrypt,decrypt,contained,approvalFingerprint,validateEndpoint,safeEqual,allowedOrigin} from '../apps/server/src/security.js';
+import {encrypt,decrypt,contained,approvalFingerprint,validateEndpoint,safeEqual,allowedOrigin,clientIp} from '../apps/server/src/security.js';
 import {nextOccurrence} from '../apps/server/src/schedule.js';
 import {agentInput,messageInput} from '../packages/shared/src/index.js';
 process.env.SECRET_KEY='ab'.repeat(32);
@@ -12,3 +12,8 @@ test('rotinas respeitam horário de São Paulo e não recriam datas passadas',()
 test('contratos validam cor, forma e limite de anexos',()=>{assert.equal(agentInput.safeParse({name:'Teste',color:'red',shape:'unknown'}).success,false);assert.equal(messageInput.safeParse({content:'Olá',files:Array(6).fill('2ea52a65-9e8c-4057-abf9-3889ff43b61b')}).success,false);});
 test('origens permitidas aceitam lista separada por vírgula',()=>{process.env.APP_ORIGIN='https://192.168.0.200, https://localhost/';assert.ok(allowedOrigin('https://192.168.0.200'));assert.ok(allowedOrigin('https://localhost'));assert.equal(allowedOrigin('https://evil.example'),false);assert.equal(allowedOrigin('http://192.168.0.200'),false);});
 test('agentes usam tipos de célula como ícone',()=>{const base={name:'Teste',color:'#18b99c'};assert.ok(agentInput.safeParse({...base,shape:'neuronio'}).success);assert.equal(agentInput.safeParse({...base,shape:'circular'}).success,false);});
+test('IP real do cliente atrás do Caddy e do Cloudflare',()=>{const req=(h:Record<string,string>)=>({headers:h,ip:'172.20.0.5'});
+ assert.equal(clientIp(req({'x-forwarded-for':'203.0.113.9'})),'203.0.113.9','peer informado pelo Caddy');
+ assert.equal(clientIp(req({'x-forwarded-for':'172.18.0.1','cf-connecting-ip':'198.51.100.7'})),'198.51.100.7','túnel local: usa CF-Connecting-IP');
+ assert.equal(clientIp(req({'x-forwarded-for':'203.0.113.9','cf-connecting-ip':'1.1.1.1'})),'203.0.113.9','cliente público não falsifica CF-Connecting-IP');
+ assert.equal(clientIp(req({})),'172.20.0.5');});

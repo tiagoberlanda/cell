@@ -5,13 +5,24 @@
 {$CELL_HOST:localhost} {
  tls internal
  encode zstd gzip
+ # defer: applied after the API's own headers, so values are set once instead of duplicated.
  header {
+  defer
+  -Server
+  -Via
+  Strict-Transport-Security "max-age=31536000"
   X-Content-Type-Options nosniff
   Referrer-Policy same-origin
   X-Frame-Options DENY
+  Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+  Cross-Origin-Opener-Policy same-origin
+  X-Robots-Tag "noindex, nofollow"
   Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
  }
  handle /api/* {
+  request_body {
+   max_size 30MB
+  }
   reverse_proxy api:3001 {
    flush_interval -1
   }

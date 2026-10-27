@@ -12,3 +12,8 @@ export function safeError(e:unknown){const raw=e instanceof Error?e.message:'Fal
 // APP_ORIGIN accepts a comma-separated list so the app can be reached by several hosts (LAN IP, localhost).
 export const appOrigins=()=>(process.env.APP_ORIGIN||'').split(',').map(x=>x.trim().replace(/\/$/,'')).filter(Boolean);
 export const allowedOrigin=(origin:string)=>appOrigins().includes(origin);
+// Behind Caddy every request arrives from the proxy, so rate limits need the real client address.
+// Caddy replaces X-Forwarded-For with its direct peer. Cloudflare's CF-Connecting-IP is trusted only when that peer is a
+// private address (cloudflared on this host or LAN); internet clients reaching Caddy directly cannot spoof it.
+const privateIp=(ip:string)=>/^(::ffff:)?(10\.|127\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(ip)||ip==='::1'||/^f[cd]/i.test(ip);
+export function clientIp(req:{headers:Record<string,any>;ip:string}){const peer=String(req.headers['x-forwarded-for']||'').split(',').pop()!.trim()||req.ip;const cf=String(req.headers['cf-connecting-ip']||'').trim();return cf&&privateIp(peer)?cf:peer;}

@@ -106,5 +106,12 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await assert.rejects(request('POST',`/conversations/${old}/messages`,{content:'oi'}),/arquivada/);await assert.rejects(request('POST',`/conversations/${old}/archive`),/já está arquivada/);
   await request('POST',`/conversations/${old}/restore`);assert.equal((await one('SELECT archived_at FROM conversations WHERE id=$1',[old])).archived_at,null);
  });
+ await t.test('sair dos outros dispositivos mantém a sessão atual',async()=>{
+  const other=await app.inject({method:'POST',url:'/api/login',headers:{origin:'http://localhost:5173'},payload:{username:'tester',password:'test-password-long'}});
+  const otherCookie=String(other.headers['set-cookie']).split(';')[0];assert.equal((await app.inject({method:'GET',url:'/api/me',headers:{cookie:otherCookie}})).statusCode,200);
+  const r=await request('POST','/account/logout-others');assert.ok(r.ended>=1);
+  assert.equal((await app.inject({method:'GET',url:'/api/me',headers:{cookie:otherCookie}})).statusCode,401,'outra sessão encerrada');
+  await request('GET','/me');
+ });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });

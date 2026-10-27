@@ -6,6 +6,7 @@
     "build": "npm run build -w @cell/web",
     "check": "tsc --noEmit && npm run check -w @cell/web",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:db": "node scripts/test-db.mjs",
     "api": "node --import tsx apps/server/src/api.ts",
     "worker": "node --import tsx apps/server/src/worker.ts",
     "migrate": "node --import tsx apps/server/src/migrate.ts",

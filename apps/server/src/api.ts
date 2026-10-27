@@ -13,21 +13,26 @@ import { publicConfig,saveConfig,models,imageModels,probeModel,config,routerRequ
 import { migrate } from './migrate.js';
 import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
 import { storage,saveFile,fileData,deleteFile } from './files.js';
-import { contained,allowedOrigin } from './security.js';
+import { contained,allowedOrigin,clientIp } from './security.js';
 import { discover,finishOAuth } from './mcp.js';
 import { nativeToolNames,deleteAgent } from './tools.js';
 import { nextOccurrence } from './schedule.js';
 import { readFileSync } from 'node:fs';
 const {version}=JSON.parse(readFileSync(new URL('../../../package.json',import.meta.url),'utf8'));
 export async function buildApp(){
- key();const app=Fastify({logger:{level:'info',redact:['req.headers.authorization','req.headers.cookie','res.headers.set-cookie']},bodyLimit:1024*1024});
- await app.register(cookie);await app.register(multipart,{limits:{fileSize:25*1024*1024,files:1}});await app.register(rateLimit,{max:300,timeWindow:'1 minute'});
+ key();
+ // __Host- cookies are bound to this exact origin over HTTPS (no Domain, Path=/); plain HTTP dev keeps the old name.
+ const secureCookie=process.env.COOKIE_SECURE!=='false',sessionCookie=secureCookie?'__Host-cell_session':'cell_session';
+ // Unknown users still pay for an argon2 verify, so response time does not reveal which usernames exist.
+ const dummyHash=await argon2.hash(randomBytes(16).toString('hex'));
+ const app=Fastify({logger:{level:'info',redact:['req.headers.authorization','req.headers.cookie','res.headers.set-cookie']},bodyLimit:1024*1024});
+ await app.register(cookie);await app.register(multipart,{limits:{fileSize:25*1024*1024,files:1}});await app.register(rateLimit,{max:300,timeWindow:'1 minute',keyGenerator:clientIp});
  const id=(req:any)=>z.string().uuid().parse(req.params.id);
- app.setErrorHandler((err:any,req,reply)=>{const status=err instanceof ZodError?400:err.statusCode||400;reply.code(status>=500?500:status).send({error:err instanceof ZodError?'Dados inválidos: '+err.issues.map((x:any)=>x.path.join('.')+': '+x.message).join('; '):err.code?.startsWith('23')?'Operação incompatível com os dados existentes.':safeError(err)});});
+ app.setErrorHandler((err:any,req,reply)=>{const status=err instanceof ZodError?400:err.statusCode||400,sql=typeof err.code==='string'&&/^[0-9A-Z]{5}$/.test(err.code);if(sql||status>=500)req.log.error({err},'falha na requisição');reply.code(status>=500?500:status).send({error:err instanceof ZodError?'Dados inválidos: '+err.issues.map((x:any)=>x.path.join('.')+': '+x.message).join('; '):sql?(err.code.startsWith('23')?'Operação incompatível com os dados existentes.':'Operação inválida.'):status>=500?'Falha interna. Tente novamente.':safeError(err)});});
  app.addHook('onRequest',async(req,reply)=>{
   reply.header('X-Content-Type-Options','nosniff').header('Referrer-Policy','same-origin').header('Cache-Control','no-store');
   if(req.url==='/api/health'||req.url==='/api/login')return;
-  const token=req.cookies.cell_session;if(!token)return reply.code(401).send({error:'Faça login.'});
+  const token=req.cookies[sessionCookie];if(!token)return reply.code(401).send({error:'Faça login.'});
   const session=await one('SELECT s.*,u.username FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND expires_at>now()',[hash(token)]);if(!session)return reply.code(401).send({error:'Sessão expirada.'});(req as any).session=session;
   if(!['GET','HEAD','OPTIONS'].includes(req.method)){
    if(!safeEqual(String(req.headers['x-csrf-token']||''),session.csrf))return reply.code(403).send({error:'Validação CSRF inválida.'});
@@ -35,15 +40,17 @@ export async function buildApp(){
   }
  });
  app.get('/api/health',async()=>{await query('SELECT 1');return {ok:true,version};});
- app.post('/api/login',{config:{rateLimit:{max:8,timeWindow:'1 minute'}}},async(req,reply)=>{
+ app.post('/api/login',{config:{rateLimit:{max:10,timeWindow:'15 minutes'}}},async(req,reply)=>{
   if(req.headers.origin&&!allowedOrigin(req.headers.origin))return reply.code(403).send({error:'Origem não permitida.'});
   const input=z.object({username:z.string().max(100),password:z.string().max(1000)}).parse(req.body),u=await one('SELECT * FROM users WHERE username=$1',[input.username]);
-  if(!u||!await argon2.verify(u.password_hash,input.password))return reply.code(401).send({error:'Usuário ou senha inválidos.'});
-  const token=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');await query("INSERT INTO sessions(id,user_id,csrf,expires_at) VALUES($1,$2,$3,now()+interval '30 days')",[hash(token),u.id,csrf]);reply.setCookie('cell_session',token,{httpOnly:true,secure:process.env.COOKIE_SECURE!=='false',sameSite:'lax',path:'/',maxAge:30*86400});return {username:u.username,csrf};
+  if(!await argon2.verify(u?.password_hash||dummyHash,input.password)||!u){req.log.warn({ip:clientIp(req)},'login recusado');return reply.code(401).send({error:'Usuário ou senha inválidos.'});}
+  const token=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');await query("INSERT INTO sessions(id,user_id,csrf,expires_at) VALUES($1,$2,$3,now()+interval '30 days')",[hash(token),u.id,csrf]);reply.setCookie(sessionCookie,token,{httpOnly:true,secure:secureCookie,sameSite:'lax',path:'/',maxAge:30*86400});return {username:u.username,csrf};
  });
  app.get('/api/me',async req=>({username:(req as any).session.username,csrf:(req as any).session.csrf}));
- app.post('/api/logout',async(req,reply)=>{await query('DELETE FROM sessions WHERE id=$1',[(req as any).session.id]);reply.clearCookie('cell_session',{path:'/'});return {ok:true};});
+ app.post('/api/logout',async(req,reply)=>{await query('DELETE FROM sessions WHERE id=$1',[(req as any).session.id]);reply.clearCookie(sessionCookie,{path:'/',secure:secureCookie});return {ok:true};});
  app.post('/api/account/password',async req=>{const input=z.object({current:z.string(),password:z.string().min(12).max(200)}).parse(req.body),u=await one('SELECT * FROM users WHERE id=$1',[(req as any).session.user_id]);if(!await argon2.verify(u.password_hash,input.current))throw new Error('Senha atual incorreta.');await query('UPDATE users SET password_hash=$1 WHERE id=$2',[await argon2.hash(input.password),u.id]);await query('DELETE FROM sessions WHERE user_id=$1 AND id<>$2',[u.id,(req as any).session.id]);return {ok:true};});
+ // Signs out every other device (e.g. a lost phone) without changing the password.
+ app.post('/api/account/logout-others',async req=>{const s=(req as any).session;const rows=await query('DELETE FROM sessions WHERE user_id=$1 AND id<>$2 RETURNING id',[s.user_id,s.id]);return {ended:rows.length};});
  app.get('/api/settings',publicConfig);
  app.put('/api/settings',async req=>{const input=settingsInput.parse(req.body);new Intl.DateTimeFormat('pt-BR',{timeZone:input.timezone});await saveConfig(input);return publicConfig();});
  app.post('/api/settings/reset',async()=>{await query('DELETE FROM settings');return publicConfig();});
