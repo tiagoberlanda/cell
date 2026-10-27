@@ -7,6 +7,7 @@ import {confirmDialog} from './dialogs';
 import {api,apiBlob,downloadText} from './api';
 import {CellAvatar,cellNames} from './CellAvatar';
 import {VoicePicker,DeviceVoicePicker} from './Voice';
+import {SshComputers} from './Computers';
 import {DiagnosticsPanel} from './Insights';
 import {AppsCatalog} from './Connectors';
 import {NotificationsPanel} from './Notifications';
@@ -43,7 +44,7 @@ function ComputerAccess({notify}:Notice){
    <div className="detail-label">ÚLTIMOS COMANDOS</div>
    {cmd.recent.length?cmd.recent.map((c:any)=><div className="setting-card command-card" key={c.id}><div><code>{String(c.command||'').slice(0,300)}</code><small>{c.agent_name} · {new Date(c.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · {c.approval==='denied'?'negado':c.status==='done'?(c.exitCode===0?'concluído':`saída ${c.exitCode}`):c.approval==='pending'?'aguardando aprovação':c.status==='error'?'erro':c.status}</small></div></div>):<p className="empty-state">Nenhum comando ainda.</p>}</>}
  </div>;
- return <div className="stack computer-access">{commands}<h3>Pastas do computador</h3>
+ return <div className="stack computer-access">{commands}<SshComputers notify={notify}/><h3>Pastas do computador</h3>
   <p className="hint">Os agentes podem organizar arquivos deste computador. Para usar uma pasta, o agente pede acesso e você aprova na conversa. Dentro de uma pasta liberada, listar e ler é livre; criar, mover, renomear e excluir sempre pedem aprovação.</p>
   <div className="detail-box"><span>Discos disponíveis</span><strong>{data.drives.length?data.drives.map(d=>d==='C'?'C: (sua pasta de usuário)':d+':').join(' · '):'Nenhum. No computador do Cell, rode ./scripts/drives.ps1 e depois ./scripts/deploy.ps1.'}</strong></div>
   <div className="detail-label">PASTAS LIBERADAS</div>

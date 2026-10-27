@@ -5,6 +5,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Indicador de computadores no topo da conversa: ícone de computador **verde** quando pelo menos um computador está conectado e **cinza** quando nenhum está. Ao tocar, mostra cada computador com o estado (conectado ou não), tipo, usuário, sistema, tempo ligado, memória livre ou o motivo da falha e quando foi visto pela última vez, com **Verificar agora** e **Gerenciar computadores**. O estado é atualizado a cada minuto.
+- Vários computadores: além deste PC (Cell Host), os agentes podem usar outras máquinas por **SSH**, Linux (bash) ou Windows com OpenSSH (PowerShell). Em Configurações → Computador, **Adicionar computador por SSH** pede endereço, porta, usuário e senha ou chave privada, testa a conexão e mostra a impressão digital da chave do servidor para você confirmar. A senha ou a chave fica cifrada e o Cell recusa a conexão se a chave do servidor mudar.
+- `pc_run` e `pc_status` passam a receber o computador. Com mais de um, o agente precisa escolher, e a aprovação mostra em qual computador o comando vai rodar. O computador é conferido no momento da execução, então um computador removido ou com chave trocada não roda nada.
+- Migração `0020_computers`.
+
+### Como foi verificado
+- **Simulado:** teste de integração com um servidor SSH real em memória: senha errada recusada, salvar exige confirmar a impressão digital, senha guardada cifrada e nunca devolvida, status e comando pelo SSH (pasta com aspas sem injeção), escolha obrigatória com dois computadores, chave trocada recusada no status e no comando, remoção. Teste de navegador do indicador verde e cinza e da lista em cinco larguras.
+- **Não verificado:** conexão com um servidor Linux de verdade.
+
 ## [0.23.0] - 2026-10-27
 
 ### Adicionado

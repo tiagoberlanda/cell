@@ -448,3 +448,35 @@ test('configurações: pastas do computador', async ({ page }) => {
   await expect(page.locator('.computer-access > .grant-card')).toContainText('Coordenador');
   await noHorizontalScroll(page);
 });
+
+test('computadores: indicador verde ou cinza e lista de instâncias', async ({ page }) => {
+  let online = true;
+  const now = new Date().toISOString();
+  await page.route('**/api/computers', route => route.fulfill({ json: { enabled: true, hostInstalled: true, computers: [
+    { key: 'este-pc', id: 'local', name: 'Este computador', kind: 'local', shell: 'powershell', online, lastSeen: now, ...(online ? { info: { computer: 'WINDOWS11', user: 'User', os: 'Windows 11 Pro', uptimeHours: 5.2, memory: { totalGb: 32, freeGb: 9.5 }, cpus: 28 } } : { error: 'Este computador não respondeu.' }) },
+    { key: 'servidor-linux', id: '00000000-0000-0000-0000-0000000000aa', name: 'Servidor Linux', kind: 'ssh', shell: 'bash', host: '192.168.0.50', port: 22, username: 'cell', online: false, error: 'SSH: connect ECONNREFUSED', lastSeen: now, info: null }
+  ] } }));
+  await page.reload(); await expect(page.locator('.chat-header')).toBeVisible();
+  const indicator = page.locator('.pc-indicator');
+  await expect(indicator).toHaveClass(/online/);
+  await expect(indicator).toHaveAttribute('aria-label', 'Computadores: 1 de 2 conectado');
+  await noHorizontalScroll(page);
+  await indicator.click();
+  const dialog = page.getByRole('dialog', { name: 'Computadores' });
+  const cards = dialog.locator('.computer-card');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toContainText('Conectado');
+  await expect(cards.nth(0)).toContainText('User@WINDOWS11 · Windows 11 Pro');
+  await expect(cards.nth(1)).toContainText('Desconectado');
+  await expect(cards.nth(1)).toContainText('Linux · SSH · cell@192.168.0.50');
+  await expect(cards.nth(1)).toContainText('ECONNREFUSED');
+  await page.screenshot({ path: `test-results/computadores-${page.viewportSize()!.width}.png` });
+  // Nothing connected: the indicator turns gray.
+  online = false;
+  await dialog.getByRole('button', { name: 'Verificar agora' }).click();
+  await expect(indicator).toHaveClass(/offline/);
+  await expect(indicator).toHaveAttribute('aria-label', 'Computadores: nenhum conectado (2)');
+  await dialog.getByRole('button', { name: 'Gerenciar computadores' }).click();
+  await expect(page.locator('.ssh-computers')).toContainText('Computadores conectados');
+  await expect(page.getByRole('button', { name: 'Adicionar computador por SSH' })).toBeVisible();
+});

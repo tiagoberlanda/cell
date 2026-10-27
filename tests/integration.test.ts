@@ -550,6 +550,44 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    assert.equal((await one("SELECT tools FROM model_capabilities WHERE id='sem-ferramentas'")).tools,false);
   }finally{agent.model=original;await request('PUT','/agents/'+agent.id,agent);}
  });
+ await t.test('computadores por SSH: testar, confirmar impressão digital, status, comandos e chave trocada',async()=>{
+  const ssh2:any=(await import('ssh2')).default;const sshRuns:string[]=[];
+  const keys=ssh2.utils.generateKeyPairSync('ed25519');
+  const server=new ssh2.Server({hostKeys:[keys.private]},(client:any)=>{
+   client.on('error',()=>{}); // the Cell refusing a changed host key drops the connection mid-handshake
+   client.on('authentication',(ctx:any)=>ctx.method==='password'&&ctx.username==='cell'&&ctx.password==='segredo-ssh'?ctx.accept():ctx.reject());
+   client.on('ready',()=>client.on('session',(accept:any)=>accept().once('exec',(acc:any,_rej:any,info:any)=>{const st=acc();sshRuns.push(info.command);
+    if(info.command.includes('echo "computer='))st.write('computer=linux-teste\nuser=cell\nos=Debian GNU/Linux 12\nuptime=7200\nmem=8000000 3000000\ncpus=4\n');else st.write('ran: '+info.command+'\n');
+    st.exit(0);st.end();})));
+  });
+  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as any).port;
+  try{
+   const base={name:'Servidor Linux',host:'127.0.0.1',port,username:'cell',shell:'bash'};
+   await assert.rejects(request('POST','/computers/test',{...base,password:'errada'}),/recusados/);
+   await assert.rejects(request('POST','/computers',{...base,password:'segredo-ssh'}),/impressão digital/,'salvar exige confirmar a impressão digital');
+   const test=await request('POST','/computers/test',{...base,password:'segredo-ssh'});assert.match(test.fingerprint,/^SHA256:/);assert.equal(test.info.computer,'linux-teste');assert.equal(test.info.memory.totalGb,8);
+   await assert.rejects(request('POST','/computers',{...base,password:'segredo-ssh',fingerprint:'SHA256:outra'}),/impressão digital do servidor mudou/);
+   const saved=await request('POST','/computers',{...base,password:'segredo-ssh',fingerprint:test.fingerprint});
+   assert.ok(!(await one('SELECT auth FROM computers WHERE id=$1',[saved.id])).auth.includes('segredo-ssh'),'senha cifrada');
+   await assert.rejects(request('POST','/computers',{...base,password:'segredo-ssh',fingerprint:test.fingerprint}),/Já existe/);
+   const list=await request('GET','/computers');const linux=list.computers.find((c:any)=>c.name==='Servidor Linux');
+   assert.equal(linux.online,true);assert.equal(linux.key,'servidor-linux');assert.equal(linux.info.os,'Debian GNU/Linux 12');assert.equal(list.computers.find((c:any)=>c.key==='este-pc').online,true);
+   assert.ok(!JSON.stringify(list).includes('segredo-ssh'),'a lista nunca mostra a senha');
+   // Tools: with two computers, pc_run requires choosing one; the command runs over SSH in the given folder.
+   const {toolsFor}=await import('../apps/server/src/tools.js');const all:any[]=await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}});
+   const run=all.find((x:any)=>x.name==='pc_run');assert.deepEqual(run.parameters.properties.computer.enum,['este-pc','servidor-linux']);assert.ok(run.parameters.required.includes('computer'));
+   const out=JSON.parse(await run.execute({computer:'servidor-linux',command:'ls -la',cwd:"/home/o'brien",reason:'listar'},{},{}));
+   assert.equal(out.computer,'Servidor Linux');assert.equal(out.ok,true);assert.equal(sshRuns.at(-1),"cd '/home/o'\\''brien' && ls -la",'pasta entre aspas, sem injeção');
+   await assert.rejects(run.execute({command:'ls',reason:'x'},{},{}),/Informe o computador/);
+   const status=JSON.parse(await all.find((x:any)=>x.name==='pc_status').execute({computer:'servidor-linux'},{},{}));assert.equal(status[0].info.user,'cell');
+   // A different host key (possible impersonation) is refused and shows up as disconnected.
+   await query('UPDATE computers SET fingerprint=$2 WHERE id=$1',[saved.id,'SHA256:chave-antiga']);
+   const after=(await request('GET','/computers')).computers.find((c:any)=>c.key==='servidor-linux');assert.equal(after.online,false);assert.match(after.error,/impressão digital do servidor mudou/);
+   await assert.rejects(run.execute({computer:'servidor-linux',command:'whoami',reason:'x'},{},{}),/mudou/);
+   await request('DELETE','/computers/'+saved.id);assert.equal((await request('GET','/computers')).computers.length,1);
+   assert.equal((await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).find((x:any)=>x.name==='pc_run')!.parameters.properties.computer,undefined,'com um computador só, não precisa escolher');
+  }finally{server.close();}
+ });
  await t.test('fixar até 3 agentes, renomear e mover de seção pelo menu',async()=>{
   const all=await request('GET','/agents');const others=all.filter((a:any)=>!a.archived&&!a.pinned);
   const room=3-all.filter((a:any)=>a.pinned&&!a.archived).length;for(const a of others.slice(0,room))await request('POST',`/agents/${a.id}/pin`,{pinned:true});

@@ -59,7 +59,7 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  // Computer folders, for every agent when the host drives are mounted; access itself is granted per folder by the owner.
  if((await mountedDrives()).length)result.push(...hostFileTools());
  // Commands on the computer through the Cell Host (an app: loaded on demand, every command approved).
- if(await commandsEnabled())result.push(...computerTools());
+ if(await commandsEnabled())result.push(...await computerTools());
  // A repeated name makes some providers reject the whole request; keep the first definition.
  const seen=new Set<string>();
  const unique=result.filter(t=>!seen.has(t.name)&&seen.add(t.name));

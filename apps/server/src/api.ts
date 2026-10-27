@@ -10,7 +10,7 @@ import { agentInput,messageInput,settingsInput,skillInput,routineInput } from '.
 import { pool,one,query,event,transaction,ensureSection } from './db.js';
 import { key,hash,safeEqual,encrypt,decrypt,validateEndpoint,safeError } from './security.js';
 import { estimateTokens } from './context.js';
-import { hostConfigured,commandsEnabled,hostStatus } from './computer.js';
+import { hostConfigured,commandsSwitchOn,hostStatus,computersStatus,sshInput,sshAuth,sshStatus } from './computer.js';
 import { publicConfig,saveConfig,models,imageModels,audioModels,transcribe,synthesize,probeModel,config,routerRequest } from './router.js';
 import { migrate } from './migrate.js';
 import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
@@ -121,7 +121,18 @@ export async function buildApp(){
  });
  // Computer folders granted to agents (approving an agent's access request creates the grant); revoking is immediate.
  // Commands on the computer (Cell Host): installed?, switched on?, reachable?, and the latest commands with their result.
- app.get('/api/host-access/commands',async()=>{const configured=hostConfigured(),enabled=await commandsEnabled();let status=null,error='';if(configured){try{status=await hostStatus();}catch(e){error=safeError(e);}}
+ // Computers for commands: this one (Cell Host) plus SSH machines. Status is checked live, in parallel.
+ app.get('/api/computers',async()=>({enabled:await commandsSwitchOn(),hostInstalled:hostConfigured(),computers:await computersStatus()}));
+ // Adding an SSH computer: the first call (no fingerprint) connects, runs the status script and returns the server's
+ // fingerprint for the owner to confirm; saving repeats the check pinned to that fingerprint.
+ app.post('/api/computers/test',{config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async req=>{const x=sshInput.parse(req.body);const r=await sshStatus({host:x.host,port:x.port,username:x.username,password:x.password,privateKey:x.privateKey,passphrase:x.passphrase,fingerprint:x.fingerprint},x.shell);return {fingerprint:r.fingerprint,info:r.info};});
+ app.post('/api/computers',async req=>{const x=sshInput.parse(req.body);if(!x.fingerprint)throw new Error('Teste a conexão e confirme a impressão digital antes de salvar.');
+  const r=await sshStatus({host:x.host,port:x.port,username:x.username,password:x.password,privateKey:x.privateKey,passphrase:x.passphrase,fingerprint:x.fingerprint},x.shell);
+  if(await one('SELECT 1 FROM computers WHERE lower(name)=lower($1)',[x.name])||x.name.toLowerCase()==='este computador')throw new Error('Já existe um computador com esse nome.');
+  const row=await one('INSERT INTO computers(name,host,port,username,auth,shell,fingerprint,info,last_seen) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING id,name',[x.name,x.host,x.port,x.username,sshAuth(x),x.shell,x.fingerprint,JSON.stringify(r.info)]);
+  return row;});
+ app.delete('/api/computers/:id',async req=>{await query('DELETE FROM computers WHERE id=$1',[id(req)]);return {ok:true};});
+ app.get('/api/host-access/commands',async()=>{const configured=hostConfigured(),enabled=await commandsSwitchOn();let status=null,error='';if(configured){try{status=await hostStatus();}catch(e){error=safeError(e);}}
   const recent=await query("SELECT t.id,t.args->>'command' AS command,t.args->>'reason' AS reason,t.status,t.result,t.created_at,a.name AS agent_name,ap.status AS approval FROM tool_calls t JOIN runs r ON r.id=t.run_id JOIN agents a ON a.id=r.agent_id LEFT JOIN approvals ap ON ap.call_id=t.id WHERE t.tool='pc_run' ORDER BY t.created_at DESC LIMIT 20");
   return {configured,enabled,status,error,recent:recent.map(c=>{let exitCode=null;try{exitCode=JSON.parse(c.result).exitCode;}catch{}return {...c,result:undefined,exitCode};})};});
  app.post('/api/host-access/commands',async req=>{const {enabled}=z.object({enabled:z.boolean()}).parse(req.body);await query("INSERT INTO settings(id,value) VALUES(1,jsonb_build_object('computerCommands',$1::boolean)) ON CONFLICT(id) DO UPDATE SET value=settings.value||jsonb_build_object('computerCommands',$1::boolean)",[enabled]);return {enabled};});

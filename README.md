@@ -183,8 +183,8 @@ Os arquivos gerados aparecem **anexados à resposta** do agente (toque para baix
 
 | Ferramenta | O que faz | Pede aprovação? |
 |-----------|-----------|:---:|
-| `pc_run` | Roda um comando PowerShell no computador (com o seu usuário, sem administrador), mostrando o script antes. | **Sim, sempre** |
-| `pc_status` | Mostra nome, usuário, sistema, tempo ligado e memória do computador. | Não |
+| `pc_run` | Roda um comando num computador conectado: PowerShell neste PC e nos Windows por SSH, bash nos Linux. Mostra o computador e o script antes. | **Sim, sempre** |
+| `pc_status` | Mostra quais computadores estão conectados, com nome, usuário, sistema, tempo ligado e memória. | Não |
 
 ### Aplicativos ([como conectar](#aplicativos-notion-google-e-outros))
 
@@ -269,6 +269,8 @@ Depois peça, por exemplo: *"organize a pasta K:\Downloads por tipo de arquivo"*
 
 ### Comandos no computador
 
+O ícone de **computador no topo da conversa** mostra se há computadores conectados: **verde** se pelo menos um responde, **cinza** se nenhum. Toque nele para ver cada computador, o estado e os detalhes.
+
 Com o **Cell Host** instalado, você pode pedir (inclusive pelo celular) coisas como *"quanto espaço livre tem no disco K:?"*, *"quais programas estão usando mais memória?"* ou *"compacte a pasta K:\Projetos\site num zip"*. O agente monta o comando PowerShell e **você aprova cada um**, vendo exatamente o que será executado.
 
 Instale **uma vez, no próprio computador** (PowerShell, na pasta do Cell; precisa do [Node.js](https://nodejs.org/) 22 ou mais novo):
@@ -291,6 +293,13 @@ Como funciona no dia a dia:
 - em **Configurações → Computador** você vê o estado, bloqueia ou libera os comandos num toque e confere os últimos comandos com o resultado.
 
 Para remover: `.\scripts\host.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
+
+**Outros computadores (SSH).** Os agentes também podem usar máquinas Linux (bash) ou Windows com OpenSSH (PowerShell). Em **Configurações → Computador → Adicionar computador por SSH**:
+
+1. informe nome, endereço, porta, usuário e a senha ou uma chave privada (prefira um usuário sem administrador e uma chave criada só para o Cell);
+2. o Cell conecta e mostra a **impressão digital** da chave do servidor; confira no servidor (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) e confirme.
+
+A senha ou a chave fica cifrada. Se a chave do servidor mudar, o Cell recusa a conexão. Com mais de um computador, o agente escolhe em qual rodar, e a aprovação mostra o computador.
 
 > **Segurança:** isso dá ao Cell um terminal no seu computador. Toda execução depende da sua aprovação, mas **proteja o acesso ao Cell**: senha forte e, se usar acesso pela internet, o **Cloudflare Access** (passo 5 do [acesso pela internet](#acesso-pela-internet-cloudflare-tunnel)). Desconfie de comandos que você não pediu, por exemplo sugeridos depois de o agente ler uma página da web.
 
