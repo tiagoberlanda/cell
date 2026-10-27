@@ -21,7 +21,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  const {startQueue,boss,enqueue}=await import('../apps/server/src/runtime.js');
  const {fileData,saveFile}=await import('../apps/server/src/files.js');
  const fake=Fastify();let writes=0,reads=0,worker:ChildProcess|undefined;let workerErrors='';
- let targetAgent='';let mcpName='';let mcpFailName='';const summaryRequests:any[]=[];
+ const chatTools:string[][]=[];let targetAgent='';let mcpName='';let mcpFailName='';const summaryRequests:any[]=[];
  fake.get('/v1/models',async(req,reply)=>req.headers.authorization==='Bearer test-secret'?{data:[{id:'cell-test',name:'Modelo de teste'}]}:reply.code(401).send({error:'unauthorized'}));
  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');let imageCalls:any[]=[];
  fake.get('/v1/models/image',async()=>({data:[{id:'test/image'}]}));
@@ -43,6 +43,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   const b=req.body as any;if(req.headers.authorization!=='Bearer test-secret')return reply.code(401).send({error:'bad token'});
   if(String(b.messages?.[0]?.content||'').startsWith('Atualize o resumo'))summaryRequests.push(b);
   if(!b.stream)return {choices:[{message:{content:'Imagem recebida.',tool_calls:[{id:'probe',type:'function',function:{name:'cell_probe',arguments:'{"ok":true}'}}]}}]};
+  chatTools.push((b.tools||[]).map((t:any)=>t.function.name));
   const last=b.messages.at(-1),text=typeof last.content==='string'?last.content:JSON.stringify(last.content);let tool:string|undefined,args:any={};
   if(last.role==='user'){
    if(text.includes('MAKE_FILE')){tool='write_file';args={name:'resultado.md',content:'# Entrega\nArquivo produzido.'};}
@@ -51,6 +52,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    if(text.includes('DELEGATE')){tool='delegate';args={agentId:/DELEGATE_TO:([0-9a-f-]{36})/.exec(text)?.[1]||targetAgent,task:'Responda como especialista.'};}
    if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
    // Keys in an order jsonb rewrites (it sorts by length): the approval must survive the round trip through the database.
+   if(text.includes('OPEN_NOTION')){tool='use_app';args={app:'notion'};}
    if(text.includes('MAKE_SHEET')){tool='create_spreadsheet';args={name:'Vendas: 3º trimestre.xlsx',sheets:[{name:'Resumo',columns:['Mês','Vendas','Meta','Atingido'],rows:[['Julho',120,100,'=B2/C2'],['Agosto',98,110,'=B3/C3']]}]};}
    if(text.includes('PC_ACCESS')){tool='pc_request_access';args={path:'k:/Downloads/',reason:'Organizar os downloads'};}
    if(text.includes('CALL_MCP_ORDER')){tool=mcpName;args={value:'ordem',properties:{Status:'Sugestões',TAG:'Natureza',Nome:'Florestas'}};}
@@ -388,6 +390,20 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await sleep(1200);const listed=JSON.parse(await gt.find((x:any)=>x.name==='gtasks_list_tasks').execute({},{},{}));assert.equal(listed[0].title,'Comprar pão');assert.ok(googleRefreshes>=1,'token renovado');
   await gt.find((x:any)=>x.name==='gtasks_complete_task').execute({taskId:listed[0].id},{},{});assert.equal(JSON.parse(await gt.find((x:any)=>x.name==='gtasks_list_tasks').execute({},{},{})).length,0);
   assert.deepEqual((await toolsFor({agent_id:targetAgent,mode:'plan'},{agent:{tools:[]}})).map((x:any)=>x.name).filter((n:string)=>n.startsWith('gtasks_')).sort(),['gtasks_list_tasklists','gtasks_list_tasks']);
+  // Apps load on demand: one use_app tool stands in for them until the model opens one in the run.
+  const {offeredTools}=await import('../apps/server/src/tools.js');
+  const full:any[]=await toolsFor({agent_id:targetAgent,mode:'execute'},{agent:{tools:[]}});const opener=full.find((x:any)=>x.name==='use_app');
+  assert.deepEqual([...opener.parameters.properties.app.enum].sort(),['canva','gmail','google-tasks','notion']);assert.match(opener.description,/notion = Notion \(Busque/);
+  const notionTools=full.filter((x:any)=>x.app==='notion').map((x:any)=>x.name);assert.equal(notionTools.length,3);
+  const closed=offeredTools(full,[]).map((x:any)=>x.name);assert.ok(notionTools.every((n:string)=>!closed.includes(n))&&closed.includes('use_app')&&closed.includes('create_pdf'));
+  assert.ok(notionTools.every((n:string)=>offeredTools(full,[{tool:'use_app',args:{app:'notion'}}]).some((x:any)=>x.name===n)),'aberto pelo use_app');
+  assert.ok(!offeredTools(full,[{tool:'use_app',args:{app:'notion'}}]).some((x:any)=>x.app==='gmail'),'só o aplicativo pedido');
+  assert.ok(notionTools.every((n:string)=>offeredTools(full,[{tool:notionTools[0],args:{}}]).some((x:any)=>x.name===n)),'continua aberto após uma chamada (ex.: aprovação)');
+  assert.equal(JSON.parse(await opener.execute({app:'notion'},{},{})).tools.length,3);
+  // Through the worker: the first request has no Notion tools; after use_app, the next one does.
+  chatTools.length=0;const ow=await request('POST',`/agents/${targetAgent}/conversations`,{});const orun=await request('POST',`/conversations/${ow.id}/messages`,{content:'OPEN_NOTION'});await poll(orun.id,'completed');
+  assert.ok(chatTools.length>=2);assert.ok(chatTools[0].includes('use_app')&&!chatTools[0].some(n=>notionTools.includes(n)),'Notion fora da primeira chamada');
+  assert.ok(notionTools.every((n:string)=>chatTools[1].includes(n)),'Notion carregado depois do use_app');
   for(const key of ['notion','canva','gmail','google-tasks'])await request('DELETE','/connectors/'+key);
   assert.ok((await request('GET','/connectors')).connectors.every((c:any)=>c.status==='disconnected'));await request('DELETE','/connectors/google');
  });

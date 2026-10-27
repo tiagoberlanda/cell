@@ -7,7 +7,7 @@ import { completion,config,synthesize,type ChatMessage } from './router.js';
 import { saveFile } from './files.js';
 import { stripThinking } from '../../../packages/shared/src/index.js';
 import { decrypt,approvalFingerprint,safeError } from './security.js';
-import { toolsFor } from './tools.js';
+import { toolsFor,offeredTools } from './tools.js';
 import { McpToolError } from './mcp.js';
 import { notifyAnswer,notifyApproval } from './push.js';
 import { migrate } from './migrate.js';
@@ -53,7 +53,8 @@ async function processRun(id:string){
     await query('UPDATE runs SET partial_output=\'\' WHERE id=$1',[id]);await event('stream_reset',{runId:id,conversationId:run.conversation_id});
     let partial='',last=Date.now();
     const publish=async()=>{await query('UPDATE runs SET partial_output=$2 WHERE id=$1',[id,partial]);await event('delta',{runId:id,conversationId:run.conversation_id,text:partial});};
-    const result=await completion(cfg,run.model,context,(run.steps>=cfg.maxSteps?[]:tools).map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.parameters}})),async text=>{partial=text;if(Date.now()-last>150){await publish();last=Date.now();}},abort.signal);
+    const offered=offeredTools(tools,await query('SELECT tool,args FROM tool_calls WHERE run_id=$1',[id]));
+    const result=await completion(cfg,run.model,context,(run.steps>=cfg.maxSteps?[]:offered).map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.parameters}})),async text=>{partial=text;if(Date.now()-last>150){await publish();last=Date.now();}},abort.signal);
     if(partial)await publish();
     if(abort.signal.aborted)return;
     const usage={prompt_tokens:(run.usage?.prompt_tokens||0)+(result.usage.prompt_tokens||0),completion_tokens:(run.usage?.completion_tokens||0)+(result.usage.completion_tokens||0)};run.usage=usage;

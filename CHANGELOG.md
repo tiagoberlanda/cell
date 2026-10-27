@@ -5,6 +5,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Alterado
+- Ferramentas dos aplicativos conectados (Notion, Canva, Google, conexões MCP personalizadas) agora são carregadas sob demanda. Em cada chamada, o modelo recebe só uma ferramenta leve, `use_app`, com a lista dos aplicativos e o que cada um faz. Quando o pedido precisa de um aplicativo, o modelo chama `use_app`, e as ferramentas daquele aplicativo passam a ser enviadas a partir da etapa seguinte da mesma execução. Aprovações e permissões não mudam; uma ferramenta já usada na execução continua disponível (por exemplo, depois de uma aprovação).
+- Efeito no agente Artista (Notion e Canva conectados): de 134 ferramentas e cerca de 300 mil caracteres de definições por chamada para 20 ferramentas e cerca de 9 mil, com respostas mais rápidas e baratas.
+
+### Como foi verificado
+- **Real:** com as ferramentas do Artista e o Grok pelo 9router de produção, "gere uma imagem" chamou `generate_image` direto (3,6 mil tokens de entrada em vez de cerca de 109 mil) e "crie um design no Canva" chamou `use_app` com `canva`.
+- **Simulado:** teste de integração: `use_app` lista só os aplicativos conectados, abrir um aplicativo libera só as ferramentas dele, e pelo worker a primeira chamada ao modelo não leva o Notion e a seguinte, depois do `use_app`, leva.
+
 ## [0.20.1] - 2026-10-27
 
 ### Corrigido

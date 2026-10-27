@@ -181,7 +181,7 @@ Os agentes **não apagam** arquivos do computador.
 
 ### Aplicativos ([como conectar](#aplicativos-notion-google-e-outros))
 
-Cada aplicativo conectado traz suas próprias ferramentas (ex.: buscar páginas no Notion, criar evento na Agenda). As de **leitura** rodam direto; as que **criam, alteram ou apagam** pedem aprovação. O **Google Tarefas** vem integrado: listar listas e tarefas, criar, concluir e excluir.
+Cada aplicativo conectado traz suas próprias ferramentas (ex.: buscar páginas no Notion, criar evento na Agenda). Elas são carregadas **só quando o pedido precisa do aplicativo**: o agente vê uma lista curta dos aplicativos e abre um deles (ferramenta `use_app`) antes de usá-lo, o que deixa as respostas mais rápidas e baratas. As de **leitura** rodam direto; as que **criam, alteram ou apagam** pedem aprovação. O **Google Tarefas** vem integrado: listar listas e tarefas, criar, concluir e excluir.
 
 ### Ligar e desligar ferramentas por agente
 

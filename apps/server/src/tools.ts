@@ -2,7 +2,7 @@ import { query,one,event,ensureSection } from './db.js';
 import { agentInput,shapes } from '../../../packages/shared/src/index.js';
 import { routerRequest,generateImage } from './router.js';
 import { mcpCall } from './mcp.js';
-import { googleTasksTools } from './connectors.js';
+import { googleTasksTools,catalog } from './connectors.js';
 import { hostFileTools,mountedDrives } from './hostfiles.js';
 import { documentTools } from './documents.js';
 import { saveFile } from './files.js';
@@ -10,10 +10,19 @@ import { createRun } from './runtime.js';
 import { nextOccurrence } from './schedule.js';
 import { z } from 'zod';
 import { hash } from './security.js';
-export interface Tool {name:string;description:string;parameters:any;write:boolean;target?:string;binding?:string;execute:(args:any,run:any,cfg:any)=>Promise<string>}
+// app: connected application the tool belongs to; those tools are offered to the model only after use_app opens it.
+export interface Tool {name:string;description:string;parameters:any;write:boolean;target?:string;binding?:string;app?:string;execute:(args:any,run:any,cfg:any)=>Promise<string>}
 // Function name for an MCP tool. Providers cap names at 64 characters; plain truncation made distinct tools collide
 // (notion-calendar-list-calendars vs notion-calendar-list-calendar-events), which xAI/Grok rejects as a duplicate
 // definition. Names that fit stay as they were (saved agent settings keep working); longer ones get a hash suffix.
+// Short stable key of a connection for use_app: the catalog key (notion, canva…) or a slug of the custom name.
+const appKey=(c:any)=>String(c.catalog_key||(String(c.name).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||c.id)).slice(0,40);
+// Tools sent to the model: everything except apps not opened yet in this run (opened = a use_app call, or a tool of
+// the app already called, e.g. before an approval).
+export function offeredTools(tools:Tool[],calls:{tool:string;args:any}[]){
+ const open=new Set<string>();for(const c of calls){if(c.tool==='use_app'&&c.args?.app)open.add(String(c.args.app));const t=tools.find(x=>x.name===c.tool);if(t?.app)open.add(t.app);}
+ return tools.filter(t=>!t.app||open.has(t.app));
+}
 export function mcpToolName(connectionId:string,toolName:string){
  const full=`mcp_${connectionId.replaceAll('-','')}_${String(toolName).replace(/[^a-zA-Z0-9_-]/g,'_')}`;
  return full.length<=64?full:`${full.slice(0,56)}_${hash(full).slice(0,7)}`;
@@ -36,10 +45,11 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  const result=native.filter(t=>enabled.includes(t.name));
  // The master agent always manages the team, regardless of its enabled tool list.
  if((await one('SELECT is_master FROM agents WHERE id=$1',[run.agent_id]))?.is_master)result.push(...masterTools);
- for(const c of await query('SELECT * FROM connections WHERE status=\'connected\'')){
+ const connections=await query('SELECT * FROM connections WHERE status=\'connected\'');
+ for(const c of connections){
   // Catalog connections are available to every agent (all_agents); others only where the agent enabled the tool.
-  if(c.kind==='native'){if(c.catalog_key==='google-tasks')result.push(...googleTasksTools(c).filter(t=>c.all_agents||enabled.includes(t.name)));continue;}
-  for(const t of c.tools){const name=mcpToolName(c.id,t.name);if(!c.all_agents&&!enabled.includes(name))continue;result.push({name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
+  if(c.kind==='native'){if(c.catalog_key==='google-tasks')result.push(...googleTasksTools(c).filter(t=>c.all_agents||enabled.includes(t.name)).map(t=>({...t,app:appKey(c)})));continue;}
+  for(const t of c.tools){const name=mcpToolName(c.id,t.name);if(!c.all_agents&&!enabled.includes(name))continue;result.push({app:appKey(c),name,description:`${c.name}: ${t.description||t.name}`.slice(0,1500),parameters:t.inputSchema||object({},[]),binding:hash(JSON.stringify({url:c.url,auth:c.auth,schema:t})),write:!c.read_tools.includes(t.name),target:`${c.name} — ${c.url} — ${t.name}`,execute:async(a)=>mcpCall(c.id,t.name,a)});}
  }
  // Office files (spreadsheets, PDF, Word, PowerPoint) only add to the library, so every agent has them.
  result.push(...documentTools());
@@ -49,7 +59,15 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  const seen=new Set<string>();
  const unique=result.filter(t=>!seen.has(t.name)&&seen.add(t.name));
  result.length=0;result.push(...unique);
- return run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','pc_list','pc_read'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
+ const usable=run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','pc_list','pc_read'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
+ // One light tool stands in for every connected app; its own tools are offered only once opened (see offeredTools).
+ const apps=new Map<string,{name:string;about:string;tools:Tool[]}>();
+ for(const t of usable)if(t.app){const c=connections.find(x=>appKey(x)===t.app);if(!apps.has(t.app))apps.set(t.app,{name:c?.name||t.app,about:catalog.find(e=>e.key===c?.catalog_key)?.description||'',tools:[]});apps.get(t.app)!.tools.push(t);}
+ if(apps.size)usable.push({name:'use_app',write:false,
+  description:'Abre um aplicativo conectado para usar as ferramentas dele. As ferramentas do aplicativo só ficam disponíveis depois desta chamada, a partir da próxima etapa. Use apenas quando o pedido precisar do aplicativo. Aplicativos: '+[...apps].map(([k,a])=>`${k} = ${a.name}${a.about?` (${a.about.replace(/\.$/,'')})`:''}`).join('; ')+'.',
+  parameters:object({app:{type:'string',enum:[...apps.keys()]}},['app']),
+  execute:async(a)=>{const x=z.object({app:z.string()}).parse(a);const app=apps.get(x.app);if(!app)throw new Error('Aplicativo não conectado: '+x.app);return JSON.stringify({opened:app.name,tools:app.tools.map(t=>({name:t.name,description:t.description.slice(0,200),approval:t.write}))});}});
+ return usable;
 }
 const palette=['#258cff','#18b99c','#fcad24','#9b6bff','#fc733f','#df8da9','#b3efbc','#9c713f'];
 const pick=<T,>(list:readonly T[])=>list[Math.floor(Math.random()*list.length)];
