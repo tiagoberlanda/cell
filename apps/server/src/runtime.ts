@@ -1,10 +1,10 @@
 import { PgBoss } from 'pg-boss';
 import { query,one,event,transaction } from './db.js';
 import { config,type RouterConfig,type ChatMessage } from './router.js';
-import { encrypt } from './security.js';
+import { encrypt,safeError } from './security.js';
 import { fileData } from './files.js';
 export const boss=new PgBoss({connectionString:process.env.DATABASE_URL!});
-export async function startQueue(){boss.on('error',()=>console.error('Falha na fila; verifique PostgreSQL.'));await boss.start();await boss.createQueue('run',{retryLimit:3,retryDelay:10,retryBackoff:true,expireInSeconds:600,heartbeatSeconds:20});}
+export async function startQueue(){boss.on('error',e=>console.error('Falha na fila; verifique PostgreSQL:',safeError(e)));await boss.start();await boss.createQueue('run',{retryLimit:3,retryDelay:10,retryBackoff:true,expireInSeconds:600,heartbeatSeconds:20});}
 export async function enqueue(id:string){await boss.send('run',{id},{singletonKey:id});}
 export async function setState(id:string,state:string,extra?:string){const row=await one("UPDATE runs SET state=$2,error=$3,updated_at=now() WHERE id=$1 AND state NOT IN('cancelled','completed') RETURNING id",[id,state,extra||null]);if(row)await event('run',{id,state});}
 export async function createRun(agentId:string,conversationId:string,prompt:string,fileIds:string[]=[],parent?:any,cfg?:RouterConfig,sourceCallId?:string){

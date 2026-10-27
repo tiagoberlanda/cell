@@ -5,6 +5,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Modelos de raciocínio (ex.: "FREE" = DeepSeek R1) mostravam o pensamento `<think>…</think>` na conversa. Agora só a resposta final aparece, tanto ao vivo quanto na mensagem salva, na prévia da barra lateral e ao copiar; mensagens antigas também são filtradas na exibição.
+- Respostas que se esgotavam só raciocinando eram salvas pela metade. As chamadas passam a enviar um limite explícito de tokens, e uma resposta sem texto final vira um erro claro explicando o motivo.
+- Erros da fila de execução agora registram a causa no log.
+
+### Adicionado
+- Configurações → Execução → "Máximo de tokens por resposta" (padrão 4096).
+
 ## [0.8.0] - 2026-10-27
 
 ### Segurança
