@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.6.2] - 2026-10-27
+
 ### Corrigido
 - Agentes não sabiam a data atual e pesquisavam períodos antigos (ex.: "abril 2025"). O contexto de cada execução agora traz data e hora atuais no fuso configurado, com a orientação de usá-las em buscas sobre fatos recentes.
 
