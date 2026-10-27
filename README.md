@@ -98,6 +98,10 @@ Em cada aparelho: menu do usuário → **Notificações** → **Ativar notifica�
 - Funciona no Chrome do Android, no navegador ou no app instalado, pelo domínio público (o HTTPS precisa ser confiável). No iPhone, só com o Cell instalado na tela inicial.
 - O conteúdo vai cifrado de ponta a ponta até o aparelho (padrão Web Push); o serviço de push do navegador (Google, no Chrome) só repassa.
 - Sair da conta desativa as notificações daquele aparelho. A lista de aparelhos inscritos fica na mesma tela, com a opção de remover.
+- No computador funciona igual (Chrome ou Edge): ative em Notificações no próprio PC. Os avisos aparecem na central de notificações do Windows.
+- **Por agente:** no painel do agente, o botão **Notificações ativadas/desativadas** (ou "Receber notificações deste agente" no editor) liga ou silencia aquele agente em tudo: push, avisos no app e sino. Agentes silenciados mostram um sino cortado na lista.
+- **Dentro do app:** o sino do cabeçalho lista mensagens não lidas e aprovações pendentes (com "Marcar como lidas"); mensagens de outras conversas aparecem num aviso com **Abrir**; a aba do navegador e o ícone do app instalado mostram a contagem.
+- Uma conversa só conta como lida com a tela visível: deixar o Cell aberto numa aba em segundo plano não impede o aviso.
 
 ## Backup e restauração
 

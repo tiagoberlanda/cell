@@ -5,6 +5,17 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Notificações por agente: "Receber notificações deste agente" no editor e botão no painel do agente; agentes silenciados não geram push, aviso no app nem item no sino, e aparecem com um sino cortado na lista.
+- Sino de notificações no cabeçalho: mensagens não lidas dos agentes (inclusive de rotinas) e aprovações pendentes, com "Marcar como lidas" e atalho para configurar; tocar num item abre a conversa.
+- Avisos dentro do app quando chega mensagem de outra conversa, com **Abrir** e **Dispensar**.
+- Contagem de não lidas no título da aba e no ícone do app instalado (onde o sistema suporta).
+- Convite discreto para ativar as notificações em cada aparelho que ainda não as recebe ("Agora não" é lembrado).
+- `GET /api/notifications`, `POST /api/notifications/read-all`, `POST /api/agents/:id/notify`; migração `0014_agent_notify`.
+
+### Corrigido
+- Uma aba do Cell aberta em segundo plano marcava a conversa como lida e impedia o push no celular e no computador. Agora a conversa só é marcada como lida com a tela visível (e é atualizada quando a aba volta a ficar visível).
+
 ## [0.13.1] - 2026-10-27
 
 ### Corrigido

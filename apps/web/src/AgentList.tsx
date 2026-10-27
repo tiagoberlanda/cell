@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import type {PointerEvent as ReactPointerEvent} from 'react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
-import {Pin,PinOff,Plus,MoreHorizontal,Pencil,Trash2} from 'lucide-react';
+import {Pin,PinOff,Plus,MoreHorizontal,Pencil,Trash2,BellOff} from 'lucide-react';
 import type {Agent} from '../../../packages/shared/src/index';
 import {CellAvatar} from './CellAvatar';
 import {api} from './api';
@@ -64,7 +64,7 @@ export function AgentList({agents,sections,selected,onSelect,onTogglePin,onChang
    <div className="section-label" data-drop="section-head" data-key={g.name} onPointerDown={e=>press(e,'section',g.name)} onContextMenu={e=>e.preventDefault()} title="Segure e arraste para reordenar a seção"><span>{g.name}</span><span className="section-tools"><span>{g.ids.length}</span>
     <Dropdown.Root><Dropdown.Trigger asChild><button className="section-menu" aria-label={`Opções da seção ${g.name}`} onPointerDown={e=>e.stopPropagation()}><MoreHorizontal size={14}/></button></Dropdown.Trigger><Dropdown.Portal><Dropdown.Content className="dropdown" align="end"><Dropdown.Item onSelect={()=>renameSection(g.name)}><Pencil size={15}/>Renomear seção</Dropdown.Item><Dropdown.Item onSelect={createSection}><Plus size={15}/>Nova seção</Dropdown.Item><Dropdown.Separator/><Dropdown.Item disabled={g.ids.length>0} onSelect={()=>deleteSection(g.name)}><Trash2 size={15}/>{g.ids.length?'Excluir (mova os agentes antes)':'Excluir seção'}</Dropdown.Item></Dropdown.Content></Dropdown.Portal></Dropdown.Root></span></div>
    {g.ids.map(id=>{const a=byId.get(id);if(!a)return null;const {title,subtitle}=describe(a);return <div key={id} className={`agent-row-wrap ${dragging===id?'dragging':''}`} data-drop="agent" data-key={id}>
-    <button className={`agent-row ${id===selected?'selected':''}`} onPointerDown={e=>press(e,'agent',id)} onContextMenu={e=>e.preventDefault()} onClick={()=>{if(!suppress.current)onSelect(id);}} title={title}><CellAvatar shape={a.shape} color={a.color} state={a.state} size={40}/><span className="agent-copy"><strong>{a.name}</strong><small>{subtitle}</small></span>{a.unread&&<b className="unread"/>}</button>
+    <button className={`agent-row ${id===selected?'selected':''}`} onPointerDown={e=>press(e,'agent',id)} onContextMenu={e=>e.preventDefault()} onClick={()=>{if(!suppress.current)onSelect(id);}} title={title}><CellAvatar shape={a.shape} color={a.color} state={a.state} size={40}/><span className="agent-copy"><strong>{a.name}{a.notify===false&&<BellOff className="muted-bell" size={12} aria-label="Notificações desativadas"/>}</strong><small>{subtitle}</small></span>{a.unread&&<b className="unread"/>}</button>
     <button className={`pin-toggle ${a.pinned?'on':''}`} aria-label={a.pinned?`Desafixar ${a.name} do topo`:`Fixar ${a.name} no topo`} title={a.pinned?'Desafixar do topo':'Fixar no topo'} aria-pressed={a.pinned} onClick={()=>onTogglePin(a)}>{a.pinned?<PinOff size={15}/>:<Pin size={15}/>}</button></div>;})}
    {!g.ids.length&&<div className="section-empty">{dragging?'Solte aqui':'Seção vazia — arraste agentes para cá'}</div>}
   </section>)}

@@ -261,5 +261,22 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await request('POST','/push/unsubscribe',{endpoint:base+'/push/phone'});assert.equal((await request('GET','/push')).devices.length,0);
   await assert.rejects(request('POST','/push/test'),/Nenhum aparelho/);
  });
+ await t.test('central de notificações, aba em segundo plano e escolha por agente',async()=>{
+  const {createECDH,randomBytes}=await import('node:crypto');const e=createECDH('prime256v1');e.generateKeys();
+  await request('POST','/push/subscribe',{endpoint:base+'/push/laptop',keys:{p256dh:e.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}});
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});pushes.length=0;
+  const r=await request('POST',`/conversations/${cv.id}/messages`,{content:'Para a central'});await poll(r.id,'completed');
+  await request('GET',`/conversations/${cv.id}?seen=0`);
+  for(let i=0;i<25&&!pushes.some(x=>x.id==='laptop');i++)await sleep(200);
+  assert.ok(pushes.some(x=>x.id==='laptop'),'aba em segundo plano não marca como lida: push enviado');
+  const listed=(await request('GET','/notifications')).items.find((n:any)=>n.kind==='message'&&n.conversation_id===cv.id);
+  assert.ok(listed,'mensagem na central');assert.equal(listed.agent_name,agent.name);assert.match(listed.text,/Resultado concluído/);
+  await request('POST','/notifications/read-all');assert.ok(!(await request('GET','/notifications')).items.some((n:any)=>n.conversation_id===cv.id),'marcar como lidas');
+  await request('POST',`/agents/${agent.id}/notify`,{notify:false});pushes.length=0;
+  const r2=await request('POST',`/conversations/${cv.id}/messages`,{content:'Agente silenciado'});await poll(r2.id,'completed');await sleep(2000);
+  assert.equal(pushes.length,0,'agente silenciado não envia push');assert.ok(!(await request('GET','/notifications')).items.some((n:any)=>n.conversation_id===cv.id),'nem aparece na central');
+  await request('POST',`/agents/${agent.id}/notify`,{notify:true});assert.equal((await request('GET','/agents')).find((x:any)=>x.id===agent.id).notify,true);agent.notify=true;
+  await request('POST','/push/unsubscribe',{endpoint:base+'/push/laptop'});
+ });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
 });

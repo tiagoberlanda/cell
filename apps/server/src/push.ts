@@ -39,7 +39,7 @@ const delay=()=>Number(process.env.PUSH_DELAY_MS||10000);
 export function notifyAnswer(runId:string){setTimeout(()=>{answerPush(runId).catch(e=>console.error('Falha na notificação:',safeError(e)));},delay());}
 async function answerPush(runId:string){
  const m=await one(`SELECT m.content,m.created_at,c.id AS conversation_id,c.seen_at,c.agent_id,a.name AS agent_name,(SELECT i.content FROM messages i WHERE i.id=r.input_message_id) AS input
-  FROM runs r JOIN messages m ON m.run_id=r.id AND m.role='assistant' JOIN conversations c ON c.id=r.conversation_id JOIN agents a ON a.id=c.agent_id WHERE r.id=$1 AND r.parent_id IS NULL`,[runId]);
+  FROM runs r JOIN messages m ON m.run_id=r.id AND m.role='assistant' JOIN conversations c ON c.id=r.conversation_id JOIN agents a ON a.id=c.agent_id WHERE r.id=$1 AND r.parent_id IS NULL AND a.notify`,[runId]);
  if(!m||new Date(m.seen_at)>=new Date(m.created_at))return;
  const routine=/^\[Rotina agendada: ([^\]]+)\]/.exec(m.input||'')?.[1];
  await sendPush({title:routine?`${m.agent_name} · ${routine}`:m.agent_name,body:clip(plain(m.content),180)||'Nova mensagem',url:`/?agent=${m.agent_id}&conversation=${m.conversation_id}`,tag:`conv-${m.conversation_id}`});
@@ -47,7 +47,7 @@ async function answerPush(runId:string){
 export function notifyApproval(runId:string){setTimeout(()=>{approvalPush(runId).catch(e=>console.error('Falha na notificação:',safeError(e)));},delay());}
 async function approvalPush(runId:string){
  const a=await one(`SELECT t.tool,t.target,r.conversation_id,r.agent_id,ag.name AS agent_name FROM approvals ap JOIN tool_calls t ON t.id=ap.call_id JOIN runs r ON r.id=t.run_id JOIN agents ag ON ag.id=r.agent_id
-  WHERE t.run_id=$1 AND ap.status='pending' AND r.state='waiting_approval' ORDER BY ap.created_at LIMIT 1`,[runId]);
+  WHERE t.run_id=$1 AND ap.status='pending' AND r.state='waiting_approval' AND ag.notify ORDER BY ap.created_at LIMIT 1`,[runId]);
  if(!a)return;
  await sendPush({title:`${a.agent_name} precisa da sua aprovação`,body:clip(a.target||a.tool,180),url:`/?agent=${a.agent_id}&conversation=${a.conversation_id}`,tag:`approval-${runId}`});
 }
@@ -61,5 +61,17 @@ export function registerPush(app:FastifyInstance){
   const row=await one('INSERT INTO push_subscriptions(endpoint,p256dh,auth,label) VALUES($1,$2,$3,$4) ON CONFLICT(endpoint) DO UPDATE SET p256dh=$2,auth=$3,label=$4,failures=0 RETURNING id',[s.endpoint,s.keys.p256dh,s.keys.auth,s.label]);return {id:row.id};});
  app.post('/api/push/unsubscribe',async req=>{const {endpoint}=z.object({endpoint:z.string().max(2000)}).parse(req.body);await query('DELETE FROM push_subscriptions WHERE endpoint=$1',[endpoint]);return {ok:true};});
  app.delete('/api/push/devices/:id',async req=>{await query('DELETE FROM push_subscriptions WHERE id=$1',[z.string().uuid().parse((req.params as any).id)]);return {ok:true};});
+ // Notification center: unread agent messages (top-level conversations, agents with notifications on) and pending approvals.
+ app.get('/api/notifications',async()=>{
+  const messages=await query(`SELECT 'message' AS kind,m.id,m.content AS text,m.created_at AS at,c.id AS conversation_id,c.title,a.id AS agent_id,a.name AS agent_name,a.color,a.shape,(SELECT i.content FROM messages i WHERE i.id=r.input_message_id) AS input
+   FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id LEFT JOIN runs r ON r.id=m.run_id
+   WHERE m.role='assistant' AND m.created_at>c.seen_at AND c.archived_at IS NULL AND a.notify AND NOT a.archived AND r.parent_id IS NULL ORDER BY m.created_at DESC LIMIT 30`);
+  const approvals=await query(`SELECT 'approval' AS kind,ap.id,COALESCE(t.target,t.tool) AS text,ap.created_at AS at,r.conversation_id,c.title,a.id AS agent_id,a.name AS agent_name,a.color,a.shape
+   FROM approvals ap JOIN tool_calls t ON t.id=ap.call_id JOIN runs r ON r.id=t.run_id JOIN conversations c ON c.id=r.conversation_id JOIN agents a ON a.id=r.agent_id
+   WHERE ap.status='pending' AND r.state='waiting_approval' AND a.notify ORDER BY ap.created_at DESC LIMIT 20`);
+  const items=[...approvals,...messages].map(({input,...n}:any)=>({...n,routine:/^\[Rotina agendada: ([^\]]+)\]/.exec(input||'')?.[1]||null,text:clip(n.kind==='message'?plain(n.text):n.text,160)})).sort((x,y)=>new Date(y.at).getTime()-new Date(x.at).getTime());
+  return {items,unread:items.length};
+ });
+ app.post('/api/notifications/read-all',async()=>{await query('UPDATE conversations SET seen_at=now() WHERE archived_at IS NULL');return {ok:true};});
  app.post('/api/push/test',async()=>{const r=await sendPush({title:'Cell',body:'Notificações ativadas. Você será avisado quando um agente ou uma rotina enviar mensagem.',url:'/',tag:'cell-test'});if(!r.sent&&!r.failed)throw new Error('Nenhum aparelho com notificações ativadas.');return r;});
 }

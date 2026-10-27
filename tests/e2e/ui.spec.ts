@@ -118,3 +118,41 @@ test('notificações: painel de ativação por aparelho', async ({ page }) => {
   await noHorizontalScroll(page);
   await page.screenshot({ path: `test-results/notificacoes-${page.viewportSize()!.width}.png` });
 });
+
+test('sino de notificações abre a aprovação pendente', async ({ page }) => {
+  const bell = page.locator('.icon-btn.bell');
+  await expect(bell.locator('.bell-count')).toBeVisible();
+  await bell.click();
+  // The Coordenador conversation is open on screen, so its message is not listed as unread.
+  await expect(page.locator('.notification-item', { hasText: 'Coordenador' })).toHaveCount(0);
+  const item = page.locator('.notification-item', { hasText: 'Redator' });
+  await expect(item).toContainText('Aprovação');
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `test-results/sino-${page.viewportSize()!.width}.png` });
+  await item.click();
+  await expect(page.locator('.agent-title')).toContainText('Redator');
+  await expect(page).toHaveTitle(/^\(\d+\) Cell/);
+});
+
+test('notificações por agente e convite para ativar no aparelho', async ({ page }) => {
+  const offer = page.locator('.push-offer');
+  await expect(offer).toBeVisible();
+  await offer.getByRole('button', { name: 'Agora não' }).click();
+  await expect(offer).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.chat-header')).toBeVisible();
+  await expect(page.locator('.push-offer')).toHaveCount(0);
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  await page.getByLabel('Detalhes do agente').click();
+  await page.getByRole('button', { name: 'Notificações ativadas', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Notificações desativadas', exact: true })).toBeVisible();
+  await page.getByLabel('Fechar detalhes').click();
+  await openAgents(page);
+  // The collapsed tablet sidebar shows only avatars, so the muted icon next to the name is checked where names are visible.
+  if (!tablet(page)) await expect(page.locator('.agent-row', { hasText: 'Revisor' }).locator('.muted-bell')).toBeVisible();
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  await page.getByLabel('Detalhes do agente').click();
+  await page.getByRole('button', { name: 'Notificações desativadas', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Notificações ativadas', exact: true })).toBeVisible();
+});
