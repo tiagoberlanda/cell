@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.10.0] - 2026-10-27
+
 ### Corrigido
 - Mensagem da tela offline do Service Worker (sw.js): corrigida codificação de caracteres com charset=utf-8 no cabeçalho Content-Type, meta tag charset e entidades HTML seguras, eliminando erros de acentuação (Cell está offline).
 - Cache do Service Worker atualizado para cell-shell-v4 com suporte a ícone e layout Cell.
