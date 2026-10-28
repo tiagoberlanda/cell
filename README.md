@@ -1,6 +1,6 @@
 # Cell
 
-**Cell** é uma plataforma de agentes de IA que roda no seu próprio computador. Você monta uma equipe de agentes (cada um com cargo, instruções, memória e ferramentas), conversa com eles pelo navegador ou pelo celular, e eles pesquisam na web, geram imagens, planilhas, PDFs e apresentações, organizam pastas do seu computador, usam aplicativos como Notion e Google Agenda, delegam tarefas entre si e trabalham em rotinas agendadas. Toda ação que muda algo fora do Cell pede a sua aprovação.
+**Cell** é uma plataforma de agentes de IA que roda no seu próprio computador. Você monta uma equipe de agentes (cada um com cargo, instruções, memória e ferramentas), conversa com eles pelo navegador ou pelo celular, e eles pesquisam na web, geram imagens, planilhas, PDFs e apresentações, organizam pastas e rodam comandos no seu computador (e em servidores por SSH), usam aplicativos como Notion e Google Agenda, delegam tarefas entre si e trabalham em rotinas agendadas. Toda ação que muda algo fora do Cell pede a sua aprovação.
 
 É feito para **um único usuário** (você) e fica **inteiramente sob seu controle**: os dados, as conversas e os arquivos ficam num banco PostgreSQL e numa pasta na sua máquina.
 
@@ -27,7 +27,8 @@
 
 - **Equipe de agentes:** crie quantos quiser, cada um com nome, cargo, descrição, instruções, memória, modelo de IA, ferramentas, cor e um ícone de célula. O **Coordenador** é o agente principal: organiza a equipe e pode criar e excluir agentes.
 - **Conversas** com anexos (PDF, Word, Excel, imagens, textos), histórico, arquivamento e busca.
-- **Ferramentas:** pesquisa na web, leitura de páginas, geração de imagens, **planilhas Excel/CSV, PDF, Word e PowerPoint**, pastas e **comandos no computador**, delegação entre agentes, rotinas e mais de 20 aplicativos (Notion, Google, Todoist…).
+- **Ferramentas:** pesquisa na web, leitura de páginas, geração de imagens, **planilhas Excel/CSV, PDF, Word e PowerPoint**, pastas e **comandos no computador** (este PC e outros por SSH), delegação entre agentes, rotinas e mais de 20 aplicativos (Notion, Google, Todoist…).
+- **Computadores:** indicador de conexão no topo, tarefas longas em segundo plano, alertas de disco, CPU e computador fora do ar, receitas de comandos e ligar à distância.
 - **Aprovações:** o agente para e pergunta antes de qualquer ação que altere algo fora do Cell.
 - **Rotinas:** tarefas agendadas (todo dia, toda semana, uma vez ou cron).
 - **Voz:** envie áudios, receba respostas faladas e faça **chamadas de voz** com o agente.
@@ -45,6 +46,8 @@ O Cell roda em quatro containers Docker:
 | `worker` | Executa as tarefas dos agentes, as ferramentas e as rotinas. |
 | `web`    | Caddy: entrega a interface e faz o HTTPS nas portas 80 e 443. |
 
+Opcionalmente, o **Cell Host** roda fora do Docker, no Windows, para os agentes executarem comandos aprovados neste computador (veja [Comandos no computador](#comandos-no-computador)).
+
 Os modelos de IA **não** rodam dentro do Cell. Ele conversa com um provedor compatível com a API da OpenAI, chamado neste projeto de **9router** (veja a seguir).
 
 ## Antes de começar
@@ -53,11 +56,11 @@ Você vai precisar de:
 
 | Item | Para quê | Como obter |
 |------|----------|------------|
-| **Windows 10 ou 11** | Os scripts são em PowerShell. | Linux e macOS funcionam com [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) e Docker, exceto o script de pastas do computador, que é só para Windows. |
+| **Windows 10 ou 11** | Os scripts são em PowerShell. | Linux e macOS funcionam com [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) e Docker, exceto as pastas do computador (`drives.ps1`) e o Cell Host (`host.ps1`), que são só para Windows. |
 | **Docker Desktop** | Roda os containers. | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Deixe-o aberto. |
 | **Git** | Baixar o projeto. | [git-scm.com](https://git-scm.com/download/win) |
 | **Um provedor de modelos** | É quem responde (a "inteligência"). | Veja abaixo. |
-| Node.js 24 (opcional) | Só para rodar testes e verificar backups. | [nodejs.org](https://nodejs.org/) |
+| Node.js 22 ou mais novo (opcional) | Para o Cell Host (comandos no computador), verificar backups e rodar testes. | [nodejs.org](https://nodejs.org/) |
 
 ### O provedor de modelos (9router)
 
@@ -202,7 +205,7 @@ Cada aplicativo conectado traz suas próprias ferramentas (ex.: buscar páginas 
 
 ### Ligar e desligar ferramentas por agente
 
-Editar agente → aba **Ferramentas**. As ferramentas de documentos e as de pastas do computador valem para todos os agentes.
+Editar agente → aba **Ferramentas**. Valem para todos os agentes, sem precisar ligar: documentos, pastas e comandos do computador (estes podem ser bloqueados de uma vez em Configurações → Computador) e os aplicativos conectados pelo catálogo.
 
 ### Modo planejamento (`/plan`)
 
@@ -218,7 +221,12 @@ Comece a mensagem com `/plan` (ex.: `/plan lançar a loja online`). Nesse modo o
 - **Editar:** painel do agente (ícone à direita no topo) → **Editar agente**. Abas: perfil (nome, cargo, descrição, seção, modelo), célula e cor, memória e instruções, ferramentas.
 - **Menu rápido:** no **celular**, segure e solte sobre o agente; no **computador**, use os **três pontos** (ou o clique direito). Opções: **fixar no topo** (até 3 agentes), **renomear** e **mover para outra seção**.
 - **Reordenar:** segure e arraste agentes e seções.
-- **Seções:** agrupe agentes (ex.: "Equipe", "Pessoal"). Crie em **Nova seção**.
+- **Seções:** agrupe agentes (ex.: "Equipe", "Pessoal"). Crie em **Nova seção**; renomeie ou exclua (vazia) pelo **⋯** da seção.
+- **Fixados no topo:** até 3 agentes aparecem em destaque acima da lista.
+- **Logo "cell.":** leva ao agente principal (Coordenador).
+- **Recolher o menu (computador, telas a partir de 1200 px):** o botão no topo da lista deixa só os avatares; a escolha fica guardada no aparelho. Pesquisar e criar agente continuam acessíveis, e o ponto verde marca agentes com mensagem não lida.
+- **Arquivar:** Editar agente → **Arquivar agente**. Agentes arquivados ficam em menu do usuário → **Agentes arquivados**, de onde podem ser restaurados. O agente principal não pode ser arquivado.
+- **Estado de cada agente:** a célula se anima e muda de indicador quando o agente está trabalhando, na fila, aguardando aprovação ou outro agente, ou falhou.
 
 ### Conversas
 
@@ -235,8 +243,10 @@ Comece a mensagem com `/plan` (ex.: `/plan lançar a loja online`). Nesse modo o
   | `/settings` | Abre as configurações. |
   | `/help` | Lista os comandos. |
 
-- **Histórico:** ícone de relógio no topo mostra as conversas anteriores; o de caixa arquiva a atual.
-- **Ensinar uma tarefa:** botão **+** → *Ensinar uma tarefa* transforma a conversa numa **habilidade** reutilizável, que você liga aos agentes.
+- **Histórico:** ícone de relógio no topo mostra as conversas anteriores e as arquivadas (que podem ser restauradas); o de caixa arquiva a atual.
+- **Ações em cada mensagem:** copiar, reenviar a solicitação e excluir. Avisos de erro também podem ser excluídos.
+- **Parar:** enquanto o agente trabalha, o botão de enviar vira **parar** e cancela a execução.
+- **Ensinar uma tarefa:** botão **+** → *Ensinar uma tarefa* transforma a conversa numa **habilidade** reutilizável, que você liga aos agentes. Todas as habilidades ficam em menu do usuário → **Habilidades**.
 
 ### Memória e resumo
 
@@ -256,6 +266,7 @@ Em cada aparelho: menu do usuário → **Notificações** → *Ativar notificaç
 
 - Precisa de HTTPS confiável (domínio público ou [certificado instalado](#certificado-https-sem-aviso-do-navegador)). No iPhone, só com o app instalado na tela inicial.
 - Se a conversa já estiver aberta e visível em algum aparelho, o aviso não é enviado.
+- O **sino** lista mensagens não lidas e aprovações pendentes. No celular ele aparece também no topo da lista de agentes, que cobre a conversa.
 
 ### Voz
 
@@ -275,7 +286,7 @@ Os agentes podem organizar arquivos do computador onde o Cell roda. Ative uma ve
 
 O script libera os discos locais para o `worker` (do `C:` só a sua pasta de usuário) no arquivo `compose.override.yaml`, que fica só na sua máquina. Para desligar: `.\scripts\drives.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
 
-Depois peça, por exemplo: *"organize a pasta K:\Downloads por tipo de arquivo"*. O agente pede acesso, você aprova, e ele lista, propõe a reorganização e pede aprovação antes de mover, criar ou **excluir** (a exclusão é definitiva). Arquivos ocultos e de sistema (como `.env`) ficam bloqueados. Veja e remova acessos em **Configurações → Computador**.
+Depois peça, por exemplo: *"organize a pasta K:\Downloads por tipo de arquivo"*. O agente pede acesso, você aprova, e ele lista, propõe a reorganização e pede aprovação antes de mover, criar ou **excluir** (o que é excluído vai para a Lixeira, e tudo pode ser desfeito pelo botão **Desfazer**). Arquivos ocultos e de sistema (como `.env`) ficam bloqueados. Veja e remova acessos em **Configurações → Computador**.
 
 ### Comandos no computador
 
@@ -330,6 +341,21 @@ Menu do usuário → **Conectar aplicativos**.
 - Outros servidores MCP: **Conexões MCP personalizadas (avançado)**.
 
 > O retorno da autorização usa o primeiro endereço de `APP_ORIGIN`. Para conectar aplicativos de fora da sua rede, configure o [acesso pela internet](#acesso-pela-internet-cloudflare-tunnel).
+
+### Configurações
+
+Menu do usuário (canto inferior esquerdo) → **Configurações**:
+
+| Aba | O que tem |
+|-----|-----------|
+| **9router** | Endereço e token do provedor, modelo padrão, modelos de imagem, transcrição e voz, voz do aparelho. |
+| **Aparência** | Tema escuro, claro ou seguindo o sistema. |
+| **Execução** | Fuso horário, execuções simultâneas, etapas de ferramentas, profundidade de delegação, tokens por resposta e janela de contexto. |
+| **Computador** | Cell Host e interruptor dos comandos, computadores SSH, alertas, receitas, últimos comandos, discos e pastas liberadas. |
+| **Conta** | Trocar a senha e sair de todos os outros aparelhos. |
+| **Uso e dados** | Tokens usados por modelo e orientações de backup. |
+| **Notificações** | Ativar neste aparelho, enviar teste e aparelhos inscritos. |
+| **Diagnóstico** | Saúde do worker, banco, fila, provedor e conexões. |
 
 ### Acompanhar o que os agentes estão fazendo
 
