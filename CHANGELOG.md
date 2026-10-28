@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.28.1] - 2026-10-28
+
 ### Corrigido
 - **Tabelas nas mensagens, no celular:** as palavras não quebram mais no meio ("Cana l", "16:0 0"). Cabeçalhos ficam numa linha só, cada coluna tem largura mínima e a quebra acontece só entre palavras; tabelas largas rolam para o lado dentro do balão, com uma sombra na borda indicando que há mais conteúdo.
 
