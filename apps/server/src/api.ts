@@ -225,7 +225,7 @@ export async function buildApp(){
   if(!safeEqual(token,approvalToken(id(req),decision)))return reply.code(403).send({error:'Link de aprovação inválido.'});
   await decide(id(req),decision);return {ok:true};
  });
- app.get('/api/search',async req=>{const {q}=z.object({q:z.string().min(2).max(200)}).parse(req.query);return query("SELECT m.*,a.name AS agent_name,a.id AS agent_id FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE to_tsvector('portuguese',coalesce(c.title,'')||' '||m.content) @@ plainto_tsquery('portuguese',$1) ORDER BY m.created_at DESC LIMIT 50",[q]);});
+ app.get('/api/search',async req=>{const {q}=z.object({q:z.string().min(2).max(200)}).parse(req.query);return query("SELECT m.*,a.name AS agent_name,a.id AS agent_id FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE m.id IN(SELECT id FROM messages WHERE to_tsvector('portuguese',content) @@ plainto_tsquery('portuguese',$1) UNION SELECT m2.id FROM messages m2 JOIN conversations c2 ON c2.id=m2.conversation_id WHERE to_tsvector('portuguese',coalesce(c2.title,'')) @@ plainto_tsquery('portuguese',$1)) ORDER BY m.created_at DESC LIMIT 50",[q]);});
  app.get('/api/skills',async()=>query('SELECT * FROM skills ORDER BY name'));
  app.post('/api/skills',async req=>{const d=skillInput.parse(req.body);return one('INSERT INTO skills(name,body) VALUES($1,$2) RETURNING *',[d.name,d.body]);});
  app.put('/api/skills/:id',async req=>{const d=skillInput.parse(req.body);return one('UPDATE skills SET name=$2,body=$3 WHERE id=$1 RETURNING *',[id(req),d.name,d.body]);});

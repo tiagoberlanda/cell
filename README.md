@@ -253,6 +253,8 @@ Comece a mensagem com `/plan` (ex.: `/plan lançar a loja online`). Nesse modo o
 
 Cada agente tem uma **memória** (preferências e fatos que você quer que ele lembre) e cada conversa longa ganha um **resumo** automático. Painel do agente → *Ver e editar memória e resumo*. Todas as versões ficam no histórico.
 
+Há também uma **memória compartilhada**, comum a todos os agentes, para o que vale para a equipe inteira (por exemplo, "o cliente prefere relatórios curtos"). Peça a qualquer agente para guardar algo nela. Ela fica no banco e entra no backup. Gravar (`write_shared_memory`, que acrescenta ao fim, ou troca tudo com `mode=replace`) e apagar (`delete_shared_memory`) pedem aprovação. Cada agente recebe o começo dela no prompt e lê o resto com `read_shared_memory`.
+
 ### Rotinas
 
 Painel do agente → **Rotinas** → *Nova rotina*: o agente recebe a tarefa no horário marcado (diária, semanal, uma vez ou expressão cron) e responde na conversa. O interruptor liga e desliga; a lixeira exclui; *Executar agora* testa na hora; *Histórico* mostra as execuções. O fuso padrão é `America/Sao_Paulo`.

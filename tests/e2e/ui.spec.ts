@@ -379,7 +379,7 @@ test('chamada de voz: ouve, pensa e responde falando', async ({ page }) => {
   await page.route('**/api/conversations/*/audio', route => { posted = true; return route.fulfill({ json: { id: 'call-run', state: 'queued', transcript: 'Qual é a previsão de amanhã?' } }); });
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET' || !posted) return route.continue();
-    const res = await route.fetch(); const body = await res.json();
+    const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
     await new Promise(r => setTimeout(r, 1200)); // the agent "thinks" for a moment
     body.messages.push({ id: 'call-reply', role: 'assistant', content: 'Amanhã vai fazer sol à tarde.', voice: true, attachments: [], files: [], created_at: new Date().toISOString() });
     return route.fulfill({ response: res, json: body });
@@ -557,7 +557,7 @@ test('desfazer alteração e tarefas em segundo plano com saída ao vivo', async
   const call = { id: '00000000-0000-0000-0000-00000000ca11', run_id: 'r', tool: 'pc_move', args: { moves: [{ from: 'K:\a.txt', to: 'K:\Docs' }] }, status: 'done', result: '{}', undoable: true };
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch(); const body = await res.json();
+    const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
     body.calls = [...(body.calls || []), { ...call, undone_at: undone ? new Date().toISOString() : null }];
     return route.fulfill({ response: res, json: body });
   });
@@ -597,7 +597,7 @@ test('alertas, ligar à distância, receitas e prévia da edição na aprovaçã
   await page.route('**/api/computer-jobs', route => route.fulfill({ json: [] }));
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch(); const body = await res.json();
+    const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
     body.calls = [...(body.calls || []), { id: 'e1', run_id: 'x', tool: 'pc_edit', args: { path: 'K:\config.ini', edits: [{ find: 'porta=80', replace: 'porta=8080' }] }, status: 'pending', approval_id: '00000000-0000-0000-0000-0000000000e1', approval_status: 'pending', preview: '@@ linha 1\n [servidor]\n-porta=80\n+porta=8080\n modo=dev' }];
     return route.fulfill({ response: res, json: body });
   });
@@ -681,7 +681,7 @@ test('tabela na mensagem: sem quebrar palavras no meio e rolagem lateral no celu
   const table = '## Resumo\n\n| Vídeo | Canal | YouTube | Instagram | TikTok | Status |\n|---|---|---|---|---|---|\n| O Homem de Taured (horizontal) | Fatos o que é | 16:00 | 16:00 | — | Pronto, não publicado |\n| Corte 1: O Viajante Sem País (vertical) | Fatos o que é | 16:00 | 16:00 | 16:00 | Pronto, não publicado |';
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch(); const body = await res.json();
+    const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
     body.messages = [...body.messages, { id: 'tbl', role: 'assistant', content: table, created_at: new Date().toISOString(), attachments: [], files: [] }];
     return route.fulfill({ response: res, json: body });
   });
@@ -701,7 +701,7 @@ test('tabela na mensagem: sem quebrar palavras no meio e rolagem lateral no celu
 test('texto entre ferramentas fica na conversa e toda ferramenta fica em "Ferramentas utilizadas"', async ({ page }) => {
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch(); const body = await res.json();
+    const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
     const at = (s: number) => new Date(Date.now() - 60000 + s * 1000).toISOString();
     const call = (id: string, run: string, s: number) => ({ id, call_id: id, run_id: run, tool: 'web_search', args: { query: id }, status: 'done', result: '{}', created_at: at(s) });
     body.runs = [...body.runs, { id: 'run-x', state: 'cancelled', created_at: at(0), steps: 1 }, { id: 'run-a', state: 'completed', created_at: at(2), steps: 2, output: 'Pronto.' }];
@@ -748,7 +748,7 @@ test('modo de aprovação no menu + e botão "Aprovar sempre"', async ({ page })
   // A pending approval offers "Aprovar sempre" next to approving once.
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch(); const body = await res.json();
+    const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
     body.calls = [...body.calls, { id: 'ap', call_id: 'ap', run_id: 'run-ap', tool: 'pc_run', args: { command: 'Get-Date', reason: 'Ver a data' }, status: 'pending', target: 'Comando no computador', approval_id: '00000000-0000-0000-0000-0000000000ab', approval_status: 'pending', created_at: new Date().toISOString() }];
     return route.fulfill({ response: res, json: body });
   });
@@ -757,7 +757,6 @@ test('modo de aprovação no menu + e botão "Aprovar sempre"', async ({ page })
   // By role on purpose: a dialog opened from a menu used to leave the whole app aria-hidden.
   const always = page.getByRole('button', { name: 'Aprovar sempre' });
   await expect(always).toBeVisible();
-  await always.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `test-results/aprovar-sempre-${page.viewportSize()!.width}.png` });
   await noHorizontalScroll(page);
 });

@@ -1,3 +1,0 @@
-﻿# Memória compartilhada
-
-

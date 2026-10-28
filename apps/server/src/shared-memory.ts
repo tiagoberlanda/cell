@@ -1,17 +1,22 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { one,query } from './db.js';
 
-const memoryPath=resolve(process.cwd(),'memory.md');
+// Memory shared by every agent, kept in the database so it survives updates and goes into backups.
+export const SHARED_MEMORY_MAX=100000;
 
 export async function readSharedMemory():Promise<string>{
- try{return await readFile(memoryPath,'utf8');}catch(error:any){if(error?.code==='ENOENT')return '';throw error;}
+ return (await one('SELECT body FROM shared_memory WHERE id=1'))?.body||'';
 }
 
-export async function writeSharedMemory(content:string):Promise<void>{
+// append adds a block at the end; replace swaps the whole text (empty clears it).
+export async function writeSharedMemory(content:string,mode:'append'|'replace'='append'):Promise<string>{
  const text=content.trim();
- if(!text)throw new Error('A memória compartilhada não pode ficar vazia.');
- await mkdir(dirname(memoryPath),{recursive:true});
- await writeFile(memoryPath,text+'\n','utf8');
+ const row=await one(`UPDATE shared_memory SET body=CASE WHEN $2='replace' THEN $1 WHEN body='' THEN $1 ELSE body||E'\n\n'||$1 END,updated_at=now() WHERE id=1 AND length(CASE WHEN $2='replace' THEN $1 ELSE body||$1 END)<=$3 RETURNING body`,[text,mode,SHARED_MEMORY_MAX]);
+ if(!row)throw new Error(`A memória compartilhada passaria de ${SHARED_MEMORY_MAX} caracteres. Resuma o texto atual com mode=replace.`);
+ return row.body;
 }
 
-export function sharedMemoryFile():string{return memoryPath;}
+// The prompt carries the start of it; the rest is read with read_shared_memory.
+export async function sharedMemoryForPrompt(limit=6000):Promise<string>{
+ const body=await readSharedMemory();
+ return body.length<=limit?body:`${body.slice(0,limit)}\n[… mais ${body.length-limit} caracteres: use read_shared_memory para ler tudo]`;
+}
