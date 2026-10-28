@@ -161,12 +161,22 @@ export function App(){
  const openAgent=(a:Agent|null,tab='profile')=>{setEditAgent(a);setEditorTab(tab);setModal('agent');};
  const togglePin=(a:Agent)=>action(async()=>{await api('/agents/'+a.id+'/pin','POST',{pinned:!a.pinned});notify(a.pinned?`${a.name} saiu do topo.`:`${a.name} fixado no topo.`);});
  const masterAgent=agents.find(a=>a.is_master)||agents.find(a=>a.name==='Coordenador');
+  // Logo do topo: leva ao agente principal (master) sem recarregar a página.
+  // Antes era um link href="/", que recarregava o app (a tela piscava) e restaurava
+  // a última conversa salva em localStorage em vez de abrir o agente principal.
+  const goHome=()=>{
+    setDrawer(false);
+    const target=masterAgent||agents.find(a=>!a.archived);
+    if(!target)return;
+    if(target.id===selected){setConversation(conversations.find((c:any)=>!c.archived_at)?.id||null);return;}
+    setSelected(target.id);
+  };
  if(checking)return <main className="login"><CellAvatar size={64} shape="animal" color="#f1f0e9"/><p>Preparando seu espaço…</p></main>;
  if(!user)return <Login onLogin={u=>{setUser(u);setCsrf(u.csrf);}}/>;
  return <div className="app-shell" style={{'--accent':agent?.color||'#b3efbc'} as CSSProperties}>
   {drawer&&<button className="drawer-scrim" aria-label="Fechar lista de agentes" onClick={()=>setDrawer(false)}/>}
   <aside className={`sidebar ${drawer?'open':''}`} aria-label="Seus agentes">
-   <div className="sidebar-top"><a className="wordmark" href="/" aria-label="Cell, início"><CellAvatar size={28} shape={masterAgent?.shape||'animal'} color={masterAgent?.color||'#f1f0e9'}/>cell<span className="wordmark-dot">.</span></a><div className="row"><button className="icon-btn" aria-label="Pesquisar histórico" onClick={()=>setModal('search')}><Search size={18}/></button><button className="icon-btn" aria-label="Criar agente" onClick={()=>openAgent(null)}><Plus size={20}/></button><button className="icon-btn mobile-close" aria-label="Fechar lista de agentes" onClick={()=>setDrawer(false)}><X size={20}/></button></div></div>
+   <div className="sidebar-top"><button type="button" className="wordmark" onClick={goHome} aria-label="Cell, ir para o agente principal" title="Ir para o agente principal"><CellAvatar size={28} shape={masterAgent?.shape||'animal'} color={masterAgent?.color||'#f1f0e9'}/>cell<span className="wordmark-dot">.</span></button><div className="row"><button className="icon-btn" aria-label="Pesquisar histórico" onClick={()=>setModal('search')}><Search size={18}/></button><button className="icon-btn" aria-label="Criar agente" onClick={()=>openAgent(null)}><Plus size={20}/></button><button className="icon-btn mobile-close" aria-label="Fechar lista de agentes" onClick={()=>setDrawer(false)}><X size={20}/></button></div></div>
    <div className="pinned">{agents.filter(a=>a.pinned&&!a.archived).map(a=><button key={a.id} className={`pinned-agent ${a.id===selected?'selected':''}`} onClick={()=>{setSelected(a.id);setDrawer(false);}} title={a.name}><CellAvatar shape={a.shape} color={a.color} state={a.state} size={56}/><span>{a.name}</span>{a.unread&&<b className="unread"/>}</button>)}</div>
    <AgentList agents={agents} sections={sections} selected={selected} onSelect={id=>{setSelected(id);setDrawer(false);}} onTogglePin={togglePin} onChanged={refreshAgents} notify={notify} describe={a=>({title:`${a.name} — ${stateNames[a.state||'']||'Disponível'}`,subtitle:activeStates.includes(a.state||'')?stateNames[a.state!]:stripThinking(a.last_message||'')||a.role})}/>
    

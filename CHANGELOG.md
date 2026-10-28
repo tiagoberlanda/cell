@@ -5,6 +5,12 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- **Logo do topo:** clicar em **cell.** agora leva ao **agente principal (master)** na hora, sem recarregar a página. Antes o wordmark era um link para `/`, então o clique recarregava o app inteiro (a tela piscava) e o `localStorage` restaurava o agente e a conversa em que você estava, dando a impressão de que nada acontecia. Se você já está no master, o clique volta para a conversa mais recente dele; no celular, também fecha a gaveta de agentes.
+
+### Como foi verificado
+- **Real:** teste de navegador novo (`tests/e2e/ui.spec.ts`: "logo do topo leva ao agente principal sem recarregar a página") em celular (390 px) e desktop (1440 px): sai do Redator, clica em **cell.** e o cabeçalho passa a mostrar o Coordenador, com a marca de que a página não recarregou. Rodado contra o código antigo, o mesmo teste falha (continua no Redator), provando que ele cobre o bug.
+
 ## [0.26.0] - 2026-10-28
 
 ### Adicionado

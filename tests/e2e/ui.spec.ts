@@ -31,6 +31,21 @@ test('gaveta de agentes abre e fecha no celular', async ({ page }) => {
   await expect(page.locator('.sidebar.open')).toHaveCount(0);
 });
 
+test('logo do topo leva ao agente principal sem recarregar a página', async ({ page }) => {
+  // Reproduz o bug: o wordmark era um link href="/", então o clique recarregava o
+  // app e o localStorage restaurava o agente/conversa anterior em vez do master.
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Redator' }).click();
+  await expect(page.locator('.agent-title')).toContainText('Redator');
+  await page.evaluate(() => { (window as any).__cellNoReload = true; });
+  await openAgents(page);
+  await page.locator('.wordmark').click();
+  await expect(page.locator('.agent-title')).toContainText('Coordenador');
+  expect(await page.evaluate(() => (window as any).__cellNoReload === true)).toBe(true);
+  if (mobile(page)) await expect(page.locator('.sidebar.open')).toHaveCount(0);
+  await noHorizontalScroll(page);
+});
+
 test('central de atividade: filtros, detalhes, árvore e aprovação', async ({ page }) => {
   await page.getByLabel('Central de atividade').click();
   const dialog = page.getByRole('dialog', { name: 'Central de atividade' });
