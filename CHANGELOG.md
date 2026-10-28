@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.30.6
+- **Histórico de aprovações:** cada chamada de ferramenta agora mantém o estado da permissão visível no histórico da conversa, incluindo aprovado, negado, cancelado ou pendente.
+
 ## 0.30.5
 - **Acesso a pastas:** erros determinísticos do pedido de acesso não entram mais no fluxo de resultado incerto. O agente recebe o erro real e pode interpretar o caminho, listar diretórios-pai e tentar localizar a pasta correta sem ficar preso em um loop de aprovação.
 

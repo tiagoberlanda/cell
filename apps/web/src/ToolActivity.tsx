@@ -46,6 +46,7 @@ const computerTools: Record<string, string> = {
   use_app: 'Abrir aplicativo'
 };
 const toolLabel = (tool: string) => computerTools[tool] || tool.replace(/^mcp_[0-9a-f]{32}_/, '');
+const approvalLabel = (status?: string) => status === 'approved' ? 'Aprovado' : status === 'denied' ? 'Negado' : status === 'cancelled' ? 'Cancelado' : status === 'pending' ? 'Aguardando aprovação' : '';
 
 // Plain-language summary of a computer-folder action awaiting approval; null for other tools (shown as raw arguments).
 // Diff preview of a change (pc_edit): "-" removed, "+" added, "@@" position; a leading "!" means it could not be built.
@@ -102,6 +103,7 @@ export function ToolActivityCard({
               <small className={`tool-status ${c.status || ''}`}>
                 {statusLabels[c.status] || c.status}
               </small>
+              {c.approval_status && <small className={`tool-status approval-${c.approval_status}`}>Permissão: {approvalLabel(c.approval_status)}</small>}
             </div>
             {c.args && (
               <pre className="tool-args">
