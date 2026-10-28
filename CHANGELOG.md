@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.26.0] - 2026-10-28
+
 ### Adicionado
 - **Alertas dos computadores:** uma checagem por minuto avisa no celular quando um disco passa do limite de uso, quando um computador fica fora do ar e quando a CPU fica alta por um tempo; avisa de novo quando volta ao normal. Os alertas abertos aparecem no ícone de computadores do topo (ponto laranja) e no painel. Limites em Configurações → Computador (padrão: disco 90%, fora do ar 10 min, CPU 90% por 15 min). O Cell Host 1.2.0 passa a informar discos e CPU; os computadores por SSH também.
 - **Ligar à distância (Wake-on-LAN):** cadastre o endereço MAC de um computador SSH (Configurações → Computador, ícone de rede) e use **Ligar** no painel quando ele estiver desligado, ou peça ao agente (`pc_wake`). O sinal sai pelo Cell Host, dentro da sua rede.
