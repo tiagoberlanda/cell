@@ -34,6 +34,7 @@
 - **Voz:** envie áudios, receba respostas faladas e faça **chamadas de voz** com o agente.
 - **Notificações** no celular e no computador.
 - **App no celular** (PWA) para Android e iPhone.
+- **Backup em um clique:** um arquivo cifrado com tudo, baixado e restaurado pelo próprio app (Configurações → Backup).
 
 ## Como funciona por dentro
 
@@ -419,21 +420,37 @@ Pelo próprio Cell, em qualquer aparelho: **Configurações → Backup**.
 - **Versões:** um backup de uma versão anterior pode ser restaurado numa versão mais nova. O contrário é recusado, com o aviso para atualizar o Cell antes.
 - **Tamanho:** pelo domínio público (Cloudflare), envios passam de no máximo 100 MB. Para restaurar backups maiores, use o endereço da rede local ou a linha de comando.
 
-Pela linha de comando, em qualquer sistema com Docker (na pasta do Cell). Aqui a senha só protege o arquivo; use a mesma da conta para não esquecer. Ela vai por variável de ambiente e não fica no histórico dos comandos:
+#### Pela linha de comando
+
+Funciona em qualquer sistema com Docker, na pasta do Cell, e serve para automatizar backups ou restaurar arquivos grandes. Aqui a senha só protege o arquivo (use a mesma da conta para não esquecer). Primeiro, guarde-a numa variável sem que ela apareça na tela nem no histórico:
 
 ```bash
-export CELL_BACKUP_PASSWORD='senha-do-backup'      # PowerShell: $env:CELL_BACKUP_PASSWORD='senha-do-backup'
+read -rsp 'Senha do backup: ' CELL_BACKUP_PASSWORD && export CELL_BACKUP_PASSWORD
+```
+
+No PowerShell:
+
+```powershell
+$s = Read-Host 'Senha do backup' -AsSecureString; $env:CELL_BACKUP_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
+```
+
+**Fazer backup** (o comando mostra o nome do arquivo; troque `<arquivo>` por ele):
+
+```bash
 docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- create
 docker compose cp api:/data/backups/saved/<arquivo>.cellbackup .
 ```
 
-Para conferir ou restaurar um arquivo, copie-o para o container e rode `verify` ou `restore`:
+**Conferir e restaurar** um arquivo: copie-o para o container, rode `verify` (só mostra o conteúdo) e depois `restore` (substitui tudo):
 
 ```bash
-docker compose cp cell-20261028.cellbackup api:/data/backups/saved/
-docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- verify /data/backups/saved/cell-20261028.cellbackup
-docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- restore /data/backups/saved/cell-20261028.cellbackup
+docker compose cp cell-20261028.cellbackup api:/tmp/
+docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- verify /tmp/cell-20261028.cellbackup
+docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- restore /tmp/cell-20261028.cellbackup
+docker compose exec -u root api rm /tmp/cell-20261028.cellbackup
 ```
+
+Depois, apague a variável: `unset CELL_BACKUP_PASSWORD` (no PowerShell, `Remove-Item Env:CELL_BACKUP_PASSWORD`).
 
 ### Atualizar para uma versão nova
 
@@ -444,7 +461,7 @@ git pull
 .\scripts\deploy.ps1
 ```
 
-As migrações do banco rodam sozinhas. A versão instalada aparece no menu do usuário. O que mudou em cada versão está no [CHANGELOG.md](CHANGELOG.md). Para voltar a uma versão: `git checkout vX.Y.Z` e `.\scripts\deploy.ps1` (as migrações só avançam, por isso o backup antes).
+As migrações do banco rodam sozinhas. A versão instalada aparece no menu do usuário. O que mudou em cada versão está no [CHANGELOG.md](CHANGELOG.md). Para voltar a uma versão: `git checkout vX.Y.Z` e `.\scripts\deploy.ps1`. As migrações do banco só avançam; se precisar voltar também os dados, restaure o backup feito antes da atualização (backups de versões anteriores sempre podem ser restaurados).
 
 ### Senha
 
@@ -453,7 +470,7 @@ As migrações do banco rodam sozinhas. A versão instalada aparece no menu do u
   ```powershell
   Write-Host 'Senha: ' -NoNewline; $s = Read-Host -AsSecureString; $env:CELL_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)); "cell" | docker compose exec -T -e CELL_ADMIN_PASSWORD api npm run admin -- --reset; Remove-Item Env:CELL_ADMIN_PASSWORD
   ```
-  Sem `-- --reset`, o comando cria a conta (se ainda não existir). A senha precisa de 12 caracteres ou mais e nunca vai para o histórico do PowerShell. Trocar a senha encerra as sessões abertas.
+  Sem `-- --reset`, o comando cria a conta (se ainda não existir). Depois de restaurar um backup, a senha da conta volta a ser a da época do backup. A senha precisa de 12 caracteres ou mais e nunca vai para o histórico do PowerShell. Trocar a senha encerra as sessões abertas.
 
 ---
 
@@ -472,6 +489,9 @@ As migrações do banco rodam sozinhas. A versão instalada aparece no menu do u
 | **Rotina** não disparou | Confira se o interruptor está ligado, o horário e o fuso. O *Histórico* da rotina mostra o que aconteceu. |
 | "O computador não respondeu" | O PC precisa estar ligado e com você logado. Confira em Configurações → Computador; se preciso, rode `.\scripts\host.ps1` e `.\scripts\deploy.ps1` de novo. O registro fica em `%LOCALAPPDATA%\Cell\host.log`. |
 | Agente **não acha uma pasta** do PC | Rode `.\scripts\drives.ps1` e `.\scripts\deploy.ps1`; confira os discos em Configurações → Computador. |
+| Backup: **"Senha incorreta ou arquivo de backup danificado"** | Use a senha que estava valendo quando o backup foi feito. Se a senha estiver certa, o arquivo foi alterado ou não baixou inteiro: baixe de novo. |
+| Backup: **"versão mais nova do Cell"** | O backup veio de um Cell mais novo. Atualize este (`git pull` e `.\scripts\deploy.ps1`) e restaure de novo. |
+| Backup grande **não envia** pelo domínio público | O Cloudflare limita envios a 100 MB. Restaure pelo endereço da rede local ou pela linha de comando. |
 | Algo travou | Configurações → **Diagnóstico** mostra o que está com problema. `docker compose logs -f api worker` mostra os registros. |
 
 ---
@@ -483,7 +503,7 @@ O `setup.ps1` cria o `.env` sozinho. Os campos principais:
 | Variável | Para que serve |
 |----------|----------------|
 | `POSTGRES_PASSWORD` | Senha do banco (aleatória). |
-| `SECRET_KEY` | Chave que cifra tokens e credenciais. **Não perca:** sem ela os segredos salvos não abrem. |
+| `SECRET_KEY` | Chave que cifra tokens e credenciais. **Não troque nem perca** numa instalação em uso: os segredos salvos deixam de abrir. Para mudar de servidor, restaure um backup do Cell: ele adapta os segredos à chave nova. |
 | `CELL_HOST` | Endereços pelos quais o Cell é aberto, separados por vírgula. |
 | `CELL_DEFAULT_SNI` | Endereço usado quando o navegador abre pelo IP. |
 | `APP_ORIGIN` | Os mesmos endereços, com `https://`. O primeiro é usado no retorno dos aplicativos. |
