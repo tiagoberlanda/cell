@@ -3,6 +3,7 @@
 Todas as mudanças relevantes do Cell ficam registradas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [N?o lan?ado]
 
 ### Adicionado
 - Mem?ria compartilhada local em `memory.md`, acess?vel por todos os agentes.
@@ -10,8 +11,6 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ### Corrigido
 - Cart?es de agentes ignoram estado, mensagens e notifica??es de conversas arquivadas.
-
-## [Não lançado]
 
 ## [0.30.0] - 2026-10-28
 
