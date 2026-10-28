@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.30.8
+- **Áudios no histórico:** anexos de áudio agora ocupam sempre uma linha inteira, com largura controlada pelo balão, evitando que múltiplos players fiquem lado a lado e comprimidos.
+
 ## 0.30.7
 - **Layouto das mensagens:** anexos de áudio e imagem agora quebram corretamente em telas estreitas, tabelas continuam rolando dentro do balão e nomes longos não estouram o cartão.
 
