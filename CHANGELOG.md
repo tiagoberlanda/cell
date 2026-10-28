@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.27.0] - 2026-10-28
+
 ### Adicionado
 - **Recolher o menu no desktop:** a partir de 1200 px de largura, um botão no topo da lista de agentes recolhe a lateral para um rail só com os avatares e volta a expandir com outro toque. O nome, o subtítulo, os menus de cada agente e os rótulos das seções ficam ocultos no modo recolhido, e a conversa ganha a largura que sobra. A escolha fica guardada neste aparelho (`localStorage`: `cell.sidebar`). No celular e no tablet o comportamento não muda: abaixo de 768 px continua a gaveta, e entre 768 e 1199 px a lateral já é um rail.
 
