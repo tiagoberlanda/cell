@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.30.9
+- **Tabelas no histórico:** tabelas de arquivos agora usam largura fixa e quebra de texto dentro das células, impedindo que nomes longos estourem ou deformem o balão da mensagem.
+
 ## 0.30.8
 - **Áudios no histórico:** anexos de áudio agora ocupam sempre uma linha inteira, com largura controlada pelo balão, evitando que múltiplos players fiquem lado a lado e comprimidos.
 
