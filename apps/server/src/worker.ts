@@ -13,6 +13,7 @@ import { undoFileOp } from './hostfiles.js';
 import { McpToolError } from './mcp.js';
 import { notifyAnswer,notifyApproval } from './push.js';
 import { migrate } from './migrate.js';
+import { autoApproval } from './approval-policy.js';
 let stopping=false;
 async function processRun(id:string){
  let run=await one('SELECT * FROM runs WHERE id=$1',[id]);if(!run||['completed','failed','cancelled'].includes(run.state))return;
@@ -42,6 +43,8 @@ async function processRun(id:string){
      if(call.external_write){
       await query('INSERT INTO approvals(call_id,fingerprint) VALUES($1,$2) ON CONFLICT(call_id) DO NOTHING',[call.id,call.fingerprint]);const approval=await one('SELECT * FROM approvals WHERE call_id=$1',[call.id]);
       if(approval.fingerprint!==approvalFingerprint(call.tool,call.args,call.binding))throw new Error('Parâmetros mudaram após a aprovação.');
+      // The agent's approval mode or an "Aprovar sempre" rule grants it here; an uncertain retry always waits for the owner.
+      if(approval.status==='pending'&&call.status!=='uncertain'){const auto=await autoApproval(run.agent_id,call);if(auto&&(await query("UPDATE approvals SET status='approved',auto=$2 WHERE id=$1 AND status='pending' RETURNING id",[approval.id,auto])).length)approval.status='approved';}
       if(approval.status==='denied'){await finishCall(call,'Ação negada pelo usuário. Não tente novamente.',context,'denied');continue;}
       if(approval.status!=='approved'){await setState(id,'waiting_approval');notifyApproval(id);return;}
      }

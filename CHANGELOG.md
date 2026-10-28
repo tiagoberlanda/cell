@@ -5,6 +5,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Alterado
+- Prévia dos agentes ignora mensagens de conversas arquivadas.
+- Adicionado controle de modo de aprovação, aprovação permanente por ferramenta e modo YOLO.
+
 ## [0.29.0] - 2026-10-28
 
 ### Corrigido

@@ -731,3 +731,33 @@ test('cabeçalho no celular: notificações, arquivar e chamada à vista, o rest
   await page.screenshot({ path: `test-results/cabecalho-${page.viewportSize()!.width}.png` });
   await noHorizontalScroll(page);
 });
+
+test('modo de aprovação no menu + e botão "Aprovar sempre"', async ({ page }) => {
+  await page.getByLabel('Anexar ou ensinar tarefa').click();
+  await expect(page.getByRole('menuitemradio')).toHaveCount(3);
+  await page.screenshot({ path: `test-results/modo-${page.viewportSize()!.width}.png` });
+  await page.getByRole('menuitemradio', { name: /Aprovar tudo menos exclusão/ }).click();
+  await expect(page.locator('.composer-note .mode-chip')).toHaveText('Aprova tudo menos exclusão');
+  await page.getByLabel('Anexar ou ensinar tarefa').click();
+  await page.getByRole('menuitemradio', { name: /YOLO/ }).click();
+  await page.getByRole('button', { name: 'Ativar YOLO' }).click();
+  await expect(page.locator('.composer-note .mode-chip')).toContainText('YOLO');
+  await page.getByLabel('Anexar ou ensinar tarefa').click();
+  await page.getByRole('menuitemradio', { name: /Pedir aprovação/ }).click();
+  await expect(page.locator('.composer-note .mode-chip')).toHaveCount(0);
+  await noHorizontalScroll(page);
+  // A pending approval offers "Aprovar sempre" next to approving once.
+  await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch(); const body = await res.json();
+    body.calls = [...body.calls, { id: 'ap', call_id: 'ap', run_id: 'run-ap', tool: 'pc_run', args: { command: 'Get-Date', reason: 'Ver a data' }, status: 'pending', target: 'Comando no computador', approval_id: '00000000-0000-0000-0000-0000000000ab', approval_status: 'pending', created_at: new Date().toISOString() }];
+    return route.fulfill({ response: res, json: body });
+  });
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  const card = page.locator('.approval-card').last();
+  await expect(card.getByRole('button', { name: 'Aprovar sempre' })).toBeVisible();
+  await card.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `test-results/aprovar-sempre-${page.viewportSize()!.width}.png` });
+  await noHorizontalScroll(page);
+});

@@ -72,6 +72,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
    // Keys in an order jsonb rewrites (it sorts by length): the approval must survive the round trip through the database.
    if(text.includes('RUN_CMD')){tool='pc_run';args={command:'Get-Date',reason:'Ver a data do computador'};}
+   if(text.includes('RUN_RM')){tool='pc_run';args={command:'Remove-Item velho.txt',reason:'Apagar um arquivo velho'};}
    if(text.includes('EDIT_FILE')){tool='pc_edit';args={path:'K:\\Downloads\\config.ini',edits:[{find:'porta=80',replace:'porta=8080'}]};}
    if(text.includes('OPEN_NOTION')){tool='use_app';args={app:'notion'};}
    if(text.includes('MAKE_SHEET')){tool='create_spreadsheet';args={name:'Vendas: 3º trimestre.xlsx',sheets:[{name:'Resumo',columns:['Mês','Vendas','Meta','Atingido'],rows:[['Julho',120,100,'=B2/C2'],['Agosto',98,110,'=B3/C3']]}]};}
@@ -589,6 +590,20 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   // Denied commands never reach the computer.
   const r2=await task('RUN_CMD');await poll(r2.id,'waiting_approval');const ap2=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[r2.id]);
   const runsBefore=hostRuns.length;await request('POST','/approvals/'+ap2.id,{decision:'denied'});await poll(r2.id,'completed');assert.equal(hostRuns.length,runsBefore);
+  // Approval modes: "safe" runs everything but deletions, "yolo" runs everything, "Aprovar sempre" remembers the tool.
+  const approvalOf=async(runId:string)=>one("SELECT a.id,a.status,a.auto FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[runId]);
+  await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'safe'});
+  const s1=await task('RUN_CMD');await poll(s1.id,'completed');assert.equal(hostRuns.at(-1).command,'Get-Date');assert.equal((await approvalOf(s1.id)).auto,'mode');
+  const s2=await task('RUN_RM');await poll(s2.id,'waiting_approval');assert.equal((await approvalOf(s2.id)).status,'pending','exclusão continua pedindo aprovação');
+  await request('POST','/approvals/'+(await approvalOf(s2.id)).id,{decision:'denied'});await poll(s2.id,'completed');
+  await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'yolo'});
+  const s3=await task('RUN_RM');await poll(s3.id,'completed');assert.equal(hostRuns.at(-1).command,'Remove-Item velho.txt');
+  await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'ask'});
+  const s4=await task('RUN_CMD');await poll(s4.id,'waiting_approval');await request('POST','/approvals/'+(await approvalOf(s4.id)).id+'/always');await poll(s4.id,'completed');
+  const s5=await task('RUN_CMD');await poll(s5.id,'completed');assert.equal((await approvalOf(s5.id)).auto,'always');
+  assert.deepEqual((await request('GET','/agents')).find((a:any)=>a.id===agent.id).auto_approve.map((r:any)=>r.tool),['pc_run']);
+  await request('DELETE',`/agents/${agent.id}/auto-approve`);assert.deepEqual((await request('GET','/agents')).find((a:any)=>a.id===agent.id).auto_approve,[]);
+  await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'ask'});
   // Switched off: the tools disappear for every agent.
   await request('POST','/host-access/commands',{enabled:false});assert.ok(!(await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).some((x:any)=>x.app==='computador'));
   const {hasToken,...settings}=await request('GET','/settings');await request('PUT','/settings',settings);assert.equal((await request('GET','/host-access/commands')).enabled,false,'salvar configurações mantém o desligado');
