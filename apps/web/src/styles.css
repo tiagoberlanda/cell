@@ -206,3 +206,13 @@
 .bubble th{white-space:nowrap;font-weight:600;background:color-mix(in srgb,var(--line) 45%,transparent)}
 .bubble td:first-child{min-width:120px}
 .bubble td code{white-space:nowrap}
+/* Header on phones: notifications, archive and call stay; the other buttons move to the ⋮ menu. They stay in the
+   layout with no width, so the history menu still anchors next to ⋮. */
+.header-actions .in-more{display:contents}
+.header-more{display:none!important;position:relative}
+.header-menu small{margin-left:auto;color:var(--subtle);font-size:12px}
+.header-menu small.menu-on{color:var(--green)}
+@media(max-width:767px){
+ .header-actions .in-more{display:inline-flex;width:0;overflow:hidden;visibility:hidden}
+ .header-more{display:inline-flex!important}
+}

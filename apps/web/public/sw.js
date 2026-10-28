@@ -1,11 +1,16 @@
-const CACHE='cell-shell-v6';
+const CACHE='cell-shell-v7';
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/icon.svg','/icon-192.png','/icon-512.png','/icon-maskable-512.png','/apple-touch-icon.png','/badge-96.png'])));});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 // Never cache API responses, chats, tokens, or attachments.
 self.addEventListener('fetch',e=>{if(e.request.mode==='navigate')e.respondWith(fetch(e.request).catch(()=>new Response('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Cell offline</title><style>body{background:#101111;color:#eee;font-family:system-ui,-apple-system,sans-serif;margin:0;padding:48px 24px;display:flex;flex-direction:column;align-items:flex-start}h1{font-size:24px;font-weight:600;margin:16px 0 8px}p{font-size:15px;color:#9da39d;line-height:1.5;margin:0 0 24px;max-width:380px}button{background:#e5e5dc;color:#121713;border:0;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer}button:active{opacity:.85}</style></head><body><img src="/icon-192.png" width="56" height="56" style="border-radius:12px" alt="Cell"/><h1>Cell est&aacute; offline</h1><p>Conecte-se &agrave; sua rede e verifique se o servidor est&aacute; ligado.</p><button onclick="location.reload()">Tentar novamente</button></body></html>',{headers:{'Content-Type':'text/html; charset=utf-8'}})));});
 // Web Push: show the agent's message; tapping it focuses an open Cell window on that conversation or opens a new one.
 self.addEventListener('push',e=>{let d={};try{d=e.data?e.data.json():{};}catch{d={title:'Cell',body:e.data?e.data.text():''};}
- e.waitUntil(self.registration.showNotification(d.title||'Cell',{body:d.body||'',tag:d.tag||'cell',renotify:true,icon:'/icon-192.png',badge:'/badge-96.png',actions:Array.isArray(d.actions)?d.actions.slice(0,2):[],requireInteraction:!!d.quick,data:{url:d.url||'/',quick:d.quick||null}}));});
+ e.waitUntil(onScreen(d.url).then(seen=>seen?undefined:self.registration.showNotification(d.title||'Cell',{body:d.body||'',tag:d.tag||'cell',renotify:true,icon:'/icon-192.png',badge:'/badge-96.png',actions:Array.isArray(d.actions)?d.actions.slice(0,2):[],requireInteraction:!!d.quick,data:{url:d.url||'/',quick:d.quick||null}})));});
+// Each open window tells which agent's chat it shows; a push about that agent is skipped while that window is on screen.
+const views=new Map();
+self.addEventListener('message',e=>{if(e.data&&e.data.type==='cell-view'&&e.source)views.set(e.source.id,e.data.agent||'');});
+async function onScreen(url){let agent='';try{agent=new URL(url||'/',self.location.origin).searchParams.get('agent')||'';}catch{}if(!agent)return false;
+ const list=await self.clients.matchAll({type:'window'});return list.some(w=>w.visibilityState==='visible'&&views.get(w.id)===agent);}
 // Approve/Deny buttons: answer right away with the notification's one-time token, then confirm in a new notification.
 async function quickDecision(n,action){const q=n.data.quick[action],ok=action==='approve';
  try{const r=await fetch(q.url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision:q.decision,token:q.token}),credentials:'omit'});

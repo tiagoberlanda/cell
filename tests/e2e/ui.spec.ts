@@ -5,6 +5,8 @@ const tablet = (page: Page) => { const w = page.viewportSize()?.width || 0; retu
 // The session comes from global-setup (storageState); login itself is covered there.
 async function open(page: Page) { await page.goto('/'); await expect(page.locator('.chat-header')).toBeVisible(); }
 async function openAgents(page: Page) { if (mobile(page)) { await page.getByLabel('Abrir agentes').click(); await expect(page.locator('.sidebar.open')).toBeVisible(); } }
+// Phones keep only notifications, archive and call in the header; the other buttons open from the ⋮ menu.
+async function headerAction(page: Page, label: string, item: string) { if (mobile(page)) { await page.locator('.header-more').click(); await page.getByRole('menuitem', { name: item }).click(); } else await page.getByLabel(label).click(); }
 async function noHorizontalScroll(page: Page) { expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1); }
 
 test.beforeEach(async ({ page }) => { await open(page); });
@@ -74,7 +76,7 @@ test('logo do topo leva ao agente principal sem recarregar a página', async ({ 
 });
 
 test('central de atividade: filtros, detalhes, árvore e aprovação', async ({ page }) => {
-  await page.getByLabel('Central de atividade').click();
+  await headerAction(page, 'Central de atividade', 'Central de atividade');
   const dialog = page.getByRole('dialog', { name: 'Central de atividade' });
   await expect(dialog.locator('.activity-item')).toHaveCount(5);
   await expect(dialog.locator('.summary-chip.waiting_approval strong')).toHaveText('1');
@@ -104,7 +106,7 @@ test('documentos usados e editor de memória', async ({ page }) => {
   await page.locator('.agent-row', { hasText: 'Coordenador' }).click();
   await page.getByText(/Documentos usados \(2\)/).click();
   await expect(page.locator('.docs-used')).toContainText('omitido');
-  await page.getByLabel('Detalhes do agente').click();
+  await headerAction(page, 'Detalhes do agente', 'Detalhes do agente');
   await page.getByRole('button', { name: /Ver e editar memória/ }).click();
   const dialog = page.getByRole('dialog', { name: /Memória de Coordenador/ });
   await dialog.locator('textarea').fill('Prefere tabelas.');
@@ -178,6 +180,9 @@ test('sino de notificações abre a aprovação pendente', async ({ page }) => {
   await page.screenshot({ path: `test-results/sino-${page.viewportSize()!.width}.png` });
   await item.click();
   await expect(page.locator('.agent-title')).toContainText('Redator');
+  // The pending approval is the last thing in the chat and the notification lands on it.
+  await expect(page.locator('.approval-card').last()).toBeInViewport();
+  expect(await page.locator('.message-list > *').evaluateAll(els => els.filter(e => e.getBoundingClientRect().height > 0).at(-1)?.className)).toContain('approval-card');
   await expect(page).toHaveTitle(/^\(\d+\) Cell/);
 });
 
@@ -198,6 +203,9 @@ test('sino de notificações fica visível na lista de agentes no celular', asyn
   // Abrir o aviso leva à conversa do agente e fecha a gaveta.
   await item.click();
   await expect(page.locator('.agent-title')).toContainText('Redator');
+  // The pending approval is the last thing in the chat and the notification lands on it.
+  await expect(page.locator('.approval-card').last()).toBeInViewport();
+  expect(await page.locator('.message-list > *').evaluateAll(els => els.filter(e => e.getBoundingClientRect().height > 0).at(-1)?.className)).toContain('approval-card');
   await expect(page.locator('.sidebar.open')).toHaveCount(0);
 });
 
@@ -211,7 +219,7 @@ test('notificações por agente e convite para ativar no aparelho', async ({ pag
   await expect(page.locator('.push-offer')).toHaveCount(0);
   await openAgents(page);
   await page.locator('.agent-row', { hasText: 'Revisor' }).click();
-  await page.getByLabel('Detalhes do agente').click();
+  await headerAction(page, 'Detalhes do agente', 'Detalhes do agente');
   await page.getByRole('button', { name: 'Notificações ativadas', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Notificações desativadas', exact: true })).toBeVisible();
   await page.getByLabel('Fechar detalhes').click();
@@ -219,7 +227,7 @@ test('notificações por agente e convite para ativar no aparelho', async ({ pag
   // The collapsed tablet sidebar shows only avatars, so the muted icon next to the name is checked where names are visible.
   if (!tablet(page)) await expect(page.locator('.agent-row', { hasText: 'Revisor' }).locator('.muted-bell')).toBeVisible();
   await page.locator('.agent-row', { hasText: 'Revisor' }).click();
-  await page.getByLabel('Detalhes do agente').click();
+  await headerAction(page, 'Detalhes do agente', 'Detalhes do agente');
   await page.getByRole('button', { name: 'Notificações desativadas', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Notificações ativadas', exact: true })).toBeVisible();
 });
@@ -273,7 +281,7 @@ test('voz: gravar, mensagens de áudio e resposta falada', async ({ page }) => {
 test('agente: opção de responder com áudio e logotipos dos aplicativos', async ({ page }) => {
   await openAgents(page);
   await page.locator('.agent-row', { hasText: 'Revisor' }).click();
-  await page.getByLabel('Detalhes do agente').click();
+  await headerAction(page, 'Detalhes do agente', 'Detalhes do agente');
   await page.getByRole('button', { name: 'Editar agente' }).click();
   // Independent of the starting value: flip it, check it was saved, then restore it.
   const box = page.getByLabel(/Responder com áudio quando eu enviar áudio/);
@@ -299,7 +307,7 @@ test('rotinas: ativar e desativar no interruptor e excluir', async ({ page }) =>
   const name = 'Relatório ' + page.viewportSize()!.width;
   await openAgents(page);
   await page.locator('.agent-row', { hasText: 'Pesquisador' }).click();
-  await page.getByLabel('Detalhes do agente').click();
+  await headerAction(page, 'Detalhes do agente', 'Detalhes do agente');
   await page.locator('.details-panel').getByRole('button', { name: 'Rotinas' }).click();
   const card = page.locator('.routine-card', { hasText: name });
   const toggle = card.getByRole('switch');
@@ -405,7 +413,7 @@ test('voz do agente: modelo e voz por agente', async ({ page }) => {
   await page.route('**/api/models/audio', route => route.fulfill({ json: { stt: [], tts: [{ id: 'openrouter/openai/gpt-4o-mini-tts', name: 'gpt-4o-mini-tts' }, { id: 'nvidia/fastpitch', name: 'fastpitch' }] } }));
   await openAgents(page);
   await page.locator('.agent-row', { hasText: 'Pesquisador' }).click();
-  await page.getByLabel('Detalhes do agente').click();
+  await headerAction(page, 'Detalhes do agente', 'Detalhes do agente');
   await page.getByRole('button', { name: 'Editar agente' }).click();
   const model = page.getByLabel('Voz deste agente'), voice = page.getByLabel('Voz', { exact: true });
   // Widths share the database: start from the workspace default whatever an earlier run left.
@@ -516,7 +524,7 @@ test('computadores: indicador verde ou cinza e lista de instâncias', async ({ p
   let online = true;
   const now = new Date().toISOString();
   await page.route('**/api/computers', route => route.fulfill({ json: { enabled: true, hostInstalled: true, computers: [
-    { key: 'este-pc', id: 'local', name: 'Este computador', kind: 'local', shell: 'powershell', online, lastSeen: now, ...(online ? { info: { computer: 'WINDOWS11', user: 'User', os: 'Windows 11 Pro', uptimeHours: 5.2, memory: { totalGb: 32, freeGb: 9.5 }, cpus: 28 } } : { error: 'Este computador não respondeu.' }) },
+    { key: 'este-pc', id: 'local', name: 'Computador conectado', kind: 'local', shell: 'powershell', online, lastSeen: now, ...(online ? { info: { computer: 'WINDOWS11', user: 'User', os: 'Windows 11 Pro', uptimeHours: 5.2, memory: { totalGb: 32, freeGb: 9.5 }, cpus: 28 } } : { error: 'Computador conectado não respondeu.' }) },
     { key: 'servidor-linux', id: '00000000-0000-0000-0000-0000000000aa', name: 'Servidor Linux', kind: 'ssh', shell: 'bash', host: '192.168.0.50', port: 22, username: 'cell', online: false, error: 'SSH: connect ECONNREFUSED', lastSeen: now, info: null }
   ] } }));
   await page.reload(); await expect(page.locator('.chat-header')).toBeVisible();
@@ -524,7 +532,7 @@ test('computadores: indicador verde ou cinza e lista de instâncias', async ({ p
   await expect(indicator).toHaveClass(/online/);
   await expect(indicator).toHaveAttribute('aria-label', 'Computadores: 1 de 2 conectado');
   await noHorizontalScroll(page);
-  await indicator.click();
+  if (mobile(page)) await headerAction(page, '', 'Computadores'); else await indicator.click();
   const dialog = page.getByRole('dialog', { name: 'Computadores' });
   const cards = dialog.locator('.computer-card');
   await expect(cards).toHaveCount(2);
@@ -554,9 +562,9 @@ test('desfazer alteração e tarefas em segundo plano com saída ao vivo', async
     return route.fulfill({ response: res, json: body });
   });
   await page.route('**/api/file-ops/*/undo', route => { undone = true; return route.fulfill({ json: { ok: true } }); });
-  await page.route('**/api/computer-jobs', route => route.fulfill({ json: [{ id: 'j1', computer_name: 'Este computador', agent_name: 'Revisor', command: 'Compress-Archive K:\Fotos', reason: 'Compactar fotos', status: cancelled ? 'cancelled' : 'running', output: 'progresso 1\nprogresso 2', started_at: new Date().toISOString() }] }));
+  await page.route('**/api/computer-jobs', route => route.fulfill({ json: [{ id: 'j1', computer_name: 'Computador conectado', agent_name: 'Revisor', command: 'Compress-Archive K:\Fotos', reason: 'Compactar fotos', status: cancelled ? 'cancelled' : 'running', output: 'progresso 1\nprogresso 2', started_at: new Date().toISOString() }] }));
   await page.route('**/api/computer-jobs/j1/cancel', route => { cancelled = true; return route.fulfill({ json: { ok: true } }); });
-  await page.route('**/api/computers', route => route.fulfill({ json: { enabled: true, hostInstalled: true, computers: [{ key: 'este-pc', id: 'local', name: 'Este computador', kind: 'local', shell: 'powershell', online: true, info: { computer: 'PC', user: 'U', os: 'Windows', uptimeHours: 1, memory: { totalGb: 8, freeGb: 4 }, cpus: 4 } }] } }));
+  await page.route('**/api/computers', route => route.fulfill({ json: { enabled: true, hostInstalled: true, computers: [{ key: 'este-pc', id: 'local', name: 'Computador conectado', kind: 'local', shell: 'powershell', online: true, info: { computer: 'PC', user: 'U', os: 'Windows', uptimeHours: 1, memory: { totalGb: 8, freeGb: 4 }, cpus: 4 } }] } }));
   await openAgents(page);
   await page.locator('.agent-row', { hasText: 'Revisor' }).click();
   const card = page.locator('details.activity-card', { has: page.locator('.tool-item', { hasText: 'Mover no computador' }) });
@@ -564,7 +572,7 @@ test('desfazer alteração e tarefas em segundo plano com saída ao vivo', async
   await card.getByRole('button', { name: 'Desfazer' }).click();
   await page.getByRole('button', { name: 'Desfazer', exact: true }).last().click();
   await expect(card.locator('.tool-status.undone')).toHaveText('Desfeito');
-  await page.locator('.pc-indicator').click();
+  if (mobile(page)) await headerAction(page, '', 'Computadores'); else await page.locator('.pc-indicator').click();
   const job = page.locator('.job-card');
   await expect(job).toContainText('Compactar fotos');
   await expect(job.locator('.job-output')).toContainText('progresso 2');
@@ -578,14 +586,14 @@ test('desfazer alteração e tarefas em segundo plano com saída ao vivo', async
 test('alertas, ligar à distância, receitas e prévia da edição na aprovação', async ({ page }) => {
   let woke = false;
   await page.route('**/api/computers', route => route.fulfill({ json: { enabled: true, hostInstalled: true,
-    alerts: [{ id: 'a1', computer_key: 'este-pc', computer_name: 'Este computador', kind: 'disk:K:', detail: 'K: com 95% usado (5 GB livres de 100 GB)', since: new Date().toISOString() }],
+    alerts: [{ id: 'a1', computer_key: 'este-pc', computer_name: 'Computador conectado', kind: 'disk:K:', detail: 'K: com 95% usado (5 GB livres de 100 GB)', since: new Date().toISOString() }],
     computers: [
-      { key: 'este-pc', id: 'local', name: 'Este computador', kind: 'local', shell: 'powershell', online: true, info: { computer: 'PC', user: 'U', os: 'Windows', uptimeHours: 1, memory: { totalGb: 8, freeGb: 4 }, cpus: 4, cpuPct: 12, disks: [{ drive: 'C:', totalGb: 100, freeGb: 60 }, { drive: 'K:', totalGb: 100, freeGb: 5 }] } },
+      { key: 'este-pc', id: 'local', name: 'Computador conectado', kind: 'local', shell: 'powershell', online: true, info: { computer: 'PC', user: 'U', os: 'Windows', uptimeHours: 1, memory: { totalGb: 8, freeGb: 4 }, cpus: 4, cpuPct: 12, disks: [{ drive: 'C:', totalGb: 100, freeGb: 60 }, { drive: 'K:', totalGb: 100, freeGb: 5 }] } },
       { key: 'servidor', id: '00000000-0000-0000-0000-0000000000bb', name: 'Servidor', kind: 'ssh', shell: 'bash', host: '192.168.0.50', port: 22, username: 'cell', online: false, error: 'SSH: connect ETIMEDOUT', mac: 'AA:BB:CC:DD:EE:01', lastSeen: null }
     ] } }));
   await page.route('**/api/computers/*/wake', route => { woke = true; return route.fulfill({ json: { sent: true, via: 'Cell Host' } }); });
   await page.route('**/api/recipes', route => route.fulfill({ json: [{ id: 'r1', name: 'Espaço em disco', computer_key: 'este-pc', command: 'Get-PSDrive', trusted: true, background: false }] }));
-  await page.route('**/api/recipes/r1/run', route => route.fulfill({ json: { recipe: 'Espaço em disco', computer: 'Este computador', ok: true, exitCode: 0, stdout: 'C: 380 GB livres' } }));
+  await page.route('**/api/recipes/r1/run', route => route.fulfill({ json: { recipe: 'Espaço em disco', computer: 'Computador conectado', ok: true, exitCode: 0, stdout: 'C: 380 GB livres' } }));
   await page.route('**/api/computer-jobs', route => route.fulfill({ json: [] }));
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.continue();
@@ -600,9 +608,9 @@ test('alertas, ligar à distância, receitas e prévia da edição na aprovaçã
   await expect(card.locator('.diff-preview .del')).toHaveText('− porta=80\n');
   await expect(card.locator('.diff-preview .add')).toHaveText('+ porta=8080\n');
   await expect(page.locator('.pc-indicator')).toHaveClass(/alert/);
-  await page.locator('.pc-indicator').click();
+  if (mobile(page)) await headerAction(page, '', 'Computadores'); else await page.locator('.pc-indicator').click();
   const dialog = page.getByRole('dialog', { name: 'Computadores' });
-  await expect(dialog.locator('.alert-card')).toContainText('Disco quase cheio em Este computador');
+  await expect(dialog.locator('.alert-card')).toContainText('Disco quase cheio em Computador conectado');
   await expect(dialog.locator('.computer-card').first()).toContainText('Discos usados: C: 40% · K: 95%');
   await dialog.locator('.computer-card', { hasText: 'Servidor' }).getByRole('button', { name: 'Ligar' }).click();
   await expect.poll(() => woke).toBe(true);
@@ -682,11 +690,44 @@ test('tabela na mensagem: sem quebrar palavras no meio e rolagem lateral no celu
   const t = page.locator('.bubble table').last();
   await expect(t).toBeVisible();
   // Headers stay on one line and no word is split across lines.
-  const lines = await t.evaluate(el => [...el.querySelectorAll('th')].map(th => Math.round(th.getBoundingClientRect().height / parseFloat(getComputedStyle(th).lineHeight))));
-  expect(Math.max(...lines)).toBeLessThanOrEqual(2);
+  const lines = await t.evaluate(el => [...el.querySelectorAll('th')].map(th => { const r = document.createRange(); r.selectNodeContents(th); return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size; }));
+  expect(Math.max(...lines)).toBe(1);
   const broken = await t.evaluate(el => [...el.querySelectorAll('th,td')].some(c => { const r = document.createRange(); r.selectNodeContents(c); const rects = [...r.getClientRects()]; const words = (c.textContent || '').trim().split(/\s+/); return rects.length > words.length; }));
   expect(broken).toBe(false);
   await t.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `test-results/tabela-${page.viewportSize()!.width}.png` });
+  await noHorizontalScroll(page);
+});
+
+test('texto entre ferramentas fica na conversa e toda ferramenta fica em "Ferramentas utilizadas"', async ({ page }) => {
+  await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch(); const body = await res.json();
+    const at = (s: number) => new Date(Date.now() - 60000 + s * 1000).toISOString();
+    const call = (id: string, run: string, s: number) => ({ id, call_id: id, run_id: run, tool: 'web_search', args: { query: id }, status: 'done', result: '{}', created_at: at(s) });
+    body.runs = [...body.runs, { id: 'run-x', state: 'cancelled', created_at: at(0), steps: 1 }, { id: 'run-a', state: 'completed', created_at: at(2), steps: 2, output: 'Pronto.' }];
+    body.calls = [...body.calls, call('orfa', 'run-x', 1), call('c1', 'run-a', 3), call('c2', 'run-a', 5)];
+    body.messages = [...body.messages,
+      { id: 'mid', role: 'assistant', run_id: 'run-a', content: 'Vou pesquisar primeiro.', created_at: at(3), attachments: [], files: [] },
+      { id: 'fim', role: 'assistant', run_id: 'run-a', content: 'Pronto.', created_at: at(6), attachments: [], files: [] }];
+    return route.fulfill({ response: res, json: body });
+  });
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  await expect(page.getByText('Vou pesquisar primeiro.')).toBeVisible();
+  await expect(page.getByText('Atividade adicional de ferramentas')).toHaveCount(0);
+  await noHorizontalScroll(page);
+});
+
+test('cabeçalho no celular: notificações, arquivar e chamada à vista, o resto no menu ⋮', async ({ page }) => {
+  test.skip(!mobile(page), 'só no celular');
+  const visible = await page.locator('.chat-header .header-actions .icon-btn').evaluateAll(els => els.filter(e => e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden').map(e => e.getAttribute('aria-label')));
+  expect(visible).toEqual(expect.arrayContaining(['Arquivar conversa', 'Mais opções']));
+  expect(visible.some(l => /^Notificações/.test(l || ''))).toBe(true);
+  expect(visible.some(l => /Histórico|Central de atividade|Detalhes|Computadores/.test(l || ''))).toBe(false);
+  await page.locator('.header-more').click();
+  await page.getByRole('menuitem', { name: 'Histórico de conversas' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Nova conversa' })).toBeVisible();
+  await page.screenshot({ path: `test-results/cabecalho-${page.viewportSize()!.width}.png` });
   await noHorizontalScroll(page);
 });

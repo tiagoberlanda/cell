@@ -177,7 +177,7 @@ export async function buildApp(){
  app.post('/api/computers/test',{config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async req=>{const x=sshInput.parse(req.body);const r=await sshStatus({host:x.host,port:x.port,username:x.username,password:x.password,privateKey:x.privateKey,passphrase:x.passphrase,fingerprint:x.fingerprint},x.shell);return {fingerprint:r.fingerprint,info:r.info};});
  app.post('/api/computers',async req=>{const x=sshInput.parse(req.body);if(!x.fingerprint)throw new Error('Teste a conexão e confirme a impressão digital antes de salvar.');
   const r=await sshStatus({host:x.host,port:x.port,username:x.username,password:x.password,privateKey:x.privateKey,passphrase:x.passphrase,fingerprint:x.fingerprint},x.shell);
-  if(await one('SELECT 1 FROM computers WHERE lower(name)=lower($1)',[x.name])||x.name.toLowerCase()==='este computador')throw new Error('Já existe um computador com esse nome.');
+  if(await one('SELECT 1 FROM computers WHERE lower(name)=lower($1)',[x.name])||['este computador','computador conectado'].includes(x.name.toLowerCase()))throw new Error('Já existe um computador com esse nome.');
   const row=await one('INSERT INTO computers(name,host,port,username,auth,shell,fingerprint,info,last_seen) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING id,name',[x.name,x.host,x.port,x.username,sshAuth(x),x.shell,x.fingerprint,JSON.stringify(r.info)]);
   return row;});
  app.delete('/api/computers/:id',async req=>{await query('DELETE FROM computers WHERE id=$1',[id(req)]);return {ok:true};});

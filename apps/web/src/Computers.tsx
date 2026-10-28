@@ -31,7 +31,7 @@ function ComputerCard({c,onRemove,onWake,onMac}:{c:ComputerStatus;onRemove?:()=>
  const i=c.info;
  return <div className={`computer-card ${c.online?'online':'offline'}`}>
   <div className="computer-head"><span className="computer-icon">{c.kind==='local'?<Monitor size={18}/>:<Terminal size={18}/>}<i aria-hidden="true"/></span>
-   <div className="computer-title"><strong>{c.name}</strong><small>{kindLabel(c)}{c.host?` · ${c.username}@${c.host}${c.port&&c.port!==22?':'+c.port:''}`:''}</small></div>
+   <div className="computer-title"><strong>{c.kind==='local'&&i?.computer||c.name}</strong><small>{kindLabel(c)}{c.host?` · ${c.username}@${c.host}${c.port&&c.port!==22?':'+c.port:''}`:''}</small></div>
    <span className={`computer-state ${c.online?'on':'off'}`}>{c.online?'Conectado':'Desconectado'}</span>
    {onMac&&<button className="icon-btn" aria-label={`Ligar à distância: ${c.name}`} title="Endereço MAC para ligar à distância" onClick={onMac}><Network size={15}/></button>}
    {onRemove&&<button className="icon-btn" aria-label={`Remover ${c.name}`} onClick={onRemove}><Trash2 size={15}/></button>}</div>
@@ -93,7 +93,7 @@ export function SshComputers({notify,onChanged}:Notice&{onChanged?:()=>void}){
  const editMac=async(c:ComputerStatus)=>{const mac=await promptDialog(`Ligar ${c.name} à distância`,{value:c.mac||'',placeholder:'Endereço MAC, ex.: AA:BB:CC:DD:EE:FF (vazio desativa)',confirm:'Salvar',required:''});if(mac===null)return;
   try{await api('/computers/'+c.id,'PATCH',{mac:mac.trim()});notify(mac.trim()?`${c.name} pode ser ligado à distância. Ative o Wake-on-LAN na BIOS e na placa de rede dele.`:'Ligar à distância desativado.');await load();}catch(e:any){notify(e.message);}};
  return <div className="stack ssh-computers"><h3>Computadores conectados</h3>
-  <p className="hint">Além deste computador, os agentes podem usar outras máquinas por SSH: Linux (bash) ou Windows com OpenSSH (PowerShell). Cada comando continua pedindo sua aprovação e mostra em qual computador vai rodar.</p>
+  <p className="hint">Além do computador com o Cell Host, os agentes podem usar outras máquinas por SSH: Linux (bash) ou Windows com OpenSSH (PowerShell). Cada comando continua pedindo sua aprovação e mostra em qual computador vai rodar.</p>
   {data?data.computers.map(c=><ComputerCard key={c.key} c={c} onRemove={c.kind==='ssh'?()=>remove(c):undefined} onMac={c.kind==='ssh'?()=>editMac(c):undefined} onWake={()=>wakeComputer(c,notify,load)}/>):<p className="hint">Verificando…</p>}
   {!form?<button className="secondary full" onClick={()=>setForm(empty)}><Plus size={16}/>Adicionar computador por SSH</button>
   :<div className="setting-card ssh-form stack">

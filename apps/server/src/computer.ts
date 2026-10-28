@@ -19,7 +19,7 @@ export async function commandsEnabled(){return await commandsSwitchOn()&&(await 
 export type Computer={key:string;id:string;name:string;kind:'local'|'ssh';shell:'powershell'|'bash';row?:any};
 const slug=(s:string)=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40)||'pc';
 export async function listComputers():Promise<Computer[]>{
- const list:Computer[]=[];if(hostConfigured())list.push({key:'este-pc',id:'local',name:'Este computador',kind:'local',shell:'powershell'});
+ const list:Computer[]=[];if(hostConfigured())list.push({key:'este-pc',id:'local',name:'Computador conectado',kind:'local',shell:'powershell'});
  for(const row of await query('SELECT * FROM computers WHERE enabled ORDER BY created_at')){let key=slug(row.name);while(list.some(c=>c.key===key))key+='-2';list.push({key,id:row.id,name:row.name,kind:'ssh',shell:row.shell,row});}
  return list;
 }
@@ -28,7 +28,7 @@ export async function listComputers():Promise<Computer[]>{
 async function hostCall(path:string,body?:any,timeoutMs=15000){
  const {url,token}=host();let res:Response;
  try{res=await fetch(url+path,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(timeoutMs)});}
- catch{throw new Error('Este computador não respondeu. Confira se ele está ligado, com você logado no Windows, e se o Cell Host está rodando (ícone na bandeja).');}
+ catch{throw new Error('O computador conectado não respondeu. Confira se ele está ligado, com você logado no Windows, e se o Cell Host está rodando (ícone na bandeja).');}
  const data=await res.json().catch(()=>({})) as any;
  if(!res.ok)throw new Error(res.status===401?'O Cell Host recusou o token. Rode scripts/host.ps1 de novo e depois o deploy.':`Cell Host: ${data.error||res.status}`);
  return data;

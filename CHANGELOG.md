@@ -5,6 +5,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- **Respostas no meio do caminho não somem mais:** o que o agente escreve antes de usar uma ferramenta ("Vou pesquisar primeiro…") fica na conversa como mensagem própria, com as ferramentas daquela etapa logo abaixo. Antes, só a resposta final sobrava.
+- Ferramentas de uma execução cancelada não aparecem mais soltas em "Atividade adicional de ferramentas": entram em "Ferramentas utilizadas" da resposta seguinte.
+
+### Alterado
+- Computadores: o computador com o Cell Host aparece com o nome dele (por exemplo `WINDOWS11`) ou como "Computador conectado", em vez de "Este computador", que não fazia sentido no celular ou em outro aparelho.
+- **Cabeçalho no celular:** ficam à vista só as notificações e os botões de arquivar e de chamada. Central de atividade, histórico de conversas, computadores e detalhes do agente vão para o menu ⋮. No computador, nada muda.
+- **Aprovações no fim da conversa:** o cartão de aprovação fica sempre por último, logo acima da caixa de mensagem, abaixo das ferramentas em execução. Tocar numa notificação de aprovação abre a conversa já nele, sem precisar rolar.
+- Pedidos de aprovação do agente cujo chat está aberto não geram mais aviso no app nem notificação no aparelho onde o chat está na tela; o pedido já aparece na conversa. Avisos de outros agentes continuam.
+
 ## [0.28.1] - 2026-10-28
 
 ### Corrigido
