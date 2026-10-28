@@ -11,6 +11,7 @@ import { createRun } from './runtime.js';
 import { nextOccurrence } from './schedule.js';
 import { z } from 'zod';
 import { hash } from './security.js';
+import { readSharedMemory, writeSharedMemory } from './shared-memory.js';
 // app: connected application the tool belongs to; those tools are offered to the model only after use_app opens it.
 export interface Tool {name:string;description:string;parameters:any;write:boolean;target?:string;binding?:string;app?:string;preview?:(args:any,run:any)=>Promise<string>;execute:(args:any,run:any,cfg:any)=>Promise<string>}
 // Function name for an MCP tool. Providers cap names at 64 characters; plain truncation made distinct tools collide
@@ -45,7 +46,11 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
   {name:'delegate',description:'Delega uma tarefa a outro agente e aguarda seu resultado. Inclua apenas o contexto necessário.',parameters:object({agentId:str,task:str},['agentId','task']),write:false,execute:async(a,r,c)=>{const x=z.object({agentId:z.string().uuid(),task:z.string().min(1).max(12000)}).parse(a);const existing=await one('SELECT id FROM runs WHERE source_call_id=$1',[r.callId]);if(existing)return JSON.stringify({childRunId:existing.id});const conversation=await one('INSERT INTO conversations(agent_id,title) VALUES($1,$2) RETURNING id',[x.agentId,'Delegação']);const child=await createRun(x.agentId,conversation.id,x.task,[],r,c,r.callId);return JSON.stringify({childRunId:child.id});}},
   {name:'propose_routine',description:'Cria proposta de rotina desativada para confirmação do usuário. daily=HH:mm, weekly=dia HH:mm, once=ISO, cron=5 campos.',parameters:object({name:str,prompt:str,kind:{type:'string',enum:['once','daily','weekly','cron']},schedule:str},['name','prompt','kind','schedule']),write:false,execute:async(a,r,c)=>{const x=z.object({name:z.string().min(1).max(120),prompt:z.string().min(1).max(10000),kind:z.enum(['once','daily','weekly','cron']),schedule:z.string().max(100)}).parse(a);const next=nextOccurrence(x.kind,x.schedule,c.timezone);const routine=await one('INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,next_at,conversation_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[r.agent_id,x.name,x.prompt,x.kind,x.schedule,c.timezone,next,r.conversation_id||null]);return JSON.stringify({...routine,status:'Proposta salva e desativada. Diga ao usuário que ela só roda depois que ele tocar em "Ativar" no cartão da rotina nesta conversa; a mensagem será enviada nesta mesma conversa.'});}}
  ];
- const result=native.filter(t=>enabled.includes(t.name));
+ native.push({name:'list_skills',description:'Lista todas as habilidades dispon?veis.',parameters:object({},[]),write:false,execute:async()=>JSON.stringify(await query('SELECT id,name,body FROM skills ORDER BY name'))});
+ native.push({name:'read_shared_memory',description:'Lê o arquivo local memory.md compartilhado por todos os agentes.',parameters:object({},[]),write:false,execute:async()=>readSharedMemory()});
+ native.push({name:'write_shared_memory',description:'Substitui o arquivo local memory.md compartilhado por todos os agentes.',parameters:object({content:str},['content']),write:true,target:'Cell — atualizar memory.md',execute:async a=>{const x=z.object({content:z.string().trim().min(1).max(100000)}).parse(a);await writeSharedMemory(x.content);return 'memory.md atualizado com sucesso.'}});
+ native.push({name:'delete_shared_memory',description:'Limpa o arquivo memory.md somente quando o usuário pedir explicitamente.',parameters:object({},[]),write:true,target:'Cell — limpar memory.md',execute:async()=>{await writeSharedMemory('# Memória compartilhada\n');return 'memory.md limpo.'}});
+ const result=native.filter(t=>enabled.includes(t.name)||['list_skills','read_shared_memory','write_shared_memory','delete_shared_memory'].includes(t.name));
  // The master agent always manages the team, regardless of its enabled tool list.
  if((await one('SELECT is_master FROM agents WHERE id=$1',[run.agent_id]))?.is_master)result.push(...masterTools);
  const connections=await query('SELECT * FROM connections WHERE status=\'connected\'');
