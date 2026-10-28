@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.1] - 2026-10-28
+
 ### Adicionado
 - Memória compartilhada local em `memory.md`, acessível por todos os agentes.
 - Exclusão protegida de conversas e pesquisa em conversas ativas, arquivadas e títulos.
