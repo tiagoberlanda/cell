@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.30.7
+- **Layouto das mensagens:** anexos de áudio e imagem agora quebram corretamente em telas estreitas, tabelas continuam rolando dentro do balão e nomes longos não estouram o cartão.
+
 ## 0.30.6
 - **Histórico de aprovações:** cada chamada de ferramenta agora mantém o estado da permissão visível no histórico da conversa, incluindo aprovado, negado, cancelado ou pendente.
 
