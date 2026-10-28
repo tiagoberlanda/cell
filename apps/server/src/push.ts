@@ -2,6 +2,7 @@ import webpush from 'web-push';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { one,query } from './db.js';
+import { createHmac } from 'node:crypto';
 import { encrypt,decrypt,appOrigins,safeError } from './security.js';
 import { stripThinking } from '../../../packages/shared/src/index.js';
 
@@ -14,7 +15,9 @@ export async function vapidKeys(){
  return keys={publicKey:row.public_key,privateKey:decrypt<string>(row.private_key)};
 }
 const subject=()=>{const o=appOrigins()[0]||'';return o.startsWith('https://')?o:'mailto:cell@localhost';};
-export type PushPayload={title:string;body:string;url:string;tag:string};
+export type PushPayload={title:string;body:string;url:string;tag:string;actions?:{action:string;title:string}[];quick?:Record<string,{url:string;decision:string;token:string}>};
+// Token for the Approve/Deny buttons of a notification: valid for one approval and one decision, while it is pending.
+export const approvalToken=(approvalId:string,decision:string)=>createHmac('sha256',String(process.env.SECRET_KEY||'')).update(`approval:${approvalId}:${decision}`).digest('hex');
 // Sends to every subscribed device. Gone subscriptions (404/410) are removed; repeated failures too.
 export async function sendPush(payload:PushPayload){
  const subs=await query('SELECT * FROM push_subscriptions');if(!subs.length)return {sent:0,failed:0};
@@ -34,6 +37,18 @@ export async function sendPush(payload:PushPayload){
 }
 const plain=(text:string)=>stripThinking(text).replace(/```[\s\S]*?```/g,' ').replace(/[*_#>`|~]+/g,'').replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').replace(/\s+/g,' ').trim();
 const clip=(s:string,n:number)=>s.length>n?s.slice(0,n-1)+'…':s;
+// What the approval is about, readable on a lock screen: the command and computer, the files, the folder.
+function approvalSummary(tool:string,args:any,target:string|null){
+ const a=args||{};
+ if(tool==='pc_run')return `${a.background?'Tarefa em segundo plano':'Comando'}${a.computer?` em ${a.computer}`:''}: ${String(a.command||'').replace(/\s+/g,' ')}`;
+ if(tool==='pc_delete')return `Excluir (vai para a Lixeira): ${(a.paths||[]).join(', ')}`;
+ if(tool==='pc_move')return `Mover ${(a.moves||[]).length} item(ns): ${(a.moves||[]).slice(0,3).map((m:any)=>`${m.from} → ${m.to}`).join('; ')}`;
+ if(tool==='pc_request_access')return `Acesso à pasta ${a.path}`;
+ if(tool==='pc_rename')return `Renomear ${a.path} → ${a.newName}`;
+ if(tool==='pc_write'||tool==='pc_save_file')return `${a.overwrite?'Substituir':'Criar'} ${a.path}`;
+ if(tool==='pc_mkdir')return `Criar pasta ${a.path}`;
+ return target||tool;
+}
 // Delay before notifying: if the conversation is opened on any device in the meantime (seen_at moves forward), no push is sent.
 const delay=()=>Number(process.env.PUSH_DELAY_MS||10000);
 export function notifyAnswer(runId:string){setTimeout(()=>{answerPush(runId).catch(e=>console.error('Falha na notificação:',safeError(e)));},delay());}
@@ -46,10 +61,12 @@ async function answerPush(runId:string){
 }
 export function notifyApproval(runId:string){setTimeout(()=>{approvalPush(runId).catch(e=>console.error('Falha na notificação:',safeError(e)));},delay());}
 async function approvalPush(runId:string){
- const a=await one(`SELECT t.tool,t.target,r.conversation_id,r.agent_id,ag.name AS agent_name FROM approvals ap JOIN tool_calls t ON t.id=ap.call_id JOIN runs r ON r.id=t.run_id JOIN agents ag ON ag.id=r.agent_id
+ const a=await one(`SELECT ap.id AS approval_id,t.tool,t.target,t.args,r.conversation_id,r.agent_id,ag.name AS agent_name FROM approvals ap JOIN tool_calls t ON t.id=ap.call_id JOIN runs r ON r.id=t.run_id JOIN agents ag ON ag.id=r.agent_id
   WHERE t.run_id=$1 AND ap.status='pending' AND r.state='waiting_approval' AND ag.notify ORDER BY ap.created_at LIMIT 1`,[runId]);
  if(!a)return;
- await sendPush({title:`${a.agent_name} precisa da sua aprovação`,body:clip(a.target||a.tool,180),url:`/?agent=${a.agent_id}&conversation=${a.conversation_id}`,tag:`approval-${runId}`});
+ const quick=Object.fromEntries((['approved','denied'] as const).map(d=>[d==='approved'?'approve':'deny',{url:`/api/approvals/${a.approval_id}/quick`,decision:d,token:approvalToken(a.approval_id,d)}]));
+ await sendPush({title:`${a.agent_name} precisa da sua aprovação`,body:clip(approvalSummary(a.tool,a.args,a.target),240),url:`/?agent=${a.agent_id}&conversation=${a.conversation_id}`,tag:`approval-${runId}`,
+  actions:[{action:'approve',title:'Aprovar'},{action:'deny',title:'Negar'}],quick});
 }
 
 export function registerPush(app:FastifyInstance){

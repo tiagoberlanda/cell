@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { createHash } from 'node:crypto';
+import crypto,{ createHash } from 'node:crypto';
 import { Client } from 'ssh2';
-import { one,query } from './db.js';
+import { one,query,event } from './db.js';
+import { sendPush } from './push.js';
 import { encrypt,decrypt } from './security.js';
 import type { Tool } from './tools.js';
 
@@ -33,6 +34,8 @@ async function hostCall(path:string,body?:any,timeoutMs=15000){
  return data;
 }
 export const hostStatus=()=>hostCall('/status',undefined,5000);
+// Internal PowerShell on this computer (Recycle Bin for approved deletions); not a tool, so no separate approval.
+export const hostRun=(command:string,timeoutSeconds=60)=>hostCall('/run',{command,timeoutSeconds},(timeoutSeconds+15)*1000);
 
 // --- SSH
 export type SshTarget={host:string;port:number;username:string;password?:string;privateKey?:string;passphrase?:string;fingerprint?:string};
@@ -97,14 +100,78 @@ export async function computerTools():Promise<Tool[]>{
  return [
   {name:'pc_status',app:'computador',write:false,description:'Mostra o estado dos computadores conectados (ligado ou não, nome, usuário, sistema, tempo ligado, memória). Sem computer, mostra todos.',parameters:object({computer:which},[]),
    execute:async(a)=>{const x=z.object({computer:z.string().optional()}).parse(a);const all=await computersStatus();return JSON.stringify(x.computer?all.filter(c=>c.key===x.computer):all);}},
+  {name:'pc_job',app:'computador',write:false,description:'Mostra as tarefas em segundo plano (as mais recentes ou uma pelo jobId), com o estado e o fim da saída.',parameters:object({jobId:{type:'string'}},[]),
+   execute:async(a)=>{const x=z.object({jobId:z.string().uuid().optional()}).parse(a);
+    const rows=x.jobId?await query('SELECT * FROM computer_jobs WHERE id=$1',[x.jobId]):await query('SELECT * FROM computer_jobs ORDER BY started_at DESC LIMIT 10');
+    return JSON.stringify(await Promise.all(rows.map(async j=>{let live:any=null;if(j.status==='running'){try{live=await jobState(j);}catch{}}
+     return {jobId:j.id,computer:j.computer_name,command:j.command.slice(0,300),status:j.status==='running'&&live&&!live.running?'finishing':j.status,exitCode:j.exit_code,startedAt:j.started_at,finishedAt:j.finished_at,output:(live?.output??j.output).slice(-4000)};})));}},
   {name:'pc_run',app:'computador',write:true,target:'Comando no computador',
    description:'Roda um comando num computador conectado, com o usuário configurado e sem administrador: PowerShell nos computadores Windows, bash nos Linux. Sempre pede aprovação, mostrando o computador e o comando. Prefira comandos curtos e explique o que fazem em reason. A saída volta limitada a 20 mil caracteres.',
-   parameters:object({...(many?{computer:which}:{}),command:{type:'string',description:'Script (PowerShell ou bash, conforme o computador)'},cwd:{type:'string',description:'Pasta onde rodar (opcional)'},timeoutSeconds:{type:'number',description:'Limite em segundos (padrão 60, máximo 600)'},reason:{type:'string',description:'O que o comando faz, em uma frase'}},[...(many?['computer']:[]),'command','reason']),
-   execute:async(a)=>{const x=z.object({computer:z.string().optional(),command:z.string().trim().min(1).max(20000),cwd:z.string().max(500).optional(),timeoutSeconds:z.number().min(1).max(600).optional(),reason:z.string().max(500).optional()}).parse(a);
+   parameters:object({...(many?{computer:which}:{}),command:{type:'string',description:'Script (PowerShell ou bash, conforme o computador)'},cwd:{type:'string',description:'Pasta onde rodar (opcional)'},timeoutSeconds:{type:'number',description:'Limite em segundos (padrão 60, máximo 600)'},background:{type:'boolean',description:'true para tarefas longas (backup, download, compactação): roda em segundo plano, sem limite de tempo; o usuário é avisado quando terminar e você acompanha com pc_job'},reason:{type:'string',description:'O que o comando faz, em uma frase'}},[...(many?['computer']:[]),'command','reason']),
+   execute:async(a,run)=>{const x=z.object({computer:z.string().optional(),command:z.string().trim().min(1).max(20000),cwd:z.string().max(500).optional(),timeoutSeconds:z.number().min(1).max(600).optional(),background:z.boolean().optional(),reason:z.string().max(500).optional()}).parse(a);
     // Current list, not the one from when the tools were built: a computer removed or re-keyed meanwhile must not run.
     const c=await pick(await listComputers(),x.computer),limit=x.timeoutSeconds||60;let r:any;
+    if(x.background){
+     // Idempotent per tool call: a retried step must not start the job twice.
+     const existing=run?.callId?await one('SELECT id FROM computer_jobs WHERE call_id=$1',[run.callId]):null;
+     const jobId=existing?.id||(await one('INSERT INTO computer_jobs(computer_key,computer_name,computer_id,remote_id,call_id,agent_id,conversation_id,command,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[c.key,c.name,c.id,await startJob(c,x.command,x.cwd),run?.callId||null,run?.agent_id||null,run?.conversation_id||null,x.command,x.reason||null])).id;
+     return JSON.stringify({computer:c.name,background:true,jobId,note:'Tarefa iniciada em segundo plano. O usuário será avisado quando terminar; acompanhe com pc_job.'});
+    }
     if(c.kind==='local')r=await hostCall('/run',{command:x.command,cwd:x.cwd,timeoutSeconds:limit},(limit+15)*1000);
     else{const cmd=x.cwd?(c.shell==='bash'?`cd '${x.cwd.replace(/'/g,`'\\''`)}' && ${x.command}`:`Set-Location -LiteralPath '${x.cwd.replace(/'/g,"''")}'; ${x.command}`):x.command;r=await sshExec(sshTarget(c.row),wrap(c.shell,cmd),limit*1000);}
     return JSON.stringify({computer:c.name,exitCode:r.exitCode,ok:r.exitCode===0&&!r.timedOut,...(r.timedOut?{note:'Tempo esgotado: o comando foi encerrado.'}:{}),stdout:r.stdout,...(r.stderr?{stderr:r.stderr}:{}),...(r.truncated?{truncated:true}:{}),seconds:Math.round(r.ms/100)/10});}},
  ];
+}
+
+// --- Background jobs. Started by pc_run with background=true (after approval); the worker follows them (pollJobs) and
+// posts the result in the conversation with a phone notification. Linux runs them detached with setsid/nohup under
+// /tmp/cell-job-<id>.*; this computer runs them in the Cell Host. Windows over SSH has no background mode.
+const sq=(s:string)=>`'${s.replace(/'/g,`'\''`)}'`;
+const jobFile=(id:string)=>`/tmp/cell-job-${id.replace(/[^a-f0-9-]/g,'')}`;
+export async function startJob(c:Computer,command:string,cwd?:string){
+ if(c.kind==='local'){const j=await hostCall('/jobs',{command,cwd},20000);return j.id as string;}
+ if(c.shell!=='bash')throw new Error('Tarefas em segundo plano por SSH só funcionam em computadores Linux. Rode sem background.');
+ const id=crypto.randomUUID(),f=jobFile(id),script=(cwd?`cd ${sq(cwd)} || exit 1\n`:'')+command;
+ const start=`echo ${Buffer.from(script,'utf8').toString('base64')} | base64 -d > ${f}.sh && setsid nohup bash -c 'bash ${f}.sh > ${f}.log 2>&1; echo $? > ${f}.exit' > /dev/null 2>&1 < /dev/null & echo $! > ${f}.pid; echo started`;
+ const r=await sshExec(sshTarget(c.row),start,20000);if(!r.stdout.includes('started'))throw new Error('Não foi possível iniciar a tarefa: '+(r.stderr||r.stdout).slice(0,300));
+ return id;
+}
+export type JobState={running:boolean;exitCode:number|null;cancelled?:boolean;output:string;lost?:boolean};
+export async function jobState(job:any):Promise<JobState>{
+ const c=(await listComputers()).find(x=>x.id===job.computer_id);if(!c)return {running:false,exitCode:null,output:job.output,lost:true};
+ if(c.kind==='local'){
+  try{const j=await hostCall('/jobs/'+job.remote_id,undefined,10000);return {running:j.running,exitCode:j.exitCode,cancelled:j.cancelled,output:j.output};}
+  catch(e:any){if(/não encontrada/.test(String(e?.message)))return {running:false,exitCode:null,output:job.output,lost:true};throw e;}
+ }
+ const f=jobFile(job.remote_id);
+ const r=await sshExec(sshTarget(c.row),`if [ -f ${f}.exit ]; then echo "__EXIT__=$(cat ${f}.exit)"; elif [ -f ${f}.pid ] && kill -0 $(cat ${f}.pid) 2>/dev/null; then echo "__RUNNING__"; else echo "__LOST__"; fi; echo "__OUT__"; tail -c 8000 ${f}.log 2>/dev/null`,15000);
+ const [head,...rest]=r.stdout.split('__OUT__'),output=rest.join('__OUT__').replace(/^\r?\n/,'');
+ const exit=/__EXIT__=(-?\d+)/.exec(head);
+ if(exit)return {running:false,exitCode:Number(exit[1]),output};
+ if(head.includes('__RUNNING__'))return {running:true,exitCode:null,output};
+ return {running:false,exitCode:null,output,lost:true};
+}
+export async function cancelJob(job:any){
+ const c=(await listComputers()).find(x=>x.id===job.computer_id);if(!c)return;
+ if(c.kind==='local'){await hostCall('/jobs/'+job.remote_id+'/cancel',{},10000);return;}
+ const f=jobFile(job.remote_id);await sshExec(sshTarget(c.row),`[ -f ${f}.pid ] && kill -- -$(cat ${f}.pid) 2>/dev/null; kill $(cat ${f}.pid) 2>/dev/null; echo 130 > ${f}.exit`,15000);
+}
+
+// Follows running jobs (worker tick, every 10 s). When one ends, its result goes to the conversation it came from, with a
+// phone notification when the agent's notifications are on.
+export async function pollJobs(){
+ for(const job of await query("SELECT * FROM computer_jobs WHERE status='running' ORDER BY started_at LIMIT 50")){
+  let s:JobState;try{s=await jobState(job);}catch{continue;} // computer off for now: try again next tick
+  if(s.running){if(s.output!==job.output)await query('UPDATE computer_jobs SET output=$2 WHERE id=$1',[job.id,s.output]);continue;}
+  const status=s.lost?'lost':s.cancelled||s.exitCode===130?'cancelled':s.exitCode===0?'done':'failed';
+  const row=await one("UPDATE computer_jobs SET status=$2,exit_code=$3,output=$4,finished_at=now() WHERE id=$1 AND status='running' RETURNING *",[job.id,status,s.exitCode,s.output]);
+  if(!row||!row.conversation_id)continue;
+  const title={done:'Tarefa concluída',failed:'Tarefa terminou com erro',cancelled:'Tarefa cancelada',lost:'Tarefa perdida'}[status];
+  const out=s.output.trim().slice(-3000);
+  const text=`**${title}** em ${row.computer_name}${status==='failed'?` (saída ${s.exitCode})`:''}${row.reason?` · ${row.reason}`:''}\n\n${status==='lost'?'O computador foi reiniciado ou o Cell Host foi reaberto durante a tarefa; não dá para saber se ela terminou.\n\n':''}${out?'```\n'+out.replace(/```/g,'ʼʼʼ')+'\n```':'Sem saída.'}`;
+  await query("INSERT INTO messages(conversation_id,role,content) VALUES($1,'assistant',$2)",[row.conversation_id,text]);
+  await event('message',{conversationId:row.conversation_id});
+  const agent=row.agent_id?await one('SELECT name,notify FROM agents WHERE id=$1',[row.agent_id]):null;
+  if(agent?.notify!==false)await sendPush({title:`${title} · ${row.computer_name}`,body:(row.reason||row.command).slice(0,160),url:`/?agent=${row.agent_id}&conversation=${row.conversation_id}`,tag:`job-${row.id}`}).catch(()=>{});
+ }
 }

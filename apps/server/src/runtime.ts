@@ -4,7 +4,7 @@ import { config,type RouterConfig,type ChatMessage } from './router.js';
 import { encrypt,safeError } from './security.js';
 import { fileData } from './files.js';
 export const boss=new PgBoss({connectionString:process.env.DATABASE_URL!});
-export async function startQueue(){boss.on('error',e=>console.error('Falha na fila; verifique PostgreSQL:',safeError(e)));await boss.start();await boss.createQueue('run',{retryLimit:3,retryDelay:10,retryBackoff:true,expireInSeconds:600,heartbeatSeconds:20});}
+export async function startQueue(){boss.on('error',e=>console.error('Falha na fila; verifique PostgreSQL:',safeError(e)));await boss.start();await boss.createQueue('run',{retryLimit:3,retryDelay:10,retryBackoff:true,expireInSeconds:600,heartbeatSeconds:20});await boss.createQueue('file-undo',{retryLimit:0,expireInSeconds:300});}
 export async function enqueue(id:string){await boss.send('run',{id},{singletonKey:id});}
 export async function setState(id:string,state:string,extra?:string){const row=await one("UPDATE runs SET state=$2,error=$3,updated_at=now(),finished_at=CASE WHEN $2 IN('completed','failed','cancelled') THEN now() ELSE finished_at END WHERE id=$1 AND state NOT IN('cancelled','completed','failed') RETURNING id",[id,state,extra||null]);if(!row)return;
  // A finished run can no longer act on its approvals; leaving them pending would show buttons that fail.

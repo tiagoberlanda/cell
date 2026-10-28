@@ -5,6 +5,21 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- **Aprovar pela notificação:** a notificação de aprovação no celular mostra o que será feito (o comando e o computador, os arquivos ou a pasta) e tem os botões **Aprovar** e **Negar**, que respondem sem abrir o app. Cada botão leva um código de uso único, válido só para aquela aprovação e aquela decisão, enquanto ela estiver pendente; a notificação confirma o resultado.
+- **Lixeira e Desfazer:** exclusões vão para a **Lixeira do Windows** (pelo Cell Host) ou, sem ele, para a lixeira do Cell (`.cell-lixeira` dentro da pasta liberada, invisível para os agentes). Mover, renomear, excluir, criar pasta, gravar e salvar arquivos ficam registrados, e as ferramentas usadas na conversa ganham o botão **Desfazer**: os itens voltam para onde estavam, os excluídos saem da Lixeira e um arquivo substituído volta à versão anterior.
+- **Arquivos entre o Cell e o computador:** `pc_save_file` salva um arquivo da biblioteca (PDF, planilha, imagem que o agente gerou, ou um anexo) numa pasta liberada, com aprovação; `pc_import` traz um arquivo do computador para a conversa, anexado à resposta (qualquer formato, até 25 MB).
+- **Tarefas em segundo plano:** `pc_run` com `background` roda comandos longos (backup, download, compactação) sem limite de tempo, neste PC (Cell Host 1.1.0) e em computadores Linux por SSH. O ícone de computadores do topo lista as tarefas com a **saída ao vivo** e o botão **Cancelar**; ao terminar, o resultado aparece na conversa e o celular recebe um aviso. `pc_job` deixa o agente acompanhar.
+- Migração `0021_file_ops_jobs`.
+
+### Alterado
+- `pc_delete` não exclui mais definitivamente: o item vai para a Lixeira e pode ser restaurado.
+
+### Como foi verificado
+- **Real:** Cell Host 1.1.0 no Windows: tarefa com saída parcial ao vivo, conclusão com código de saída e cancelamento encerrando o processo.
+- **Simulado:** teste de integração: aprovação pela notificação (código errado ou de outra decisão recusado, aprovado uma única vez), mover, substituir e excluir pela Lixeira e desfazer cada um, salvar da biblioteca no PC e trazer do PC (formato livre), tarefa em segundo plano até a mensagem de conclusão, repetição sem iniciar duas vezes, cancelamento, tarefa Linux por SSH. Teste de navegador do Desfazer e das tarefas com saída e cancelamento.
+- **Não verificado:** os botões na notificação de um Android real e a restauração da Lixeira do Windows de verdade (precisam do Cell Host 1.1.0, ver abaixo).
+
 ## [0.24.0] - 2026-10-27
 
 ### Adicionado

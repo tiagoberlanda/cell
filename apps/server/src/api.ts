@@ -10,7 +10,8 @@ import { agentInput,messageInput,settingsInput,skillInput,routineInput } from '.
 import { pool,one,query,event,transaction,ensureSection } from './db.js';
 import { key,hash,safeEqual,encrypt,decrypt,validateEndpoint,safeError } from './security.js';
 import { estimateTokens } from './context.js';
-import { hostConfigured,commandsSwitchOn,hostStatus,computersStatus,sshInput,sshAuth,sshStatus } from './computer.js';
+import { approvalToken } from './push.js';
+import { hostConfigured,commandsSwitchOn,hostStatus,computersStatus,sshInput,sshAuth,sshStatus,jobState,cancelJob } from './computer.js';
 import { publicConfig,saveConfig,models,imageModels,audioModels,transcribe,synthesize,probeModel,config,routerRequest } from './router.js';
 import { migrate } from './migrate.js';
 import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
@@ -39,7 +40,7 @@ export async function buildApp(){
  app.addHook('onRequest',async(req,reply)=>{
   reply.header('X-Content-Type-Options','nosniff').header('Referrer-Policy','same-origin').header('Cache-Control','no-store');
   // OAuth callbacks are protected by their random state; the provider may return to a host where this browser has no session.
-  if(req.url==='/api/health'||req.url==='/api/login'||req.url.startsWith('/api/connections/oauth/callback'))return;
+  if(req.url==='/api/health'||req.url==='/api/login'||req.url.startsWith('/api/connections/oauth/callback')||/^\/api\/approvals\/[0-9a-f-]{36}\/quick$/.test(req.url))return;
   const token=req.cookies[sessionCookie];if(!token)return reply.code(401).send({error:'Faça login.'});
   const session=await one('SELECT s.*,u.username FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND expires_at>now()',[hash(token)]);if(!session)return reply.code(401).send({error:'Sessão expirada.'});(req as any).session=session;
   if(!['GET','HEAD','OPTIONS'].includes(req.method)){
@@ -104,7 +105,7 @@ export async function buildApp(){
  app.post('/api/conversations/:id/restore',async req=>{const cv=await one('UPDATE conversations SET archived_at=NULL WHERE id=$1 RETURNING *',[id(req)]);if(!cv)throw new Error('Conversa não encontrada.');await event('conversation',{agentId:cv.agent_id});return cv;});
  // Context window: estimated size of what the latest execution sent the model (it grows with tool results), against the limit.
  app.get('/api/conversations/:id/context',async req=>{const max=(await config()).contextTokens||16000;const run=await one('SELECT context,updated_at FROM runs WHERE conversation_id=$1 AND context_ready ORDER BY created_at DESC LIMIT 1',[id(req)]);return {max,used:run?estimateTokens(run.context):null,at:run?.updated_at||null};});
- app.get('/api/conversations/:id',async req=>{if((req.query as any).seen!=='0')await query('UPDATE conversations SET seen_at=now() WHERE id=$1',[id(req)]);return {conversation:await one('SELECT * FROM conversations WHERE id=$1',[id(req)]),messages:await query("SELECT m.*,(SELECT COALESCE(json_agg(json_build_object('id',f.id,'name',f.name,'mime',f.mime)),'[]') FROM files f WHERE f.id::text IN(SELECT jsonb_array_elements_text(m.files))) AS attachments FROM messages m WHERE conversation_id=$1 ORDER BY created_at,id",[id(req)]),routines:await query('SELECT id,name,kind,schedule,timezone,enabled,next_at,last_at,created_at FROM routines WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),runs:await query('SELECT id,agent_id,conversation_id,parent_id,state,mode,model,steps,error,output,partial_output,usage,documents,created_at,updated_at FROM runs WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),calls:await query('SELECT t.*,a.id AS approval_id,a.status AS approval_status FROM tool_calls t JOIN runs r ON r.id=t.run_id LEFT JOIN approvals a ON a.call_id=t.id WHERE r.conversation_id=$1 ORDER BY t.created_at',[id(req)])};});
+ app.get('/api/conversations/:id',async req=>{if((req.query as any).seen!=='0')await query('UPDATE conversations SET seen_at=now() WHERE id=$1',[id(req)]);return {conversation:await one('SELECT * FROM conversations WHERE id=$1',[id(req)]),messages:await query("SELECT m.*,(SELECT COALESCE(json_agg(json_build_object('id',f.id,'name',f.name,'mime',f.mime)),'[]') FROM files f WHERE f.id::text IN(SELECT jsonb_array_elements_text(m.files))) AS attachments FROM messages m WHERE conversation_id=$1 ORDER BY created_at,id",[id(req)]),routines:await query('SELECT id,name,kind,schedule,timezone,enabled,next_at,last_at,created_at FROM routines WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),runs:await query('SELECT id,agent_id,conversation_id,parent_id,state,mode,model,steps,error,output,partial_output,usage,documents,created_at,updated_at FROM runs WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),calls:await query('SELECT t.*,a.id AS approval_id,a.status AS approval_status,f.id IS NOT NULL AS undoable,f.undone_at FROM tool_calls t LEFT JOIN file_ops f ON f.call_id=t.id JOIN runs r ON r.id=t.run_id LEFT JOIN approvals a ON a.call_id=t.id WHERE r.conversation_id=$1 ORDER BY t.created_at',[id(req)])};});
  app.post('/api/conversations/:id/messages',async req=>{const input=messageInput.parse(req.body);const cv=await one('SELECT * FROM conversations WHERE id=$1',[id(req)]);if(!cv)throw new Error('Conversa não encontrada.');if(cv.archived_at)throw new Error('Conversa arquivada. Restaure-a para continuar.');const r=await createRun(cv.agent_id,cv.id,input.content,input.files,undefined,undefined,undefined,{mode:input.mode});if(cv.title==='Nova conversa')await query('UPDATE conversations SET title=$2 WHERE id=$1',[cv.id,input.content.slice(0,60)]);return {id:r.id,state:r.state};});
  // Voice message: store the recording, transcribe it and send the transcript as the message (the audio stays attached).
  app.post('/api/conversations/:id/audio',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async req=>{
@@ -132,6 +133,20 @@ export async function buildApp(){
   const row=await one('INSERT INTO computers(name,host,port,username,auth,shell,fingerprint,info,last_seen) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING id,name',[x.name,x.host,x.port,x.username,sshAuth(x),x.shell,x.fingerprint,JSON.stringify(r.info)]);
   return row;});
  app.delete('/api/computers/:id',async req=>{await query('DELETE FROM computers WHERE id=$1',[id(req)]);return {ok:true};});
+ // Undo a recorded computer file change: queued to the worker (it has the drives); waits up to 30 s for the result.
+ app.post('/api/file-ops/:id/undo',async req=>{
+  const op=await one('UPDATE file_ops SET undo_requested_at=now(),undo_error=NULL WHERE call_id=$1 AND undone_at IS NULL RETURNING id',[id(req)]);
+  if(!op){if(await one('SELECT 1 FROM file_ops WHERE call_id=$1 AND undone_at IS NOT NULL',[id(req)]))return {ok:true,already:true};throw new Error('Nada para desfazer.');}
+  await boss.send('file-undo',{id:op.id});
+  for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,500));const s=await one('SELECT undone_at,undo_error FROM file_ops WHERE id=$1',[op.id]);if(s.undone_at)break;if(s.undo_error)throw new Error('Não foi possível desfazer tudo: '+s.undo_error);}
+  const done=await one('SELECT undone_at FROM file_ops WHERE id=$1',[op.id]);if(!done.undone_at)throw new Error('O worker não respondeu. Tente de novo.');
+  const cv=await one('SELECT r.conversation_id FROM tool_calls t JOIN runs r ON r.id=t.run_id WHERE t.id=$1',[id(req)]);if(cv)await event('message',{conversationId:cv.conversation_id});
+  return {ok:true};
+ });
+ // Background jobs: live state (asked from the computer itself while running) and cancel.
+ app.get('/api/computer-jobs',async()=>Promise.all((await query('SELECT j.*,a.name AS agent_name FROM computer_jobs j LEFT JOIN agents a ON a.id=j.agent_id ORDER BY j.started_at DESC LIMIT 20')).map(async j=>{
+  if(j.status!=='running')return j;try{const s=await jobState(j);return {...j,output:s.output,finishing:!s.running};}catch(e){return {...j,unreachable:safeError(e)};}})));
+ app.post('/api/computer-jobs/:id/cancel',async req=>{const j=await one("SELECT * FROM computer_jobs WHERE id=$1 AND status='running'",[id(req)]);if(!j)throw new Error('A tarefa não está rodando.');await cancelJob(j);return {ok:true};});
  app.get('/api/host-access/commands',async()=>{const configured=hostConfigured(),enabled=await commandsSwitchOn();let status=null,error='';if(configured){try{status=await hostStatus();}catch(e){error=safeError(e);}}
   const recent=await query("SELECT t.id,t.args->>'command' AS command,t.args->>'reason' AS reason,t.status,t.result,t.created_at,a.name AS agent_name,ap.status AS approval FROM tool_calls t JOIN runs r ON r.id=t.run_id JOIN agents a ON a.id=r.agent_id LEFT JOIN approvals ap ON ap.call_id=t.id WHERE t.tool='pc_run' ORDER BY t.created_at DESC LIMIT 20");
   return {configured,enabled,status,error,recent:recent.map(c=>{let exitCode=null;try{exitCode=JSON.parse(c.result).exitCode;}catch{}return {...c,result:undefined,exitCode};})};});
@@ -145,7 +160,15 @@ export async function buildApp(){
  // Only finished-with-error runs can be removed; completed runs keep usage history.
  app.delete('/api/runs/:id',async req=>{const r=await one("DELETE FROM runs WHERE id=$1 AND state IN('failed','cancelled') RETURNING conversation_id",[id(req)]);if(!r)throw new Error('Só é possível excluir execuções com erro ou canceladas.');await event('run',{id:id(req),state:'deleted'});return {ok:true};});
  app.post('/api/runs/:id/cancel',async req=>{await cancelRun(id(req));return {ok:true};});
- app.post('/api/approvals/:id',async req=>{const {decision}=z.object({decision:z.enum(['approved','denied'])}).parse(req.body);const runId=await transaction(async c=>{const a=(await c.query('SELECT a.*,t.run_id,r.state FROM approvals a JOIN tool_calls t ON t.id=a.call_id JOIN runs r ON r.id=t.run_id WHERE a.id=$1 FOR UPDATE OF a,r',[id(req)])).rows[0];if(!a||a.status!=='pending'||a.state!=='waiting_approval')throw new Error('Aprovação não está mais pendente.');await c.query('UPDATE approvals SET status=$2 WHERE id=$1',[a.id,decision]);return a.run_id;});await enqueue(runId);return {ok:true};});
+ const decide=async(approvalId:string,decision:'approved'|'denied')=>{const runId=await transaction(async c=>{const a=(await c.query('SELECT a.*,t.run_id,r.state FROM approvals a JOIN tool_calls t ON t.id=a.call_id JOIN runs r ON r.id=t.run_id WHERE a.id=$1 FOR UPDATE OF a,r',[approvalId])).rows[0];if(!a||a.status!=='pending'||a.state!=='waiting_approval')throw new Error('Aprovação não está mais pendente.');await c.query('UPDATE approvals SET status=$2 WHERE id=$1',[a.id,decision]);return a.run_id;});await enqueue(runId);};
+ app.post('/api/approvals/:id',async req=>{const {decision}=z.object({decision:z.enum(['approved','denied'])}).parse(req.body);await decide(id(req),decision);return {ok:true};});
+ // From the buttons of the phone notification: no session (the service worker answers without opening the app). The
+ // single-purpose token in the notification (HMAC of approval + decision) is the credential; it only works while pending.
+ app.post('/api/approvals/:id/quick',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req,reply)=>{
+  const {decision,token}=z.object({decision:z.enum(['approved','denied']),token:z.string().regex(/^[0-9a-f]{64}$/)}).parse(req.body);
+  if(!safeEqual(token,approvalToken(id(req),decision)))return reply.code(403).send({error:'Link de aprovação inválido.'});
+  await decide(id(req),decision);return {ok:true};
+ });
  app.get('/api/search',async req=>{const {q}=z.object({q:z.string().min(2).max(200)}).parse(req.query);return query("SELECT m.*,a.name AS agent_name,a.id AS agent_id FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE to_tsvector('portuguese',m.content) @@ plainto_tsquery('portuguese',$1) ORDER BY m.created_at DESC LIMIT 50",[q]);});
  app.get('/api/skills',async()=>query('SELECT * FROM skills ORDER BY name'));
  app.post('/api/skills',async req=>{const d=skillInput.parse(req.body);return one('INSERT INTO skills(name,body) VALUES($1,$2) RETURNING *',[d.name,d.body]);});

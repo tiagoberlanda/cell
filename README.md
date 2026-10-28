@@ -176,8 +176,12 @@ Os arquivos gerados aparecem **anexados à resposta** do agente (toque para baix
 | `pc_list` / `pc_read` | Lista e lê arquivos das pastas liberadas. | Não |
 | `pc_move` | Move arquivos e pastas, vários de uma vez (uma aprovação para a lista toda). Nunca sobrescreve. | **Sim** |
 | `pc_rename` / `pc_mkdir` | Renomeia e cria pastas. | **Sim** |
-| `pc_write` | Cria um arquivo de texto (substituir um existente aparece na aprovação). | **Sim** |
-| `pc_delete` | Exclui arquivos e pastas, vários de uma vez. **Definitivo** (não vai para a Lixeira). | **Sim** |
+| `pc_write` | Cria um arquivo de texto (substituir um existente aparece na aprovação; o anterior é guardado). | **Sim** |
+| `pc_delete` | Exclui arquivos e pastas, vários de uma vez. Vão para a **Lixeira** e podem ser restaurados. | **Sim** |
+| `pc_save_file` | Salva um arquivo da biblioteca do Cell (um PDF ou planilha gerado, um anexo) numa pasta do PC. | **Sim** |
+| `pc_import` | Traz um arquivo do PC para a conversa, anexado à resposta (até 25 MB). | Não |
+
+Todas as alterações em pastas ganham o botão **Desfazer** na conversa (em *Ferramentas utilizadas*).
 
 ### Comandos no computador ([como ativar](#comandos-no-computador))
 
@@ -185,6 +189,9 @@ Os arquivos gerados aparecem **anexados à resposta** do agente (toque para baix
 |-----------|-----------|:---:|
 | `pc_run` | Roda um comando num computador conectado: PowerShell neste PC e nos Windows por SSH, bash nos Linux. Mostra o computador e o script antes. | **Sim, sempre** |
 | `pc_status` | Mostra quais computadores estão conectados, com nome, usuário, sistema, tempo ligado e memória. | Não |
+| `pc_job` | Mostra as tarefas em segundo plano e a saída delas. | Não |
+
+Comandos longos (backup, download, compactação) rodam **em segundo plano**, sem limite de tempo: o agente usa `pc_run` com `background`, você acompanha a saída ao vivo no ícone de computadores do topo (com o botão **Cancelar**) e recebe um aviso no celular quando termina.
 
 ### Aplicativos ([como conectar](#aplicativos-notion-google-e-outros))
 
@@ -238,7 +245,7 @@ Painel do agente → **Rotinas** → *Nova rotina*: o agente recebe a tarefa no 
 
 ### Aprovações
 
-Quando o agente quer fazer algo que precisa de permissão, a conversa mostra o pedido em linguagem simples, com **Aprovar** e **Negar**. O sino do topo lista as aprovações pendentes, e o celular recebe um aviso. Se os parâmetros mudarem depois da aprovação, a ação é bloqueada.
+Quando o agente quer fazer algo que precisa de permissão, a conversa mostra o pedido em linguagem simples, com **Aprovar** e **Negar**. O sino do topo lista as aprovações pendentes, e o celular recebe um aviso **com os botões Aprovar e Negar na própria notificação** (no Android; no iPhone, toque para abrir). A notificação mostra o que será feito, como o comando e o computador. Se os parâmetros mudarem depois da aprovação, a ação é bloqueada.
 
 ### Notificações
 

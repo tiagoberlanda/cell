@@ -1,4 +1,5 @@
-import { Zap } from 'lucide-react';
+import { useState } from 'react';
+import { Zap, Undo2 } from 'lucide-react';
 
 export interface ToolCallItem {
   id: string;
@@ -9,6 +10,8 @@ export interface ToolCallItem {
   result?: any;
   approval_id?: string;
   approval_status?: string;
+  undoable?: boolean;
+  undone_at?: string | null;
 }
 
 const statusLabels: Record<string, string> = {
@@ -33,6 +36,9 @@ const computerTools: Record<string, string> = {
   pc_delete: 'Excluir no computador',
   pc_run: 'Comando no computador',
   pc_status: 'Estado do computador',
+  pc_job: 'Tarefas em segundo plano',
+  pc_save_file: 'Salvar arquivo no computador',
+  pc_import: 'Trazer arquivo do computador',
   use_app: 'Abrir aplicativo'
 };
 const toolLabel = (tool: string) => computerTools[tool] || tool.replace(/^mcp_[0-9a-f]{32}_/, '');
@@ -44,8 +50,9 @@ export function describeApproval(tool: string, args: any): { title: string; line
   if (tool === 'pc_move') { const moves: any[] = Array.isArray(a.moves) ? a.moves : []; return { title: moves.length === 1 ? 'Mover 1 item no computador?' : `Mover ${moves.length} itens no computador?`, lines: moves.slice(0, 50).map(m => `${m.from} → ${m.to}`).concat(moves.length > 50 ? [`… e mais ${moves.length - 50}`] : []) }; }
   if (tool === 'pc_rename') return { title: 'Renomear no computador?', lines: [`${a.path} → ${a.newName}`] };
   if (tool === 'pc_mkdir') return { title: 'Criar pasta no computador?', lines: [a.path] };
-  if (tool === 'pc_run') return { title: a.computer ? `Rodar este comando em ${a.computer}?` : 'Rodar este comando no computador?', lines: [a.reason || 'Comando', ...String(a.command || '').split('\n').slice(0, 40).map((l: string) => `› ${l}`), a.cwd ? `Pasta: ${a.cwd}` : '', `Limite: ${a.timeoutSeconds || 60} s`].filter(Boolean) };
-  if (tool === 'pc_delete') { const paths: string[] = Array.isArray(a.paths) ? a.paths : []; return { title: paths.length === 1 ? 'Excluir definitivamente 1 item do computador?' : `Excluir definitivamente ${paths.length} itens do computador?`, lines: ['Não vai para a Lixeira.', ...paths.slice(0, 50), ...(paths.length > 50 ? [`… e mais ${paths.length - 50}`] : [])] }; }
+  if (tool === 'pc_run') return { title: a.background ? (a.computer ? `Rodar em segundo plano em ${a.computer}?` : 'Rodar em segundo plano no computador?') : a.computer ? `Rodar este comando em ${a.computer}?` : 'Rodar este comando no computador?', lines: [a.reason || 'Comando', ...(a.background ? ['Sem limite de tempo; você é avisado quando terminar.'] : []), ...String(a.command || '').split('\n').slice(0, 40).map((l: string) => `› ${l}`), a.cwd ? `Pasta: ${a.cwd}` : '', `Limite: ${a.timeoutSeconds || 60} s`].filter(Boolean) };
+  if (tool === 'pc_save_file') return { title: a.overwrite ? 'Substituir este arquivo no computador?' : 'Salvar este arquivo no computador?', lines: [a.path, a.overwrite ? 'O arquivo atual é guardado e pode ser restaurado com Desfazer.' : 'Arquivo da biblioteca do Cell.'] };
+  if (tool === 'pc_delete') { const paths: string[] = Array.isArray(a.paths) ? a.paths : []; return { title: paths.length === 1 ? 'Excluir 1 item do computador?' : `Excluir ${paths.length} itens do computador?`, lines: ['Vai para a Lixeira; dá para desfazer.', ...paths.slice(0, 50), ...(paths.length > 50 ? [`… e mais ${paths.length - 50}`] : [])] }; }
   if (tool === 'pc_write') return { title: a.overwrite ? 'Substituir este arquivo no computador?' : 'Criar este arquivo no computador?', lines: [a.path, `${String(a.content || '').length} caracteres${a.overwrite ? ' · substitui o arquivo existente' : ''}`] };
   return null;
 }
@@ -53,12 +60,15 @@ export function describeApproval(tool: string, args: any): { title: string; line
 export function ToolActivityCard({
   calls,
   defaultOpen = false,
-  title = 'Ferramentas utilizadas'
+  title = 'Ferramentas utilizadas',
+  onUndo
 }: {
   calls: ToolCallItem[];
   defaultOpen?: boolean;
   title?: string;
+  onUndo?: (callId: string) => Promise<void>;
 }) {
+  const [busy, setBusy] = useState<string | null>(null);
   if (!calls || calls.length === 0) return null;
 
   return (
@@ -73,6 +83,9 @@ export function ToolActivityCard({
           <div className="tool-item" key={c.id}>
             <div className="tool-header">
               <strong className="tool-name" title={c.tool}>{toolLabel(c.tool)}</strong>
+              {c.undoable && c.status === 'done' && onUndo && (c.undone_at
+                ? <small className="tool-status undone">Desfeito</small>
+                : <button type="button" className="undo-button" disabled={busy === c.id} onClick={async () => { setBusy(c.id); try { await onUndo(c.id); } finally { setBusy(null); } }}><Undo2 size={12} />{busy === c.id ? 'Desfazendo…' : 'Desfazer'}</button>)}
               <small className={`tool-status ${c.status || ''}`}>
                 {statusLabels[c.status] || c.status}
               </small>

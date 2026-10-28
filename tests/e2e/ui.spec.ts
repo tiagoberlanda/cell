@@ -480,3 +480,34 @@ test('computadores: indicador verde ou cinza e lista de instâncias', async ({ p
   await expect(page.locator('.ssh-computers')).toContainText('Computadores conectados');
   await expect(page.getByRole('button', { name: 'Adicionar computador por SSH' })).toBeVisible();
 });
+
+test('desfazer alteração e tarefas em segundo plano com saída ao vivo', async ({ page }) => {
+  let undone = false, cancelled = false;
+  const call = { id: '00000000-0000-0000-0000-00000000ca11', run_id: 'r', tool: 'pc_move', args: { moves: [{ from: 'K:\a.txt', to: 'K:\Docs' }] }, status: 'done', result: '{}', undoable: true };
+  await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch(); const body = await res.json();
+    body.calls = [...(body.calls || []), { ...call, undone_at: undone ? new Date().toISOString() : null }];
+    return route.fulfill({ response: res, json: body });
+  });
+  await page.route('**/api/file-ops/*/undo', route => { undone = true; return route.fulfill({ json: { ok: true } }); });
+  await page.route('**/api/computer-jobs', route => route.fulfill({ json: [{ id: 'j1', computer_name: 'Este computador', agent_name: 'Revisor', command: 'Compress-Archive K:\Fotos', reason: 'Compactar fotos', status: cancelled ? 'cancelled' : 'running', output: 'progresso 1\nprogresso 2', started_at: new Date().toISOString() }] }));
+  await page.route('**/api/computer-jobs/j1/cancel', route => { cancelled = true; return route.fulfill({ json: { ok: true } }); });
+  await page.route('**/api/computers', route => route.fulfill({ json: { enabled: true, hostInstalled: true, computers: [{ key: 'este-pc', id: 'local', name: 'Este computador', kind: 'local', shell: 'powershell', online: true, info: { computer: 'PC', user: 'U', os: 'Windows', uptimeHours: 1, memory: { totalGb: 8, freeGb: 4 }, cpus: 4 } }] } }));
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  const card = page.locator('details.activity-card', { has: page.locator('.tool-item', { hasText: 'Mover no computador' }) });
+  await card.locator(':scope > summary').click();
+  await card.getByRole('button', { name: 'Desfazer' }).click();
+  await page.getByRole('button', { name: 'Desfazer', exact: true }).last().click();
+  await expect(card.locator('.tool-status.undone')).toHaveText('Desfeito');
+  await page.locator('.pc-indicator').click();
+  const job = page.locator('.job-card');
+  await expect(job).toContainText('Compactar fotos');
+  await expect(job.locator('.job-output')).toContainText('progresso 2');
+  await expect(job.locator('.job-state')).toHaveText('Rodando');
+  await job.getByLabel('Cancelar tarefa').click();
+  await page.getByRole('button', { name: 'Cancelar tarefa' }).last().click();
+  await expect(job.locator('.job-state')).toHaveText('Cancelada');
+  await noHorizontalScroll(page);
+});

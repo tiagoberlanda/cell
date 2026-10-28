@@ -28,12 +28,13 @@ export async function extractText(name:string,data:Buffer):Promise<{text:string;
  else return null;
  return {text,warning};
 }
-export async function saveFile(name:string,data:Buffer,agentId?:string,sourceCallId?:string){
+// anyType: keep files of any format (imported from the computer) as downloads, without extracted text.
+export async function saveFile(name:string,data:Buffer,agentId?:string,sourceCallId?:string,{anyType=false}:{anyType?:boolean}={}){
  if(sourceCallId){const existing=await one('SELECT id,name,mime,size,warning FROM files WHERE source_call_id=$1',[sourceCallId]);if(existing)return existing;}
- const ext=path.extname(name).toLowerCase(),mime=types[ext];if(!mime)throw new Error('Formato não suportado.');if(data.length>25*1024*1024)throw new Error('Limite de 25 MB por arquivo.');
+ const ext=path.extname(name).toLowerCase(),mime=types[ext]||(anyType?'application/octet-stream':'');if(!mime)throw new Error('Formato não suportado.');if(data.length>25*1024*1024)throw new Error('Limite de 25 MB por arquivo.');
  let {text:extracted,warning}=await extractText(name,data)||{text:'',warning:''};
  if(extracted.length>100000){extracted=extracted.slice(0,100000);warning='Texto limitado aos primeiros 100 mil caracteres.';}
- await mkdir(storage,{recursive:true});const id=randomUUID(),storageName=id+ext;await writeFile(contained(storage,storageName),data,{flag:'wx'});
+ await mkdir(storage,{recursive:true});const id=randomUUID(),storageName=id+(/^\.[a-z0-9]{1,10}$/.test(ext)?ext:'');await writeFile(contained(storage,storageName),data,{flag:'wx'});
  return (await query('INSERT INTO files(id,agent_id,name,mime,size,storage_name,extracted,warning,source_call_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,name,mime,size,warning',[id,agentId||null,path.basename(name).slice(0,200),mime,data.length,storageName,extracted,warning||null,sourceCallId||null]))[0];
 }
 export async function fileData(id:string){const file=await one('SELECT * FROM files WHERE id=$1',[id]);if(!file)throw new Error('Arquivo não encontrado.');return {...file,data:await readFile(contained(storage,file.storage_name))};}

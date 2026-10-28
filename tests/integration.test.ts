@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {spawn,type ChildProcess} from 'node:child_process';
 import {setTimeout as sleep} from 'node:timers/promises';
@@ -41,7 +42,18 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
  const hostRuns:any[]=[];const hostToken='h'.repeat(40);
  fake.get('/host/status',async(req,reply)=>req.headers.authorization===`Bearer ${hostToken}`?{version:'1.0.0',computer:'pc-teste',user:'Tiago',os:'Windows_NT',uptimeHours:2,memory:{totalGb:32,freeGb:8},cpus:8,home:'C:\\Users\\Tiago'}:reply.code(401).send({error:'unauthorized'}));
- fake.post('/host/run',async(req:any,reply)=>{if(req.headers.authorization!==`Bearer ${hostToken}`)return reply.code(401).send({error:'unauthorized'});hostRuns.push(req.body);return {exitCode:0,stdout:'27/10/2026 10:00:00',stderr:'',timedOut:false,truncated:false,ms:120};});
+ const winToHost=(w:string)=>{const m=/^([A-Za-z]):\\?(.*)$/.exec(w)!;return join(process.env.HOST_DRIVES_ROOT!,m[1].toLowerCase(),...m[2].split('\\').filter(Boolean));};
+ const hostJobs=new Map<string,{polls:number;cancelled:boolean}>();
+ fake.post('/host/jobs',async(req:any,reply)=>{if(req.headers.authorization!==`Bearer ${hostToken}`)return reply.code(401).send({error:'unauthorized'});const id=crypto.randomUUID();hostJobs.set(id,{polls:0,cancelled:false});hostRuns.push({job:req.body});return {id,running:true,exitCode:null,output:''};});
+ fake.get('/host/jobs/:id',async(req:any,reply)=>{const j=hostJobs.get(req.params.id);if(!j)return reply.code(404).send({error:'Tarefa não encontrada (o Cell Host pode ter sido reiniciado).'});j.polls++;
+  return j.cancelled?{running:false,exitCode:1,cancelled:true,output:'progresso 1'}:j.polls<2?{running:true,exitCode:null,output:'progresso 1'}:{running:false,exitCode:0,output:'progresso 1\npronto: 3 arquivos'};});
+ fake.post('/host/jobs/:id/cancel',async(req:any)=>{const j=hostJobs.get(req.params.id);if(j)j.cancelled=true;return {ok:true};});
+ fake.post('/host/run',async(req:any,reply)=>{if(req.headers.authorization!==`Bearer ${hostToken}`)return reply.code(401).send({error:'unauthorized'});hostRuns.push(req.body);
+  const list=/FromBase64String\('([^']+)'\)/.exec(req.body.command||'');
+  if(list&&/SendToRecycleBin|Namespace\(10\)/.test(req.body.command)){const {renameSync,existsSync:ex,mkdirSync:mk}=await import('node:fs');const bin=join(process.env.HOST_DRIVES_ROOT!,'_recycle');mk(bin,{recursive:true});const out:any={};
+   for(const w of JSON.parse(Buffer.from(list[1],'base64').toString('utf8'))){const h=winToHost(w),b=join(bin,Buffer.from(w).toString('hex'));
+    if(req.body.command.includes('SendToRecycleBin')){renameSync(h,b);out[w]='ok';}else{if(ex(h))out[w]='já existe um item com esse nome';else if(!ex(b))out[w]='não está mais na Lixeira';else{renameSync(b,h);out[w]='ok';}}}
+   return {exitCode:0,stdout:JSON.stringify(out),stderr:'',timedOut:false,truncated:false,ms:50};}return {exitCode:0,stdout:'27/10/2026 10:00:00',stderr:'',timedOut:false,truncated:false,ms:120};});
  fake.post('/v1/chat/completions',async(req,reply)=>{
   const b=req.body as any;if(req.headers.authorization!=='Bearer test-secret')return reply.code(401).send({error:'bad token'});
   if(String(b.messages?.[0]?.content||'').startsWith('Atualize o resumo'))summaryRequests.push(b);
@@ -453,8 +465,8 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   const {toolsFor}=await import('../apps/server/src/tools.js');
   const tools=async(agentId:string,mode='execute')=>(await toolsFor({agent_id:agentId,mode},{agent:{tools:[]}})).filter((x:any)=>x.name.startsWith('pc_')&&x.app!=='computador');
   const pc=async(agentId:string,name:string,args:any)=>(await tools(agentId)).find((x:any)=>x.name===name)!.execute(args,{agent_id:agentId},{});
-  const mine=await tools(agent.id);assert.deepEqual(mine.map((x:any)=>x.name).sort(),['pc_delete','pc_list','pc_mkdir','pc_move','pc_read','pc_rename','pc_request_access','pc_write']);
-  assert.deepEqual(mine.filter((x:any)=>x.write).map((x:any)=>x.name).sort(),['pc_delete','pc_mkdir','pc_move','pc_rename','pc_request_access','pc_write'],'pedido, mudanças e exclusões pedem aprovação');
+  const mine=await tools(agent.id);assert.deepEqual(mine.map((x:any)=>x.name).sort(),['pc_delete','pc_import','pc_list','pc_mkdir','pc_move','pc_read','pc_rename','pc_request_access','pc_save_file','pc_write']);
+  assert.deepEqual(mine.filter((x:any)=>x.write).map((x:any)=>x.name).sort(),['pc_delete','pc_mkdir','pc_move','pc_rename','pc_request_access','pc_save_file','pc_write'],'pedido, mudanças e exclusões pedem aprovação');
   assert.deepEqual((await tools(agent.id,'plan')).map((x:any)=>x.name).sort(),['pc_list','pc_read'],'modo plano só lê');
   await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso a K:\\Downloads/);
   // The agent asks; the run waits for the owner; approving grants the folder.
@@ -487,6 +499,31 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal(del.deleted,2);assert.ok(!existsSync(join(hostRoot,'k','Downloads','sub')),'pasta com conteúdo excluída');
   assert.match(del.results.find((x:any)=>x.path==='K:\\Downloads').error,/pasta liberada/);assert.match(del.results.find((x:any)=>x.path==='K:\\Outros\\privado.txt').error,/Sem acesso/);
   assert.ok(existsSync(join(hostRoot,'k','Outros','privado.txt')),'fora da pasta liberada nada é excluído');
+  // Every change is recorded and can be undone from the app (the worker does it: it has the drives).
+  const runRow=await one('SELECT id FROM runs WHERE agent_id=$1 ORDER BY created_at DESC LIMIT 1',[agent.id]);
+  const newCall=async(tool:string)=>(await one("INSERT INTO tool_calls(run_id,call_id,tool,args,fingerprint,status) VALUES($1,$2,$3,'{}','x','done') RETURNING id",[runRow.id,'c'+Math.random(),tool])).id;
+  const exec=async(name:string,args:any,callId:string)=>(await tools(agent.id)).find((x:any)=>x.name===name)!.execute(args,{agent_id:agent.id,callId},{});
+  writeFileSync(join(hostRoot,'k','Downloads','relatorio.txt'),'versão 1');
+  const mv=await newCall('pc_move');await exec('pc_move',{moves:[{from:'K:\\Downloads\\relatorio.txt',to:'K:\\Downloads\\Documentos'}]},mv);
+  assert.ok(existsSync(join(hostRoot,'k','Downloads','Documentos','relatorio.txt')));
+  assert.deepEqual(await request('POST','/file-ops/'+mv+'/undo'),{ok:true});assert.ok(existsSync(join(hostRoot,'k','Downloads','relatorio.txt')),'mover desfeito');
+  assert.equal((await request('POST','/file-ops/'+mv+'/undo')).already,true,'desfazer duas vezes não faz nada');
+  const wr=await newCall('pc_write');await exec('pc_write',{path:'K:\\Downloads\\relatorio.txt',content:'versão 2',overwrite:true},wr);
+  await request('POST','/file-ops/'+wr+'/undo');assert.equal((await import('node:fs')).readFileSync(join(hostRoot,'k','Downloads','relatorio.txt'),'utf8'),'versão 1','substituição desfeita');
+  const rc=await newCall('pc_delete');const recycled=JSON.parse(await exec('pc_delete',{paths:['K:\\Downloads\\relatorio.txt']},rc));
+  assert.equal(recycled.results[0].to,'Lixeira do Windows');assert.ok(!existsSync(join(hostRoot,'k','Downloads','relatorio.txt')));
+  await request('POST','/file-ops/'+rc+'/undo');assert.ok(existsSync(join(hostRoot,'k','Downloads','relatorio.txt')),'restaurado da Lixeira');
+  const calls=(await request('GET','/conversations/'+(await one('SELECT conversation_id FROM runs WHERE id=$1',[runRow.id])).conversation_id)).calls;
+  assert.ok(calls.find((c:any)=>c.id===rc).undoable&&calls.find((c:any)=>c.id===rc).undone_at,'conversa mostra desfeito');
+  await assert.rejects(request('POST','/file-ops/'+(await newCall('pc_list'))+'/undo'),/Nada para desfazer/);
+  // Library ↔ computer.
+  const lib=await saveFile('capa.png',Buffer.alloc(500,3),agent.id);const sv=await newCall('pc_save_file');
+  assert.equal(JSON.parse(await exec('pc_save_file',{fileId:lib.id,path:'K:\\Downloads\\Documentos\\capa.png'},sv)).bytes,500);
+  assert.ok(existsSync(join(hostRoot,'k','Downloads','Documentos','capa.png')));
+  writeFileSync(join(hostRoot,'k','Downloads','dados.xyz'),'qualquer formato');
+  const imp=JSON.parse(await exec('pc_import',{path:'K:\\Downloads\\dados.xyz'},await newCall('pc_import')));
+  assert.equal(imp.name,'dados.xyz');assert.equal(imp.mime,'application/octet-stream');assert.equal((await fileData(imp.id)).data.toString(),'qualquer formato');
+  await assert.rejects(exec('pc_import',{path:'K:\\Outros\\privado.txt'},await newCall('pc_import')),/Sem acesso/);
   // Revoking is immediate.
   await request('DELETE','/host-access/'+access.grants[0].id);await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso/);
  });
@@ -557,7 +594,9 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    client.on('error',()=>{}); // the Cell refusing a changed host key drops the connection mid-handshake
    client.on('authentication',(ctx:any)=>ctx.method==='password'&&ctx.username==='cell'&&ctx.password==='segredo-ssh'?ctx.accept():ctx.reject());
    client.on('ready',()=>client.on('session',(accept:any)=>accept().once('exec',(acc:any,_rej:any,info:any)=>{const st=acc();sshRuns.push(info.command);
-    if(info.command.includes('echo "computer='))st.write('computer=linux-teste\nuser=cell\nos=Debian GNU/Linux 12\nuptime=7200\nmem=8000000 3000000\ncpus=4\n');else st.write('ran: '+info.command+'\n');
+    if(info.command.includes('setsid nohup'))st.write('started\n');
+    else if(info.command.includes('__EXIT__'))st.write('__EXIT__=0\n__OUT__\nbackup ok\n');
+    else if(info.command.includes('echo "computer='))st.write('computer=linux-teste\nuser=cell\nos=Debian GNU/Linux 12\nuptime=7200\nmem=8000000 3000000\ncpus=4\n');else st.write('ran: '+info.command+'\n');
     st.exit(0);st.end();})));
   });
   await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as any).port;
@@ -584,9 +623,40 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    await query('UPDATE computers SET fingerprint=$2 WHERE id=$1',[saved.id,'SHA256:chave-antiga']);
    const after=(await request('GET','/computers')).computers.find((c:any)=>c.key==='servidor-linux');assert.equal(after.online,false);assert.match(after.error,/impressão digital do servidor mudou/);
    await assert.rejects(run.execute({computer:'servidor-linux',command:'whoami',reason:'x'},{},{}),/mudou/);
+   const {startJob,jobState}=await import('../apps/server/src/computer.js');
+   await query('UPDATE computers SET fingerprint=$2 WHERE id=$1',[saved.id,test.fingerprint]);
+   const linuxPc=(await (await import('../apps/server/src/computer.js')).listComputers()).find(c=>c.key==='servidor-linux')!;
+   const remote=await startJob(linuxPc,'tar czf /tmp/b.tgz /home','/home');assert.ok(sshRuns.at(-1)!.includes('setsid nohup')&&sshRuns.at(-1)!.includes('base64 -d'),'script enviado codificado');
+   assert.deepEqual(await jobState({computer_id:saved.id,remote_id:remote,output:''}),{running:false,exitCode:0,output:'backup ok'});
    await request('DELETE','/computers/'+saved.id);assert.equal((await request('GET','/computers')).computers.length,1);
    assert.equal((await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).find((x:any)=>x.name==='pc_run')!.parameters.properties.computer,undefined,'com um computador só, não precisa escolher');
   }finally{server.close();}
+ });
+ await t.test('aprovar pela notificação com código de uso único',async()=>{
+  const {approvalToken}=await import('../apps/server/src/push.js');
+  const r=await task('RUN_CMD');await poll(r.id,'waiting_approval');const ap=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[r.id]);
+  const quick=(body:any)=>app.inject({method:'POST',url:`/api/approvals/${ap.id}/quick`,payload:body});
+  assert.equal((await quick({decision:'approved',token:'0'.repeat(64)})).statusCode,403,'código errado');
+  assert.equal((await quick({decision:'approved',token:approvalToken(ap.id,'denied')})).statusCode,403,'código de negar não aprova');
+  const ok=await quick({decision:'approved',token:approvalToken(ap.id,'approved')});assert.equal(ok.statusCode,200,ok.body);await poll(r.id,'completed');
+  assert.equal((await quick({decision:'approved',token:approvalToken(ap.id,'approved')})).statusCode,400,'não vale duas vezes');
+ });
+ await t.test('tarefas em segundo plano: começa só após aprovação, acompanha, avisa na conversa e cancela',async()=>{
+  const {toolsFor}=await import('../apps/server/src/tools.js');const {pollJobs}=await import('../apps/server/src/computer.js');
+  const run=(await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).find((x:any)=>x.name==='pc_run')!;
+  assert.ok(run.parameters.properties.background,'opção background');
+  const cv=await request('POST',`/agents/${agent.id}/conversations`,{});const rr=await one("INSERT INTO runs(agent_id,conversation_id,state,mode,model,config) VALUES($1,$2,'completed','execute','cell-test','{}') RETURNING id",[agent.id,cv.id]);
+  const call=(await one("INSERT INTO tool_calls(run_id,call_id,tool,args,fingerprint,status) VALUES($1,'bg1','pc_run','{}','x','done') RETURNING id",[rr.id])).id;
+  const out=JSON.parse(await run.execute({command:'Compress-Archive K:\\Fotos K:\\fotos.zip',background:true,reason:'Compactar fotos'},{agent_id:agent.id,callId:call,conversation_id:cv.id},{}));
+  assert.equal(out.background,true);assert.equal(JSON.parse(await run.execute({command:'x',background:true,reason:'x'},{agent_id:agent.id,callId:call,conversation_id:cv.id},{})).jobId,out.jobId,'repetir a etapa não inicia de novo');
+  let listed=await request('GET','/computer-jobs');assert.equal(listed[0].status,'running');assert.equal(listed[0].output,'progresso 1','saída ao vivo');
+  await pollJobs();await pollJobs();
+  const job=await one('SELECT * FROM computer_jobs WHERE id=$1',[out.jobId]);assert.equal(job.status,'done');assert.match(job.output,/pronto: 3 arquivos/);
+  const msg=(await request('GET','/conversations/'+cv.id)).messages.at(-1);assert.equal(msg.role,'assistant');assert.match(msg.content,/Tarefa concluída\*\* em Este computador · Compactar fotos/);assert.match(msg.content,/pronto: 3 arquivos/);
+  const second=JSON.parse(await run.execute({command:'Start-Sleep 999',background:true,reason:'Longa'},{agent_id:agent.id,callId:(await one("INSERT INTO tool_calls(run_id,call_id,tool,args,fingerprint,status) VALUES($1,'bg2','pc_run','{}','x','done') RETURNING id",[rr.id])).id,conversation_id:cv.id},{}));
+  await request('POST','/computer-jobs/'+second.jobId+'/cancel');await pollJobs();
+  assert.equal((await one('SELECT status FROM computer_jobs WHERE id=$1',[second.jobId])).status,'cancelled');
+  await assert.rejects(request('POST','/computer-jobs/'+second.jobId+'/cancel'),/não está rodando/);
  });
  await t.test('fixar até 3 agentes, renomear e mover de seção pelo menu',async()=>{
   const all=await request('GET','/agents');const others=all.filter((a:any)=>!a.archived&&!a.pinned);

@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useState} from 'react';
-import {Monitor,RefreshCw,Plus,Trash2,Terminal,Settings2} from 'lucide-react';
+import {Monitor,RefreshCw,Plus,Trash2,Terminal,Settings2,Square} from 'lucide-react';
 import {api} from './api';
 import {confirmDialog} from './dialogs';
 
@@ -37,8 +37,29 @@ function ComputerCard({c,onRemove}:{c:ComputerStatus;onRemove?:()=>void}){
  </div>;
 }
 
+// Background jobs with live output while running (polled every 3 s while any is running) and Cancel.
+const jobStates:Record<string,string>={running:'Rodando',done:'Concluída',failed:'Terminou com erro',cancelled:'Cancelada',lost:'Perdida'};
+export function JobsList({notify}:Notice){
+ const [jobs,setJobs]=useState<any[]|null>(null);
+ const load=useCallback(()=>api('/computer-jobs').then(setJobs).catch(()=>{}),[]);
+ useEffect(()=>{load();},[load]);
+ const running=!!jobs?.some(j=>j.status==='running');
+ useEffect(()=>{if(!running)return;const t=setInterval(load,3000);return()=>clearInterval(t);},[running,load]);
+ const cancel=async(j:any)=>{if(!await confirmDialog('Cancelar a tarefa?',j.reason||j.command.slice(0,200),{confirm:'Cancelar tarefa',danger:true}))return;try{await api('/computer-jobs/'+j.id+'/cancel','POST');notify('Cancelamento enviado.');await load();}catch(e:any){notify(e.message);}};
+ if(!jobs?.length)return null;
+ return <div className="stack jobs-list"><div className="detail-label">TAREFAS EM SEGUNDO PLANO</div>
+  {jobs.map(j=><div className={`job-card ${j.status}`} key={j.id}>
+   <div className="job-head"><div><strong>{j.reason||j.command.slice(0,80)}</strong><small>{j.computer_name}{j.agent_name?` · ${j.agent_name}`:''} · {new Date(j.started_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</small></div>
+    <span className={`job-state ${j.status}`}>{j.status==='running'&&j.finishing?'Finalizando…':jobStates[j.status]||j.status}{j.status==='failed'&&j.exit_code!=null?` (${j.exit_code})`:''}</span>
+    {j.status==='running'&&<button className="icon-btn" aria-label="Cancelar tarefa" title="Cancelar" onClick={()=>cancel(j)}><Square size={13} fill="currentColor"/></button>}</div>
+   {j.unreachable&&<small className="app-error">{j.unreachable}</small>}
+   {j.output?<pre className="job-output">{String(j.output).slice(-2500)}</pre>:<small className="hint">{j.status==='running'?'Aguardando saída…':'Sem saída.'}</small>}
+  </div>)}
+ </div>;
+}
+
 // Modal content: every computer with its live status.
-export function ComputersPanel({data,reload,onManage}:{data:ComputersData|null;reload:()=>Promise<any>;onManage:()=>void}){
+export function ComputersPanel({data,reload,onManage,notify}:{data:ComputersData|null;reload:()=>Promise<any>;onManage:()=>void}&Notice){
  const [busy,setBusy]=useState(false);
  const refresh=async()=>{setBusy(true);try{await reload();}finally{setBusy(false);}};
  if(!data)return <p className="hint">Verificando os computadores…</p>;
@@ -46,6 +67,7 @@ export function ComputersPanel({data,reload,onManage}:{data:ComputersData|null;r
   {!data.enabled&&<p className="app-error">Os comandos estão desativados em Configurações → Computador. Os agentes não usam nenhum computador.</p>}
   {data.computers.length?data.computers.map(c=><ComputerCard key={c.key} c={c}/>)
    :<p className="empty-state">Nenhum computador configurado.<br/>Instale o Cell Host neste PC ou adicione um computador por SSH.</p>}
+  <JobsList notify={notify}/>
   <div className="row wrap"><button className="secondary" disabled={busy} onClick={refresh}><RefreshCw size={15}/>{busy?'Verificando…':'Verificar agora'}</button><button className="secondary" onClick={onManage}><Settings2 size={15}/>Gerenciar computadores</button></div>
  </div>;
 }
