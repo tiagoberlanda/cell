@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.28.0] - 2026-10-28
+
 ### Adicionado
 - **Backup pelo app:** Configurações → **Backup**. "Fazer backup e baixar" pede a senha da conta e baixa um arquivo `.cellbackup` com tudo (agentes, conversas, mensagens, execuções, arquivos, rotinas, habilidades, conexões, computadores, receitas e configurações), cifrado com a senha da conta (AES-256-GCM, chave derivada com scrypt). "Restaurar" envia o arquivo, mostra o conteúdo sem mudar nada e só substitui tudo depois da confirmação com a senha atual; todos os aparelhos saem e entram de novo.
 - O backup funciona em outra instalação: os segredos salvos são re-cifrados para a `SECRET_KEY` da instalação nova. Backups de versões anteriores são aceitos; de versões mais novas, recusados com aviso. Execuções que estavam em andamento no momento do backup voltam como interrompidas.
