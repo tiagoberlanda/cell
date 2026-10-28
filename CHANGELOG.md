@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.29.0] - 2026-10-28
+
 ### Corrigido
 - **Respostas no meio do caminho não somem mais:** o que o agente escreve antes de usar uma ferramenta ("Vou pesquisar primeiro…") fica na conversa como mensagem própria, com as ferramentas daquela etapa logo abaixo. Antes, só a resposta final sobrava.
 - Ferramentas de uma execução cancelada não aparecem mais soltas em "Atividade adicional de ferramentas": entram em "Ferramentas utilizadas" da resposta seguinte.
