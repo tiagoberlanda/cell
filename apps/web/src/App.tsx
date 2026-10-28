@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import type {CSSProperties,FormEvent} from 'react';
-import {Menu,Search,Plus,Settings,ArrowUp,Paperclip,Square,PanelRight,PanelLeftClose,PanelLeftOpen,ChevronDown,ChevronLeft,X,Copy,Check,MessageSquare,BookOpen,Clock,Plug,Zap,LogOut,MoreHorizontal,Sparkles,FileText,ArrowUpRight,Pin,PinOff,Palette,Trash2,Crown,History,Archive,ArchiveRestore,HelpCircle,Activity,Stethoscope,Brain,Bell,BellOff,Mic,Phone} from 'lucide-react';
+import {Menu,Search,Plus,Settings,ArrowUp,Paperclip,Square,PanelRight,PanelLeftClose,PanelLeftOpen,ChevronDown,X,Copy,Check,MessageSquare,BookOpen,Clock,Plug,Zap,LogOut,MoreHorizontal,Sparkles,FileText,ArrowUpRight,Pin,PinOff,Palette,Trash2,Crown,History,Archive,ArchiveRestore,Activity,Stethoscope,Brain,Bell,BellOff,Mic,Phone} from 'lucide-react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,7 +15,7 @@ import {AgentEditor,SettingsPanel,SkillsPanel,ConnectionsPanel,RoutinesPanel,Fil
 import {SLASH_COMMANDS,findMatchingCommands,type SlashCommand} from './commands';
 import {ToolActivityCard,describeApproval,DiffPreview} from './ToolActivity';
 import {useRecorder,canRecord,clock,speak,SpeakButton,type Recording} from './Voice';
-import {ActivityCenter,DiagnosticsPanel,MemoryEditor} from './Insights';
+import {ActivityCenter,MemoryEditor} from './Insights';
 import {forgetThisDevice,NotificationBell,InAppAlerts,enablePush,shouldOfferPush,type NotificationItem} from './Notifications';
 function getCallsForMessage(m:any,chat:{runs:any[];calls:any[]}){
  if(m.role!=='assistant')return[];

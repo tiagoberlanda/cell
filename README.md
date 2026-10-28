@@ -74,7 +74,7 @@ O Cell fala com qualquer serviço **compatível com a API da OpenAI** (`/v1/chat
 | Resposta em voz | `/audio/speech` | 9router, OpenAI e compatíveis. Sem modelo de voz, o próprio aparelho lê a resposta. |
 | Pesquisa na web e leitura de páginas | `/search`, `/web/fetch` | Só 9router. Com outro provedor, conecte um aplicativo de pesquisa (MCP). |
 
-Você vai precisar do **endereço** (ex.: `http://192.168.0.200:20128/v1` ou `https://api.openai.com/v1`) e do **token** (chave de API) do seu provedor.
+Você vai precisar do **endereço** (ex.: `http://host.docker.internal:20128/v1` para um 9router no próprio PC, `http://192.168.0.20:20128/v1` em outra máquina da rede, ou `https://api.openai.com/v1`) e do **token** (chave de API) do seu provedor.
 
 ## Instalação passo a passo
 
@@ -124,7 +124,7 @@ Entre com o usuário **`cell`** e a senha que você criou.
 ## Primeiro uso
 
 1. **Configure o provedor:** menu do usuário (canto inferior esquerdo) → **Configurações** → **9router**:
-   - **Endereço** do provedor (ex.: `http://192.168.0.200:20128/v1`) e **Token** (chave de API);
+   - **Endereço** do provedor (ex.: `http://host.docker.internal:20128/v1`) e **Token** (chave de API);
    - clique em **Testar conexão e atualizar modelos** para confirmar o acesso e carregar a lista;
    - escolha o **Modelo padrão** e salve. A tela mostra se o modelo sabe usar ferramentas e ver imagens;
    - opcional: modelos de imagem, de transcrição e de voz.

@@ -5,6 +5,12 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Alterado
+- `.env.example` revisado: só as variáveis que o `.env` realmente usa, separadas em obrigatórias, provedor e opcionais, com explicação de cada uma. Saíram `DATABASE_URL`, `COOKIE_SECURE`, `WORKSPACE_PATH` e `PORT` (o `compose.yaml` define essas sozinho; no `.env` não tinham efeito) e entraram `CELL_HOST_URL`, `CELL_HOST_TOKEN`, `CELL_PROXY_SECRET` e `TRUSTED_PROXIES`.
+- Endereço padrão do provedor: `http://host.docker.internal:20128/v1` (um 9router no próprio computador) em vez de um IP de rede específico, no `.env.example`, no `setup.ps1`, no `compose.yaml` e no código. Instalações existentes não mudam (o endereço fica no `.env` e nas configurações).
+- Limpeza: importações e variáveis sem uso removidas.
+
+
 ## [0.27.0] - 2026-10-28
 
 ### Adicionado

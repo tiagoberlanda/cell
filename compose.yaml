@@ -21,10 +21,10 @@ services:
     environment: &server-env
       DATABASE_URL: postgres://cell:${POSTGRES_PASSWORD}@db:5432/cell
       SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY}
-      NINEROUTER_BASE_URL: ${NINEROUTER_BASE_URL:-http://192.168.0.200:20128/v1}
+      NINEROUTER_BASE_URL: ${NINEROUTER_BASE_URL:-http://host.docker.internal:20128/v1}
       NINEROUTER_API_KEY: ${NINEROUTER_API_KEY:-}
       NINEROUTER_DEFAULT_MODEL: ${NINEROUTER_DEFAULT_MODEL:-}
-      # Comma-separated list: every address the browser may use (e.g. https://192.168.0.200,https://localhost).
+      # Comma-separated list: every address the browser may use (e.g. https://192.168.0.10,https://localhost).
       APP_ORIGIN: ${APP_ORIGIN:-https://localhost}
       COOKIE_SECURE: "true"
       # Optional: secret header added by a Cloudflare transform rule, so only the tunnel can set the client IP.

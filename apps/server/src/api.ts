@@ -15,7 +15,7 @@ import { hostConfigured,commandsSwitchOn,hostStatus,computersStatus,sshInput,ssh
 import { publicConfig,saveConfig,models,imageModels,audioModels,transcribe,synthesize,probeModel,config,routerRequest } from './router.js';
 import { migrate } from './migrate.js';
 import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
-import { storage,saveFile,fileData,deleteFile } from './files.js';
+import { storage,saveFile,deleteFile } from './files.js';
 import { contained,allowedOrigin,clientIp } from './security.js';
 import { discover,finishOAuth } from './mcp.js';
 import { nativeToolNames,deleteAgent,mcpToolName } from './tools.js';

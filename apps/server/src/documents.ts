@@ -49,7 +49,6 @@ export function parseMarkdown(md:string):Block[]{
  }
  flush();return blocks;
 }
-const plain=(x:Inline[])=>x.map(i=>i.text).join('');
 
 // --- PDF (A4, page numbers). The standard fonts cover Portuguese accents; emoji are dropped.
 export async function markdownToPdf(title:string|undefined,md:string):Promise<Buffer>{

@@ -2,7 +2,7 @@ param([string]$HostName = 'localhost', [string]$Username = 'cell')
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 function New-Hex([int]$Length) { $bytes = New-Object byte[] $Length; $rng = [Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); $rng.Dispose(); return ([BitConverter]::ToString($bytes)).Replace('-','').ToLower() }
-# -HostName aceita varios hosts separados por virgula, ex.: '192.168.0.200,localhost'.
+# -HostName aceita varios hosts separados por virgula, ex.: '192.168.0.10,localhost'.
 $hosts = @($HostName.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if (-not (Test-Path -LiteralPath '.env')) {
     $secret = New-Hex 32
@@ -10,7 +10,7 @@ if (-not (Test-Path -LiteralPath '.env')) {
     $content = @"
 POSTGRES_PASSWORD=$dbPassword
 SECRET_KEY=$secret
-NINEROUTER_BASE_URL=http://192.168.0.200:20128/v1
+NINEROUTER_BASE_URL=http://host.docker.internal:20128/v1
 NINEROUTER_API_KEY=
 NINEROUTER_DEFAULT_MODEL=
 CELL_HOST=$($hosts -join ', ')
