@@ -668,3 +668,25 @@ test('backup: baixar com a senha da conta e verificar o arquivo', async ({ page 
   await expect(summary.getByRole('button', { name: 'Restaurar este backup' })).toBeVisible();
   await noHorizontalScroll(page);
 });
+
+test('tabela na mensagem: sem quebrar palavras no meio e rolagem lateral no celular', async ({ page }) => {
+  const table = '## Resumo\n\n| Vídeo | Canal | YouTube | Instagram | TikTok | Status |\n|---|---|---|---|---|---|\n| O Homem de Taured (horizontal) | Fatos o que é | 16:00 | 16:00 | — | Pronto, não publicado |\n| Corte 1: O Viajante Sem País (vertical) | Fatos o que é | 16:00 | 16:00 | 16:00 | Pronto, não publicado |';
+  await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch(); const body = await res.json();
+    body.messages = [...body.messages, { id: 'tbl', role: 'assistant', content: table, created_at: new Date().toISOString(), attachments: [], files: [] }];
+    return route.fulfill({ response: res, json: body });
+  });
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  const t = page.locator('.bubble table').last();
+  await expect(t).toBeVisible();
+  // Headers stay on one line and no word is split across lines.
+  const lines = await t.evaluate(el => [...el.querySelectorAll('th')].map(th => Math.round(th.getBoundingClientRect().height / parseFloat(getComputedStyle(th).lineHeight))));
+  expect(Math.max(...lines)).toBeLessThanOrEqual(2);
+  const broken = await t.evaluate(el => [...el.querySelectorAll('th,td')].some(c => { const r = document.createRange(); r.selectNodeContents(c); const rects = [...r.getClientRects()]; const words = (c.textContent || '').trim().split(/\s+/); return rects.length > words.length; }));
+  expect(broken).toBe(false);
+  await t.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `test-results/tabela-${page.viewportSize()!.width}.png` });
+  await noHorizontalScroll(page);
+});
