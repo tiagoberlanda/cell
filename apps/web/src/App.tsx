@@ -97,7 +97,7 @@ export function App(){
  // Opening a notification jumps to the end of that chat, where a pending approval sits (retried until the chat loads).
  const jump=useRef(0);
  const jumpToEnd=useCallback(()=>{stayBottom.current=true;jump.current=Date.now();},[]);
- useEffect(()=>{if(!jump.current)return;if(Date.now()-jump.current>8000){jump.current=0;return;}const el=[...document.querySelectorAll('.message-list .approval-card')].at(-1)||bottom.current;const t=setTimeout(()=>{el?.scrollIntoView({behavior:'smooth',block:'end'});if(document.querySelector('.message-list .approval-card'))jump.current=0;},120);return()=>clearTimeout(t);},[chat,conversation,pulse]);
+ useEffect(()=>{if(!jump.current)return;if(Date.now()-jump.current>8000){jump.current=0;return;}const el=[...document.querySelectorAll('.message-list > .approval-card')].at(-1)||bottom.current;const t=setTimeout(()=>{el?.scrollIntoView({behavior:'smooth',block:'end'});if(document.querySelector('.message-list > .approval-card'))jump.current=0;},120);return()=>clearTimeout(t);},[chat,conversation,pulse]);
  const refreshConversations=async()=>{if(!agent)return [];const rows=await api('/agents/'+agent.id+'/conversations');setConversations(rows);return rows;};
  const fmtDate=(d:string)=>new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
  async function archiveChat(){if(!conversation||archived)return;if(!await confirmDialog('Arquivar esta conversa?','Ela fica salva no histórico e uma nova conversa começa do zero.',{confirm:'Arquivar'}))return;

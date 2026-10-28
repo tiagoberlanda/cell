@@ -259,7 +259,19 @@ Painel do agente → **Rotinas** → *Nova rotina*: o agente recebe a tarefa no 
 
 ### Aprovações
 
-Quando o agente quer fazer algo que precisa de permissão, a conversa mostra o pedido em linguagem simples, com **Aprovar** e **Negar**. O sino do topo lista as aprovações pendentes, e o celular recebe um aviso **com os botões Aprovar e Negar na própria notificação** (no Android; no iPhone, toque para abrir). A notificação mostra o que será feito, como o comando e o computador. Se os parâmetros mudarem depois da aprovação, a ação é bloqueada.
+Quando o agente quer fazer algo que precisa de permissão, a conversa mostra o pedido em linguagem simples no fim do chat, logo acima da caixa de mensagem. Os botões são **Aprovar esta chamada**, **Aprovar sempre** e **Negar**. O sino do topo lista as aprovações pendentes, e o celular recebe um aviso **com os botões Aprovar e Negar na própria notificação** (no Android; no iPhone, toque para abrir). A notificação mostra o que será feito, como o comando e o computador. Se os parâmetros mudarem depois da aprovação, a ação é bloqueada.
+
+**Aprovar sempre** aprova o pedido e deixa aquele agente usar a mesma ferramenta dali em diante sem perguntar (por exemplo, todos os comandos no computador, no caso de `pc_run`). Para desfazer: botão **+** ao lado da caixa de mensagem → **Sempre aprovadas**.
+
+**Modo de aprovação** (botão **+** → *Modo de aprovação*), escolhido por agente:
+
+| Modo | O que pede sua confirmação |
+|---|---|
+| **Pedir aprovação** (padrão) | Toda ferramenta da coluna "Pede aprovação?" |
+| **Aprovar tudo menos exclusão** | Só exclusões: `pc_delete`, comandos que apagam (`Remove-Item`, `rm`, `del`, `rmdir`, `DROP TABLE`…), receitas com esses comandos e ferramentas de aplicativos com nomes como *delete*, *remove* ou *trash* |
+| **YOLO (aprovação total)** | Nada. Pede uma confirmação ao ativar |
+
+Com um modo diferente do padrão, a linha embaixo da caixa de mensagem mostra qual está ativo. Em qualquer modo, uma ação cujo resultado ficou incerto (o serviço pode já ter executado) continua esperando você conferir antes de repetir.
 
 ### Notificações
 

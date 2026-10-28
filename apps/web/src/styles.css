@@ -217,9 +217,11 @@
  .header-more{display:inline-flex!important}
 }
 /* Approval mode in the composer's + menu and the note under the composer. */
-.mode-item{align-items:flex-start!important;gap:8px}
-.mode-item .mode-check{width:14px;flex-shrink:0;padding-top:2px}
-.mode-item b{display:block;font-weight:500}
-.mode-item small{display:block;color:var(--subtle);font-size:12px}
+.dropdown [role=menuitemradio]{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-radius:7px;font-size:12px;min-height:44px;cursor:pointer;outline:0;max-width:300px}
+.dropdown [role=menuitemradio][data-highlighted]{background:var(--hover)}
+.mode-item .mode-check{width:16px;flex-shrink:0;padding-top:1px;color:var(--accent)}
+.mode-item b{display:block;font-weight:500;font-size:13px}
+.mode-item small{display:block;color:var(--subtle);font-size:11.5px;margin-top:2px}
+.mode-item.mode-yolo b{color:var(--danger)}
 .mode-chip{font-weight:600;color:#ceaa65}
 .mode-chip.mode-yolo{color:var(--danger)}

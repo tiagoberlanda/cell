@@ -5,6 +5,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- **Aprovar sempre:** novo botão no pedido de aprovação. Aprova a chamada e deixa o agente usar a mesma ferramenta sem perguntar de novo. As regras ficam em **+ → Sempre aprovadas**, onde podem ser esquecidas.
+- **Modo de aprovação por agente**, no botão **+** ao lado da caixa de mensagem: *Pedir aprovação* (padrão), *Aprovar tudo menos exclusão* (só exclusões e comandos que apagam pedem confirmação) e *YOLO (aprovação total)*, que pede confirmação ao ativar. O modo ativo aparece embaixo da caixa de mensagem. Uma ação com resultado incerto sempre espera você, em qualquer modo.
+
+### Corrigido
+- Um diálogo aberto logo depois de fechar um menu deixava o app inteiro invisível para leitores de tela (`aria-hidden` preso na página). Os diálogos agora esperam o menu terminar de fechar.
+
 ### Alterado
 - Prévia dos agentes ignora mensagens de conversas arquivadas.
 - Adicionado controle de modo de aprovação, aprovação permanente por ferramenta e modo YOLO.

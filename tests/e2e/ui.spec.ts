@@ -181,7 +181,7 @@ test('sino de notificações abre a aprovação pendente', async ({ page }) => {
   await item.click();
   await expect(page.locator('.agent-title')).toContainText('Redator');
   // The pending approval is the last thing in the chat and the notification lands on it.
-  await expect(page.locator('.approval-card').last()).toBeInViewport();
+  await expect(page.locator('.message-list > .approval-card').last()).toBeInViewport();
   expect(await page.locator('.message-list > *').evaluateAll(els => els.filter(e => e.getBoundingClientRect().height > 0).at(-1)?.className)).toContain('approval-card');
   await expect(page).toHaveTitle(/^\(\d+\) Cell/);
 });
@@ -204,7 +204,7 @@ test('sino de notificações fica visível na lista de agentes no celular', asyn
   await item.click();
   await expect(page.locator('.agent-title')).toContainText('Redator');
   // The pending approval is the last thing in the chat and the notification lands on it.
-  await expect(page.locator('.approval-card').last()).toBeInViewport();
+  await expect(page.locator('.message-list > .approval-card').last()).toBeInViewport();
   expect(await page.locator('.message-list > *').evaluateAll(els => els.filter(e => e.getBoundingClientRect().height > 0).at(-1)?.className)).toContain('approval-card');
   await expect(page.locator('.sidebar.open')).toHaveCount(0);
 });
@@ -690,8 +690,7 @@ test('tabela na mensagem: sem quebrar palavras no meio e rolagem lateral no celu
   const t = page.locator('.bubble table').last();
   await expect(t).toBeVisible();
   // Headers stay on one line and no word is split across lines.
-  const lines = await t.evaluate(el => [...el.querySelectorAll('th')].map(th => { const r = document.createRange(); r.selectNodeContents(th); return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size; }));
-  expect(Math.max(...lines)).toBe(1);
+  await expect.poll(() => t.evaluate(el => Math.max(...[...el.querySelectorAll('th')].map(th => { const r = document.createRange(); r.selectNodeContents(th); return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size; })))).toBe(1);
   const broken = await t.evaluate(el => [...el.querySelectorAll('th,td')].some(c => { const r = document.createRange(); r.selectNodeContents(c); const rects = [...r.getClientRects()]; const words = (c.textContent || '').trim().split(/\s+/); return rects.length > words.length; }));
   expect(broken).toBe(false);
   await t.scrollIntoViewIfNeeded();
@@ -755,9 +754,10 @@ test('modo de aprovação no menu + e botão "Aprovar sempre"', async ({ page })
   });
   await openAgents(page);
   await page.locator('.agent-row', { hasText: 'Revisor' }).click();
-  const card = page.locator('.approval-card').last();
-  await expect(card.getByRole('button', { name: 'Aprovar sempre' })).toBeVisible();
-  await card.scrollIntoViewIfNeeded();
+  // By role on purpose: a dialog opened from a menu used to leave the whole app aria-hidden.
+  const always = page.getByRole('button', { name: 'Aprovar sempre' });
+  await expect(always).toBeVisible();
+  await always.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `test-results/aprovar-sempre-${page.viewportSize()!.width}.png` });
   await noHorizontalScroll(page);
 });
