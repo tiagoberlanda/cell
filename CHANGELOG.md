@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.3] - 2026-10-28
+
 ### Corrigido
 - **Memória compartilhada não se perde mais:** saiu do arquivo `memory.md` dentro de cada container (sumia a cada atualização, era separada entre API e worker e ficava fora do backup) e foi para o banco, entrando no backup. O conteúdo que estava no arquivo era só o cabeçalho, então nada se perdeu.
 - `write_shared_memory` agora **acrescenta** por padrão; trocar tudo exige `mode=replace`, com limite de 100 mil caracteres. O prompt de cada agente leva só o começo (6 mil caracteres); o resto é lido com `read_shared_memory`.
