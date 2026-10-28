@@ -39,7 +39,7 @@ async function processRun(id:string){
      if(call.status==='waiting_child'){
       const child=await one('SELECT * FROM runs WHERE id=$1',[JSON.parse(call.result).childRunId]);if(!child||['completed','failed','cancelled'].includes(child.state)){const result=child?.output||child?.error||'Tarefa filha cancelada.';await finishCall(call,result,context);continue;}await setState(id,'waiting_agent');return;
      }
-     if(call.status==='executing'&&call.external_write){await query("UPDATE tool_calls SET status='uncertain' WHERE id=$1",[call.id]);await query("INSERT INTO approvals(call_id,fingerprint,status) VALUES($1,$2,'pending') ON CONFLICT(call_id) DO UPDATE SET status='pending'",[call.id,call.fingerprint]);await setState(id,'waiting_approval','Resultado externo desconhecido. Revise o serviço antes de autorizar uma nova tentativa.');return;}
+     if(call.status==='executing'&&call.external_write&&call.tool!=='pc_request_access'){await query("UPDATE tool_calls SET status='uncertain' WHERE id=$1",[call.id]);await query("INSERT INTO approvals(call_id,fingerprint,status) VALUES($1,$2,'pending') ON CONFLICT(call_id) DO UPDATE SET status='pending'",[call.id,call.fingerprint]);await setState(id,'waiting_approval','Resultado externo desconhecido. Revise o serviço antes de autorizar uma nova tentativa.');return;}
      if(call.external_write){
       await query('INSERT INTO approvals(call_id,fingerprint) VALUES($1,$2) ON CONFLICT(call_id) DO NOTHING',[call.id,call.fingerprint]);const approval=await one('SELECT * FROM approvals WHERE call_id=$1',[call.id]);
       if(approval.fingerprint!==approvalFingerprint(call.tool,call.args,call.binding))throw new Error('Parâmetros mudaram após a aprovação.');
@@ -51,7 +51,7 @@ async function processRun(id:string){
      if(abort.signal.aborted)return;
      await query("UPDATE tool_calls SET status='executing' WHERE id=$1",[call.id]);await event('tool',{runId:id,tool:call.tool,status:'running'});
      try{const result=await tool.execute(call.args,{...run,callId:call.id},cfg);if(tool.name==='delegate'){await query("UPDATE tool_calls SET status='waiting_child',result=$2 WHERE id=$1",[call.id,result]);await setState(id,'waiting_agent');return;}await finishCall(call,result,context);}
-     catch(e){if(call.external_write&&!(e instanceof McpToolError)){await query("UPDATE tool_calls SET status='uncertain',result=$2 WHERE id=$1",[call.id,safeError(e)]);await query("UPDATE approvals SET status='pending' WHERE call_id=$1",[call.id]);await setState(id,'waiting_approval','Falha externa: confirme o resultado no serviço antes de repetir.');return;}await finishCall(call,`Erro: ${safeError(e)}`,context,'error');}
+     catch(e){if(call.external_write&&call.tool!=='pc_request_access'&&!(e instanceof McpToolError)){await query("UPDATE tool_calls SET status='uncertain',result=$2 WHERE id=$1",[call.id,safeError(e)]);await query("UPDATE approvals SET status='pending' WHERE call_id=$1",[call.id]);await setState(id,'waiting_approval','Falha externa: confirme o resultado no serviço antes de repetir.');return;}await finishCall(call,`Erro: ${safeError(e)}`,context,'error');}
     }
     if(abort.signal.aborted)return;
     // Restarting a streaming step never inserts partial assistant messages.

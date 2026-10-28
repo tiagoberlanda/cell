@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.30.5
+- **Acesso a pastas:** erros determinísticos do pedido de acesso não entram mais no fluxo de resultado incerto. O agente recebe o erro real e pode interpretar o caminho, listar diretórios-pai e tentar localizar a pasta correta sem ficar preso em um loop de aprovação.
+
 ## 0.30.4
 - **Aprovações com resultado incerto:** a interface agora exibe o resultado da tentativa anterior, identifica claramente a ação como uma nova tentativa e oferece a opção "Não tentar novamente". Isso evita aprovações ambíguas quando o serviço pode já ter executado a operação.
 
