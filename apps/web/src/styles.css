@@ -185,3 +185,14 @@
  .drawer-bell{display:inline-flex;align-items:center}
  .drawer-bell .icon-btn.bell{width:36px;height:36px;min-width:36px}
 }
+/* Narrow sidebar (tablet rail and collapsed desktop menu): unread shows as a dot on the avatar, and the three-dot button
+   stays in the layout with no width, because the agent menu (opened with a long press or right-click) is anchored to it;
+   with display:none the menu opened in the corner of the screen. */
+@media(min-width:768px) and (max-width:1199px){
+ .agent-row>.unread{display:block;position:absolute;top:8px;right:12px;width:9px;height:9px;box-shadow:0 0 0 2px var(--sidebar)}
+}
+@media(min-width:1200px){
+ .app-shell.sidebar-collapsed .agent-row>.unread{display:block;position:absolute;top:8px;right:12px;width:9px;height:9px;box-shadow:0 0 0 2px var(--sidebar)}
+ .app-shell.sidebar-collapsed .agent-row-wrap .agent-menu{display:grid;width:0;margin:0;overflow:hidden;opacity:0!important;pointer-events:none}
+ .app-shell.sidebar-collapsed .sidebar-top .row{display:flex;flex-direction:column;gap:6px}
+}

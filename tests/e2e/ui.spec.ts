@@ -611,3 +611,33 @@ test('alertas, ligar à distância, receitas e prévia da edição na aprovaçã
   await expect(page.locator('.swal2-popup')).toContainText('C: 380 GB livres');
   await noHorizontalScroll(page);
 });
+
+test('menu estreito: menu do agente ao lado dele, não lidas visíveis e atalhos', async ({ page }) => {
+  const w = page.viewportSize()!.width;
+  test.skip(w < 768, 'no celular a lista é uma gaveta com o menu normal');
+  // Redator always has an unread message here (other tests may have read everything).
+  await page.route(/\/api\/agents(\?.*)?$/, async route => { if (route.request().method() !== 'GET') return route.continue(); const res = await route.fetch(); const body = await res.json(); return route.fulfill({ response: res, json: body.map((a: any) => a.name === 'Redator' ? { ...a, unread: true } : a) }); });
+  await page.reload(); await expect(page.locator('.chat-header')).toBeVisible();
+  if (w >= 1200) {
+    await page.getByLabel('Recolher menu de agentes').click();
+    await expect(page.getByLabel('Pesquisar histórico')).toBeVisible();
+    await expect(page.getByLabel('Criar agente')).toBeVisible();
+  }
+  // Unread dots stay visible on the avatars.
+  const dots = page.locator('.agent-row > .unread');
+  await expect(page.locator('.agent-row', { hasText: 'Redator' }).locator('.unread')).toBeVisible();
+  await expect(dots.first()).toBeVisible();
+  // The agent menu opens next to the agent, not in the corner of the screen.
+  const row = page.locator('.agent-row', { hasText: 'Redator' });
+  const rowBox = (await row.boundingBox())!;
+  await row.click({ button: 'right' });
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  const box = (await menu.boundingBox())!;
+  expect(Math.abs(box.y - rowBox.y)).toBeLessThan(rowBox.height + 40);
+  expect(box.x).toBeGreaterThan(rowBox.x - 260);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Fixar no topo', 'Renomear', 'Mover para outra seção']);
+  await page.keyboard.press('Escape');
+  if (w >= 1200) await page.getByLabel('Expandir menu de agentes').click();
+  await noHorizontalScroll(page);
+});
