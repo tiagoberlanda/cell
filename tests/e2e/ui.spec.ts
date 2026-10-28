@@ -31,6 +31,33 @@ test('gaveta de agentes abre e fecha no celular', async ({ page }) => {
   await expect(page.locator('.sidebar.open')).toHaveCount(0);
 });
 
+test('menu lateral recolhe e expande no desktop', async ({ page }) => {
+  // O botão só existe a partir de 1200 px; abaixo disso a lateral já é rail ou gaveta.
+  test.skip((page.viewportSize()?.width || 0) < 1200, 'Recolher o menu só existe de 1200 px para cima');
+  const shell = page.locator('.app-shell');
+  const toggle = page.getByLabel('Recolher menu de agentes');
+  const width = () => page.locator('.sidebar').evaluate((el) => el.getBoundingClientRect().width);
+  const expanded = await width();
+  await toggle.click();
+  await expect(shell).toHaveClass(/sidebar-collapsed/);
+  await expect(page.getByLabel('Expandir menu de agentes')).toHaveAttribute('aria-expanded', 'false');
+  // Recolhido: só os avatares ficam; o nome e o subtítulo do agente somem.
+  await expect(page.locator('.agent-row .agent-copy').first()).toBeHidden();
+  expect(await width()).toBeLessThan(expanded);
+  expect(await page.evaluate(() => localStorage.getItem('cell.sidebar'))).toBe('collapsed');
+  // A escolha sobrevive ao recarregar.
+  await page.reload();
+  await expect(page.locator('.chat-header')).toBeVisible();
+  await expect(shell).toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator('.agent-row .agent-copy').first()).toBeHidden();
+  // E volta ao normal.
+  await page.getByLabel('Expandir menu de agentes').click();
+  await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator('.agent-row .agent-copy').first()).toBeVisible();
+  expect(await width()).toBe(expanded);
+  await noHorizontalScroll(page);
+});
+
 test('logo do topo leva ao agente principal sem recarregar a página', async ({ page }) => {
   // Reproduz o bug: o wordmark era um link href="/", então o clique recarregava o
   // app e o localStorage restaurava o agente/conversa anterior em vez do master.

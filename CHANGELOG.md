@@ -5,10 +5,17 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- **Recolher o menu no desktop:** a partir de 1200 px de largura, um botão no topo da lista de agentes recolhe a lateral para um rail só com os avatares e volta a expandir com outro toque. O nome, o subtítulo, os menus de cada agente e os rótulos das seções ficam ocultos no modo recolhido, e a conversa ganha a largura que sobra. A escolha fica guardada neste aparelho (`localStorage`: `cell.sidebar`). No celular e no tablet o comportamento não muda: abaixo de 768 px continua a gaveta, e entre 768 e 1199 px a lateral já é um rail.
+
+### Alterado
+- **Agentes maiores na lista:** avatares da lista de 40 para 44 px, nome de 13 para 14 px, subtítulo de 11 para 12 px e um pouco mais de espaço em cada linha; nos fixados do topo, o avatar vai de 56 para 64 px e o cartão de 91×100 para 98×108. Tudo continua cabendo em uma linha, sem corte de nome nem rolagem horizontal.
+
 ### Corrigido
 - **Logo do topo:** clicar em **cell.** agora leva ao **agente principal (master)** na hora, sem recarregar a página. Antes o wordmark era um link para `/`, então o clique recarregava o app inteiro (a tela piscava) e o `localStorage` restaurava o agente e a conversa em que você estava, dando a impressão de que nada acontecia. Se você já está no master, o clique volta para a conversa mais recente dele; no celular, também fecha a gaveta de agentes.
 
 ### Como foi verificado
+- **Real:** teste de navegador novo (`tests/e2e/ui.spec.ts`: "menu lateral recolhe e expande no desktop") em 1440 px: recolhe, confere que a lateral fica mais estreita e que o texto do agente some, recarrega a página e a escolha continua valendo, depois expande e tudo volta (inclusive a largura original). Nos demais tamanhos de tela o teste é pulado, porque o botão só existe no desktop. A suíte inteira fechou em 123 testes de navegador aprovados nas cinco larguras testadas (360, 390, 768, 1024 e 1440 px), sem rolagem horizontal.
 - **Real:** teste de navegador novo (`tests/e2e/ui.spec.ts`: "logo do topo leva ao agente principal sem recarregar a página") em celular (390 px) e desktop (1440 px): sai do Redator, clica em **cell.** e o cabeçalho passa a mostrar o Coordenador, com a marca de que a página não recarregou. Rodado contra o código antigo, o mesmo teste falha (continua no Redator), provando que ele cobre o bug.
 
 ## [0.26.0] - 2026-10-28
