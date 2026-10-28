@@ -62,13 +62,14 @@ export function sshExec(t:SshTarget,command:string,timeoutMs=60000):Promise<{exi
 // PowerShell over SSH travels encoded, so quotes and line breaks need no escaping (same as the Cell Host).
 const wrap=(shell:string,command:string)=>shell==='powershell'?`powershell -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from('[Console]::OutputEncoding=[Text.Encoding]::UTF8;$ProgressPreference="SilentlyContinue";\n'+command,'utf16le').toString('base64')}`:command;
 const statusScript:Record<string,string>={
- bash:`echo "computer=$(hostname)"; echo "user=$(whoami)"; echo "os=$( (. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME") || uname -sr)"; echo "uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)"; echo "mem=$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{print t" "a}' /proc/meminfo 2>/dev/null)"; echo "cpus=$(nproc 2>/dev/null)"`,
- powershell:`$o=Get-CimInstance Win32_OperatingSystem; "computer=$env:COMPUTERNAME"; "user=$env:USERNAME"; "os=$($o.Caption)"; "uptime=$([int]((Get-Date)-$o.LastBootUpTime).TotalSeconds)"; "mem=$($o.TotalVisibleMemorySize) $($o.FreePhysicalMemory)"; "cpus=$env:NUMBER_OF_PROCESSORS"`,
+ bash:`echo "computer=$(hostname)"; echo "user=$(whoami)"; echo "os=$( (. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME") || uname -sr)"; echo "uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)"; echo "mem=$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{print t" "a}' /proc/meminfo 2>/dev/null)"; echo "cpus=$(nproc 2>/dev/null)"; echo "disks=$(df -P -B1 -x tmpfs -x devtmpfs -x overlay -x squashfs 2>/dev/null | awk 'NR>1{printf "%s,%s,%s;",$6,$2,$4}')"; c1=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat); sleep 1; c2=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat); echo "cpu=$(echo $c1 $c2 | awk '{t=$3-$1; i=$4-$2; if(t>0) printf "%d", 100*(t-i)/t}')"`,
+ powershell:`$o=Get-CimInstance Win32_OperatingSystem; "computer=$env:COMPUTERNAME"; "user=$env:USERNAME"; "os=$($o.Caption)"; "uptime=$([int]((Get-Date)-$o.LastBootUpTime).TotalSeconds)"; "mem=$($o.TotalVisibleMemorySize) $($o.FreePhysicalMemory)"; "cpus=$env:NUMBER_OF_PROCESSORS"; "disks=$((Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object { "$($_.DeviceID),$($_.Size),$($_.FreeSpace);" }) -join '')"; "cpu=$([int](Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average)"`,
 };
 function parseStatus(text:string){
  const v=Object.fromEntries(text.split(/\r?\n/).map(l=>l.split('=')).filter(p=>p.length>1).map(([k,...r])=>[k.trim(),r.join('=').trim()]));
  const [total,free]=String(v.mem||'').split(/\s+/).map(Number);
- return {computer:v.computer||'',user:v.user||'',os:v.os||'',uptimeHours:Math.round((Number(v.uptime)||0)/360)/10,memory:{totalGb:Math.round((total||0)/1e5)/10,freeGb:Math.round((free||0)/1e5)/10},cpus:Number(v.cpus)||0};
+ const disks=String(v.disks||'').split(';').filter(Boolean).map(d=>{const [drive,t,f]=d.split(',');return {drive,totalGb:Math.round(Number(t)/1e8)/10,freeGb:Math.round(Number(f)/1e8)/10};}).filter(d=>d.totalGb>0);
+ return {computer:v.computer||'',user:v.user||'',os:v.os||'',uptimeHours:Math.round((Number(v.uptime)||0)/360)/10,memory:{totalGb:Math.round((total||0)/1e5)/10,freeGb:Math.round((free||0)/1e5)/10},cpus:Number(v.cpus)||0,disks,cpuPct:v.cpu===undefined||v.cpu===''?null:Number(v.cpu)};
 }
 const sshTarget=(row:any):SshTarget=>({host:row.host,port:row.port,username:row.username,fingerprint:row.fingerprint,...decrypt<any>(row.auth)});
 export async function sshStatus(t:SshTarget,shell:string){const r=await sshExec(t,wrap(shell,statusScript[shell]),12000);if(r.exitCode!==0&&!r.stdout)throw new Error(r.stderr||'O comando de estado falhou.');return {info:parseStatus(r.stdout),fingerprint:r.fingerprint};}
@@ -76,7 +77,7 @@ export async function sshStatus(t:SshTarget,shell:string){const r=await sshExec(
 // Status of every computer, checked in parallel. SSH computers remember when they were last seen.
 export async function computersStatus(){
  return Promise.all((await listComputers()).map(async c=>{
-  const base={key:c.key,id:c.id,name:c.name,kind:c.kind,shell:c.shell,...(c.row?{host:c.row.host,port:c.row.port,username:c.row.username,fingerprint:c.row.fingerprint}:{})};
+  const base={key:c.key,id:c.id,name:c.name,kind:c.kind,shell:c.shell,...(c.row?{host:c.row.host,port:c.row.port,username:c.row.username,fingerprint:c.row.fingerprint,mac:c.row.mac||null,broadcast:c.row.broadcast||null}:{})};
   try{
    const info=c.kind==='local'?await hostStatus():(await sshStatus(sshTarget(c.row),c.shell)).info;
    if(c.row)await query('UPDATE computers SET info=$2,last_seen=now() WHERE id=$1',[c.id,JSON.stringify(info)]);
@@ -100,6 +101,9 @@ export async function computerTools():Promise<Tool[]>{
  return [
   {name:'pc_status',app:'computador',write:false,description:'Mostra o estado dos computadores conectados (ligado ou não, nome, usuário, sistema, tempo ligado, memória). Sem computer, mostra todos.',parameters:object({computer:which},[]),
    execute:async(a)=>{const x=z.object({computer:z.string().optional()}).parse(a);const all=await computersStatus();return JSON.stringify(x.computer?all.filter(c=>c.key===x.computer):all);}},
+  ...(computers.some(c=>c.row?.mac)?[{name:'pc_wake',app:'computador',write:false,description:'Liga à distância (Wake-on-LAN) um computador desligado ou dormindo que tenha o endereço MAC cadastrado. Ele costuma responder em 1 a 2 minutos.',parameters:object({computer:{type:'string',enum:computers.filter(c=>c.row?.mac).map(c=>c.key)}},['computer']),
+   execute:async(a:any)=>{const x=z.object({computer:z.string()}).parse(a);const c=(await listComputers()).find(k=>k.key===x.computer);if(!c?.row?.mac)throw new Error('Computador sem endereço MAC cadastrado.');const via=await wake(c.row.mac,c.row.broadcast||undefined);return JSON.stringify({computer:c.name,sent:true,via,note:'Sinal enviado. Confira com pc_status em 1 a 2 minutos.'});}} as Tool]:[]),
+  ...await recipeTools(),
   {name:'pc_job',app:'computador',write:false,description:'Mostra as tarefas em segundo plano (as mais recentes ou uma pelo jobId), com o estado e o fim da saída.',parameters:object({jobId:{type:'string'}},[]),
    execute:async(a)=>{const x=z.object({jobId:z.string().uuid().optional()}).parse(a);
     const rows=x.jobId?await query('SELECT * FROM computer_jobs WHERE id=$1',[x.jobId]):await query('SELECT * FROM computer_jobs ORDER BY started_at DESC LIMIT 10');
@@ -165,7 +169,8 @@ export async function pollJobs(){
   if(s.running){if(s.output!==job.output)await query('UPDATE computer_jobs SET output=$2 WHERE id=$1',[job.id,s.output]);continue;}
   const status=s.lost?'lost':s.cancelled||s.exitCode===130?'cancelled':s.exitCode===0?'done':'failed';
   const row=await one("UPDATE computer_jobs SET status=$2,exit_code=$3,output=$4,finished_at=now() WHERE id=$1 AND status='running' RETURNING *",[job.id,status,s.exitCode,s.output]);
-  if(!row||!row.conversation_id)continue;
+  if(!row)continue;
+  if(!row.conversation_id){await sendPush({title:`Tarefa ${status==='done'?'concluída':status==='failed'?'com erro':status==='cancelled'?'cancelada':'perdida'} · ${row.computer_name}`,body:(row.reason||row.command).slice(0,160),url:'/?computers=1',tag:`job-${row.id}`}).catch(()=>{});continue;}
   const title={done:'Tarefa concluída',failed:'Tarefa terminou com erro',cancelled:'Tarefa cancelada',lost:'Tarefa perdida'}[status];
   const out=s.output.trim().slice(-3000);
   const text=`**${title}** em ${row.computer_name}${status==='failed'?` (saída ${s.exitCode})`:''}${row.reason?` · ${row.reason}`:''}\n\n${status==='lost'?'O computador foi reiniciado ou o Cell Host foi reaberto durante a tarefa; não dá para saber se ela terminou.\n\n':''}${out?'```\n'+out.replace(/```/g,'ʼʼʼ')+'\n```':'Sem saída.'}`;
@@ -174,4 +179,79 @@ export async function pollJobs(){
   const agent=row.agent_id?await one('SELECT name,notify FROM agents WHERE id=$1',[row.agent_id]):null;
   if(agent?.notify!==false)await sendPush({title:`${title} · ${row.computer_name}`,body:(row.reason||row.command).slice(0,160),url:`/?agent=${row.agent_id}&conversation=${row.conversation_id}`,tag:`job-${row.id}`}).catch(()=>{});
  }
+}
+
+// --- Alerts (worker, once a minute): disk almost full, computer offline, CPU high for a while. Each alert notifies once
+// when it starts and once when it is over; open alerts show in the computers panel.
+export type AlertSettings={enabled:boolean;diskPct:number;offlineMinutes:number;cpuPct:number;cpuMinutes:number};
+export const alertSettingsInput=z.object({enabled:z.boolean(),diskPct:z.number().int().min(50).max(99),offlineMinutes:z.number().int().min(1).max(1440),cpuPct:z.number().int().min(50).max(100),cpuMinutes:z.number().int().min(1).max(240)});
+export async function alertSettings():Promise<AlertSettings>{const v=(await one('SELECT value FROM settings WHERE id=1'))?.value?.alerts||{};return {enabled:v.enabled??true,diskPct:v.diskPct??90,offlineMinutes:v.offlineMinutes??10,cpuPct:v.cpuPct??90,cpuMinutes:v.cpuMinutes??15};}
+export async function checkAlerts(){
+ const cfg=await alertSettings();if(!cfg.enabled)return;
+ for(const c of await computersStatus()){
+  const conditions:{kind:string;active:boolean;detail:string;afterMinutes:number;title:string}[]=[];
+  conditions.push({kind:'offline',active:!c.online,detail:(c as any).error||'Sem resposta',afterMinutes:cfg.offlineMinutes,title:`${c.name} está fora do ar`});
+  if(c.online){
+   for(const d of c.info?.disks||[]){const used=d.totalGb?Math.round(100*(1-d.freeGb/d.totalGb)):0;conditions.push({kind:`disk:${d.drive}`,active:used>=cfg.diskPct,detail:`${d.drive} com ${used}% usado (${d.freeGb} GB livres de ${d.totalGb} GB)`,afterMinutes:0,title:`Disco quase cheio em ${c.name}`});}
+   if(typeof c.info?.cpuPct==='number')conditions.push({kind:'cpu',active:c.info.cpuPct>=cfg.cpuPct,detail:`CPU em ${c.info.cpuPct}%`,afterMinutes:cfg.cpuMinutes,title:`CPU alta em ${c.name}`});
+  }
+  for(const k of conditions){
+   const open=await one('SELECT * FROM computer_alerts WHERE computer_key=$1 AND kind=$2 AND resolved_at IS NULL',[c.key,k.kind]);
+   if(k.active){
+    const row=open||await one('INSERT INTO computer_alerts(computer_key,computer_name,kind,detail) VALUES($1,$2,$3,$4) RETURNING *',[c.key,c.name,k.kind,k.detail]);
+    if(open)await query('UPDATE computer_alerts SET detail=$2 WHERE id=$1',[row.id,k.detail]);
+    if(!row.notified_at&&Date.now()-new Date(row.since).getTime()>=k.afterMinutes*60000){
+     await query('UPDATE computer_alerts SET notified_at=now() WHERE id=$1',[row.id]);
+     await sendPush({title:k.title,body:k.detail,url:'/?computers=1',tag:`alert-${c.key}-${k.kind}`}).catch(()=>{});
+    }
+   }else if(open){
+    await query('UPDATE computer_alerts SET resolved_at=now() WHERE id=$1',[open.id]);
+    if(open.notified_at)await sendPush({title:k.kind==='offline'?`${c.name} voltou`:`${c.name}: normalizado`,body:k.kind==='offline'?'O computador está respondendo de novo.':k.detail,url:'/?computers=1',tag:`alert-${c.key}-${k.kind}`}).catch(()=>{});
+   }
+  }
+ }
+}
+export const openAlerts=()=>query('SELECT * FROM computer_alerts WHERE resolved_at IS NULL AND notified_at IS NOT NULL ORDER BY since DESC');
+
+// --- Wake-on-LAN. The magic packet must leave from inside the home network: through the Cell Host when installed
+// (Docker Desktop's network does not reach the LAN broadcast), otherwise straight from the server.
+export const macInput=z.string().trim().regex(/^([0-9A-Fa-f]{2}[:-]?){5}[0-9A-Fa-f]{2}$/,'Endereço MAC inválido (ex.: AA:BB:CC:DD:EE:FF).');
+export async function wake(mac:string,broadcast='255.255.255.255'){
+ const hex=mac.replace(/[^0-9A-Fa-f]/g,'').toLowerCase();if(hex.length!==12)throw new Error('Endereço MAC inválido.');
+ if(!/^\d{1,3}(\.\d{1,3}){3}$/.test(broadcast))throw new Error('Endereço de broadcast inválido.');
+ if(hostConfigured()){
+  const script="$m=@('"+hex+"' -split '(..)' | Where-Object {$_} | ForEach-Object {[Convert]::ToByte($_,16)});$p=[byte[]](@(0xFF)*6 + $m*16);$u=New-Object Net.Sockets.UdpClient;$u.EnableBroadcast=$true;foreach($port in 9,7){[void]$u.Send($p,$p.Length,'"+broadcast+"',$port)};$u.Close();'sent'";
+  const r=await hostRun(script,20);if(!String(r.stdout).includes('sent'))throw new Error('Não foi possível enviar o sinal: '+String(r.stderr||r.stdout).slice(0,200));return 'Cell Host';
+ }
+ const dgram=await import('node:dgram');const sock=dgram.createSocket('udp4');
+ const packet=Buffer.concat([Buffer.alloc(6,0xff),...Array(16).fill(Buffer.from(hex,'hex'))]);
+ await new Promise<void>((resolve,reject)=>sock.bind(()=>{sock.setBroadcast(true);sock.send(packet,9,broadcast,e=>{sock.close();if(e)reject(e);else resolve();});}));
+ return 'servidor';
+}
+
+// --- Recipes: saved commands. The owner runs them with one tap; agents use pc_recipe (approval) or, for recipes marked
+// trusted, pc_recipe_trusted (no approval).
+export async function runRecipe(recipe:any,ctx:{agentId?:string|null;callId?:string|null;conversationId?:string|null}={}){
+ const c=await pick(await listComputers(),recipe.computer_key);
+ await query('UPDATE command_recipes SET last_run_at=now() WHERE id=$1',[recipe.id]);
+ if(recipe.background){
+  const job=await one('INSERT INTO computer_jobs(computer_key,computer_name,computer_id,remote_id,call_id,agent_id,conversation_id,command,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[c.key,c.name,c.id,await startJob(c,recipe.command,recipe.cwd||undefined),ctx.callId||null,ctx.agentId||null,ctx.conversationId||null,recipe.command,`Receita: ${recipe.name}`]);
+  return {recipe:recipe.name,computer:c.name,background:true,jobId:job.id};
+ }
+ let r:any;
+ if(c.kind==='local')r=await hostCall('/run',{command:recipe.command,cwd:recipe.cwd||undefined,timeoutSeconds:600},615000);
+ else{const cmd=recipe.cwd?(c.shell==='bash'?`cd ${sq(recipe.cwd)} && ${recipe.command}`:`Set-Location -LiteralPath '${String(recipe.cwd).replace(/'/g,"''")}'; ${recipe.command}`):recipe.command;r=await sshExec(sshTarget(c.row),wrap(c.shell,cmd),600000);}
+ return {recipe:recipe.name,computer:c.name,exitCode:r.exitCode,ok:r.exitCode===0&&!r.timedOut,stdout:r.stdout,...(r.stderr?{stderr:r.stderr}:{}),...(r.truncated?{truncated:true}:{})};
+}
+export async function recipeTools():Promise<Tool[]>{
+ const recipes=await query('SELECT * FROM command_recipes ORDER BY name');if(!recipes.length)return [];
+ const make=(trusted:boolean):Tool|null=>{const list=recipes.filter(r=>r.trusted===trusted);if(!list.length)return null;
+  return {name:trusted?'pc_recipe_trusted':'pc_recipe',app:'computador',write:!trusted,target:'Receita de comando',
+   description:(trusted?'Roda uma receita de comando liberada pelo usuário para rodar sem aprovação. ':'Roda uma receita de comando salva pelo usuário (pede aprovação). ')+'Receitas: '+list.map(r=>`${r.name} (${r.computer_key}: ${String(r.command).replace(/\s+/g,' ').slice(0,120)})`).join('; '),
+   parameters:object({name:{type:'string',enum:list.map(r=>r.name)}},['name']),
+   execute:async(a,run)=>{const x=z.object({name:z.string()}).parse(a);const rec=list.find(r=>r.name===x.name);if(!rec)throw new Error('Receita não encontrada.');
+    // Current row: a recipe edited or un-trusted after the tools were built must not run on the old terms.
+    const current=await one('SELECT * FROM command_recipes WHERE id=$1 AND trusted=$2 AND command=$3',[rec.id,trusted,rec.command]);if(!current)throw new Error('A receita mudou. Peça de novo.');
+    return JSON.stringify(await runRecipe(current,{agentId:run?.agent_id,callId:run?.callId,conversationId:run?.conversation_id}));}};};
+ return [make(false),make(true)].filter(Boolean) as Tool[];
 }

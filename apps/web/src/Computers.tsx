@@ -1,10 +1,10 @@
 import {useCallback,useEffect,useState} from 'react';
-import {Monitor,RefreshCw,Plus,Trash2,Terminal,Settings2,Square} from 'lucide-react';
+import {Monitor,RefreshCw,Plus,Trash2,Terminal,Settings2,Square,Power,Play,AlertTriangle,Network,ShieldCheck} from 'lucide-react';
 import {api} from './api';
-import {confirmDialog} from './dialogs';
+import {confirmDialog,promptDialog,alertDialog} from './dialogs';
 
-export type ComputerStatus={key:string;id:string;name:string;kind:'local'|'ssh';shell:'powershell'|'bash';host?:string;port?:number;username?:string;fingerprint?:string;online:boolean;error?:string;lastSeen?:string|null;info?:any};
-export type ComputersData={enabled:boolean;hostInstalled:boolean;computers:ComputerStatus[]};
+export type ComputerStatus={key:string;id:string;name:string;kind:'local'|'ssh';shell:'powershell'|'bash';host?:string;port?:number;username?:string;fingerprint?:string;online:boolean;error?:string;lastSeen?:string|null;info?:any;mac?:string|null;broadcast?:string|null};
+export type ComputersData={enabled:boolean;hostInstalled:boolean;computers:ComputerStatus[];alerts?:any[]};
 type Notice={notify:(m:string)=>void};
 
 // Live status of the computers, refreshed every minute (and on demand) while the app is open.
@@ -20,20 +20,23 @@ export function ComputersIndicator({data,onOpen}:{data:ComputersData|null;onOpen
  if(!data)return null;
  const online=data.computers.filter(c=>c.online).length,total=data.computers.length;
  const label=!total?'Computadores: nenhum configurado':online?`Computadores: ${online} de ${total} conectado${online>1?'s':''}`:`Computadores: nenhum conectado (${total})`;
- return <button className={`icon-btn pc-indicator ${online?'online':'offline'}`} aria-label={label} title={label} onClick={onOpen}><Monitor size={18}/><span className="pc-dot" aria-hidden="true"/></button>;
+ const alerts=data.alerts?.length||0,full=alerts?`${label} · ${alerts} alerta${alerts>1?'s':''}`:label;
+ return <button className={`icon-btn pc-indicator ${online?'online':'offline'}${alerts?' alert':''}`} aria-label={full} title={full} onClick={onOpen}><Monitor size={18}/><span className="pc-dot" aria-hidden="true"/></button>;
 }
 
 const kindLabel=(c:ComputerStatus)=>c.kind==='local'?'Windows · Cell Host':c.shell==='bash'?'Linux · SSH':'Windows · SSH';
 const since=(iso?:string|null)=>iso?new Date(iso).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'nunca';
-function ComputerCard({c,onRemove}:{c:ComputerStatus;onRemove?:()=>void}){
+const diskLine=(i:any)=>(i?.disks||[]).map((d:any)=>`${d.drive} ${d.totalGb?Math.round(100*(1-d.freeGb/d.totalGb)):0}%`).join(' · ');
+function ComputerCard({c,onRemove,onWake,onMac}:{c:ComputerStatus;onRemove?:()=>void;onWake?:()=>void;onMac?:()=>void}){
  const i=c.info;
  return <div className={`computer-card ${c.online?'online':'offline'}`}>
   <div className="computer-head"><span className="computer-icon">{c.kind==='local'?<Monitor size={18}/>:<Terminal size={18}/>}<i aria-hidden="true"/></span>
    <div className="computer-title"><strong>{c.name}</strong><small>{kindLabel(c)}{c.host?` · ${c.username}@${c.host}${c.port&&c.port!==22?':'+c.port:''}`:''}</small></div>
    <span className={`computer-state ${c.online?'on':'off'}`}>{c.online?'Conectado':'Desconectado'}</span>
+   {onMac&&<button className="icon-btn" aria-label={`Ligar à distância: ${c.name}`} title="Endereço MAC para ligar à distância" onClick={onMac}><Network size={15}/></button>}
    {onRemove&&<button className="icon-btn" aria-label={`Remover ${c.name}`} onClick={onRemove}><Trash2 size={15}/></button>}</div>
-  {c.online&&i?<p className="computer-info">{i.user}@{i.computer} · {i.os} · ligado há {i.uptimeHours} h · {i.memory?.freeGb} de {i.memory?.totalGb} GB livres{i.cpus?` · ${i.cpus} núcleos`:''}</p>
-   :<p className="computer-info error">{c.error||'Sem resposta.'}<small className="computer-seen">Visto pela última vez: {since(c.lastSeen)}.</small></p>}
+  {c.online&&i?<p className="computer-info">{i.user}@{i.computer} · {i.os} · ligado há {i.uptimeHours} h · {i.memory?.freeGb} de {i.memory?.totalGb} GB livres{i.cpus?` · ${i.cpus} núcleos`:''}{typeof i.cpuPct==='number'?` · CPU ${i.cpuPct}%`:''}{i.disks?.length?<><br/>Discos usados: {diskLine(i)}</>:null}</p>
+   :<><p className="computer-info error">{c.error||'Sem resposta.'}<small className="computer-seen">Visto pela última vez: {since(c.lastSeen)}.</small></p>{c.mac&&onWake&&<button className="secondary" onClick={onWake}><Power size={15}/>Ligar</button>}</>}
  </div>;
 }
 
@@ -65,8 +68,10 @@ export function ComputersPanel({data,reload,onManage,notify}:{data:ComputersData
  if(!data)return <p className="hint">Verificando os computadores…</p>;
  return <div className="stack computers-panel">
   {!data.enabled&&<p className="app-error">Os comandos estão desativados em Configurações → Computador. Os agentes não usam nenhum computador.</p>}
-  {data.computers.length?data.computers.map(c=><ComputerCard key={c.key} c={c}/>)
+  {!!data.alerts?.length&&<div className="stack alerts-list">{data.alerts.map(a=><div className="alert-card" key={a.id}><AlertTriangle size={16}/><div><strong>{a.kind==='offline'?`${a.computer_name} está fora do ar`:a.kind==='cpu'?`CPU alta em ${a.computer_name}`:`Disco quase cheio em ${a.computer_name}`}</strong><small>{a.detail} · desde {since(a.since)}</small></div></div>)}</div>}
+  {data.computers.length?data.computers.map(c=><ComputerCard key={c.key} c={c} onWake={()=>wakeComputer(c,notify,reload)}/>)
    :<p className="empty-state">Nenhum computador configurado.<br/>Instale o Cell Host neste PC ou adicione um computador por SSH.</p>}
+  <RecipesQuick notify={notify} enabled={data.enabled}/>
   <JobsList notify={notify}/>
   <div className="row wrap"><button className="secondary" disabled={busy} onClick={refresh}><RefreshCw size={15}/>{busy?'Verificando…':'Verificar agora'}</button><button className="secondary" onClick={onManage}><Settings2 size={15}/>Gerenciar computadores</button></div>
  </div>;
@@ -85,9 +90,11 @@ export function SshComputers({notify,onChanged}:Notice&{onChanged?:()=>void}){
   }catch(e:any){notify(e.message);}finally{setBusy(false);}};
  const remove=async(c:ComputerStatus)=>{if(!await confirmDialog(`Remover ${c.name}?`,'Os agentes deixam de usar este computador. A senha ou a chave salva é apagada.',{confirm:'Remover',danger:true}))return;try{await api('/computers/'+c.id,'DELETE');notify(`${c.name} removido.`);await load();onChanged?.();}catch(e:any){notify(e.message);}};
  const set=(k:string,v:any)=>setForm(f=>f&&({...f,[k]:v}));
+ const editMac=async(c:ComputerStatus)=>{const mac=await promptDialog(`Ligar ${c.name} à distância`,{value:c.mac||'',placeholder:'Endereço MAC, ex.: AA:BB:CC:DD:EE:FF (vazio desativa)',confirm:'Salvar',required:''});if(mac===null)return;
+  try{await api('/computers/'+c.id,'PATCH',{mac:mac.trim()});notify(mac.trim()?`${c.name} pode ser ligado à distância. Ative o Wake-on-LAN na BIOS e na placa de rede dele.`:'Ligar à distância desativado.');await load();}catch(e:any){notify(e.message);}};
  return <div className="stack ssh-computers"><h3>Computadores conectados</h3>
   <p className="hint">Além deste computador, os agentes podem usar outras máquinas por SSH: Linux (bash) ou Windows com OpenSSH (PowerShell). Cada comando continua pedindo sua aprovação e mostra em qual computador vai rodar.</p>
-  {data?data.computers.map(c=><ComputerCard key={c.key} c={c} onRemove={c.kind==='ssh'?()=>remove(c):undefined}/>):<p className="hint">Verificando…</p>}
+  {data?data.computers.map(c=><ComputerCard key={c.key} c={c} onRemove={c.kind==='ssh'?()=>remove(c):undefined} onMac={c.kind==='ssh'?()=>editMac(c):undefined} onWake={()=>wakeComputer(c,notify,load)}/>):<p className="hint">Verificando…</p>}
   {!form?<button className="secondary full" onClick={()=>setForm(empty)}><Plus size={16}/>Adicionar computador por SSH</button>
   :<div className="setting-card ssh-form stack">
    <label>Nome<input value={form.name} placeholder="Ex.: Servidor de casa" onChange={e=>set('name',e.target.value)}/></label>
@@ -99,5 +106,53 @@ export function SshComputers({notify,onChanged}:Notice&{onChanged?:()=>void}){
    <p className="hint">A senha ou a chave fica guardada cifrada. Prefira um usuário sem permissão de administrador e uma chave criada só para o Cell.</p>
    <div className="form-footer"><button className="text-button" onClick={()=>setForm(null)}>Cancelar</button><button className="primary" disabled={busy||!form.name||!form.host||!form.username||!(form.auth==='password'?form.password:form.privateKey)} onClick={save}>{busy?'Conectando…':'Testar e adicionar'}</button></div>
   </div>}
+ </div>;
+}
+
+// Wake-on-LAN from the app.
+async function wakeComputer(c:ComputerStatus,notify:(m:string)=>void,reload:()=>Promise<any>){
+ try{const r=await api('/computers/'+c.id+'/wake','POST');notify(`Sinal para ligar ${c.name} enviado (pelo ${r.via}). Ele costuma responder em 1 a 2 minutos.`);setTimeout(()=>reload(),90000);}catch(e:any){notify(e.message);}
+}
+// Recipes in the computers panel: one tap to run (the owner's own action, after a confirmation).
+export function RecipesQuick({notify,enabled}:Notice&{enabled:boolean}){
+ const [recipes,setRecipes]=useState<any[]|null>(null),[busy,setBusy]=useState<string|null>(null);
+ useEffect(()=>{api('/recipes').then(setRecipes).catch(()=>{});},[]);
+ if(!recipes?.length)return null;
+ const run=async(r:any)=>{if(!await confirmDialog(`Rodar “${r.name}”?`,`${r.computer_key}: ${r.command.slice(0,300)}`,{confirm:'Rodar'}))return;setBusy(r.id);
+  try{const out=await api('/recipes/'+r.id+'/run','POST');if(out.background)notify(`“${r.name}” rodando em segundo plano. Acompanhe abaixo.`);else await alertDialog(out.ok?`“${r.name}” concluída`:`“${r.name}” terminou com erro (${out.exitCode})`,String(out.stdout||out.stderr||'Sem saída.').slice(-1500),out.ok?'success':'error');}
+  catch(e:any){notify(e.message);}finally{setBusy(null);}};
+ return <div className="stack recipes-quick"><div className="detail-label">RECEITAS</div><div className="recipe-chips">{recipes.map(r=><button key={r.id} className="secondary" disabled={!enabled||busy===r.id} onClick={()=>run(r)} title={r.command}><Play size={13}/>{busy===r.id?'Rodando…':r.name}{r.trusted&&<ShieldCheck size={13} aria-label="Liberada para os agentes"/>}</button>)}</div></div>;
+}
+// Settings: recipes (trust, delete) and saving a past command as a recipe.
+export function RecipesManager({notify}:Notice){
+ const [recipes,setRecipes]=useState<any[]>([]);
+ const load=useCallback(()=>api('/recipes').then(setRecipes).catch((e:any)=>notify(e.message)),[notify]);
+ useEffect(()=>{load();const on=()=>load();window.addEventListener('cell-recipes',on);return()=>window.removeEventListener('cell-recipes',on);},[load]);
+ const toggle=async(r:any)=>{if(!r.trusted&&!await confirmDialog('Liberar sem aprovação?',`Os agentes vão poder rodar “${r.name}” sem pedir sua aprovação: ${r.command.slice(0,300)}`,{confirm:'Liberar'}))return;try{await api('/recipes/'+r.id,'PATCH',{trusted:!r.trusted});await load();}catch(e:any){notify(e.message);}};
+ const remove=async(r:any)=>{if(!await confirmDialog(`Excluir a receita “${r.name}”?`,undefined,{confirm:'Excluir',danger:true}))return;try{await api('/recipes/'+r.id,'DELETE');await load();}catch(e:any){notify(e.message);}};
+ return <div className="stack recipes-manager"><h3>Receitas de comandos</h3>
+  <p className="hint">Comandos salvos para rodar com um toque (no ícone de computadores do topo) ou pelos agentes. Salve um comando a partir dos últimos comandos abaixo. Por padrão os agentes pedem aprovação para usar uma receita; marque “Liberada” só para comandos que você confia rodar a qualquer momento.</p>
+  {recipes.length?recipes.map(r=><div className="setting-card grant-card" key={r.id}><div><strong>{r.name}</strong><small><code>{r.computer_key}</code> · {r.command.slice(0,160)}{r.background?' · segundo plano':''}</small></div>
+   <label className="check-label recipe-trust"><input type="checkbox" checked={r.trusted} onChange={()=>toggle(r)}/>Liberada</label>
+   <button className="icon-btn" aria-label={`Excluir a receita ${r.name}`} onClick={()=>remove(r)}><Trash2 size={15}/></button></div>)
+  :<p className="empty-state">Nenhuma receita ainda.</p>}
+ </div>;
+}
+export async function saveRecipeFrom(cmd:{command:string;computer?:string|null;cwd?:string|null;background?:boolean|null},notify:(m:string)=>void){
+ const name=await promptDialog('Nome da receita',{placeholder:'Ex.: Espaço em disco',confirm:'Salvar receita',required:'Informe um nome.'});if(!name)return;
+ try{await api('/recipes','POST',{name,computer_key:cmd.computer||'este-pc',command:cmd.command,cwd:cmd.cwd||null,background:!!cmd.background});notify(`Receita “${name}” salva.`);window.dispatchEvent(new Event('cell-recipes'));}catch(e:any){notify(e.message);}
+}
+// Settings: alert thresholds.
+export function AlertsSettings({notify}:Notice){
+ const [form,setForm]=useState<any>(null);
+ useEffect(()=>{api('/computer-alerts/settings').then(setForm).catch((e:any)=>notify(e.message));},[notify]);
+ if(!form)return null;
+ const save=async()=>{try{setForm(await api('/computer-alerts/settings','PUT',form));notify('Alertas salvos.');}catch(e:any){notify(e.message);}};
+ const num=(k:string,label:string,min:number,max:number,suffix:string)=><label>{label}<span className="inline-input"><input type="number" min={min} max={max} value={form[k]} onChange={e=>setForm({...form,[k]:Number(e.target.value)})}/>{suffix}</span></label>;
+ return <div className="stack alerts-settings"><h3>Alertas dos computadores</h3>
+  <label className="check-label"><input type="checkbox" checked={form.enabled} onChange={e=>setForm({...form,enabled:e.target.checked})}/>Avisar no celular quando algo precisar de atenção (verificado a cada minuto)</label>
+  <div className="form-grid">{num('diskPct','Disco quase cheio a partir de',50,99,'% usado')}{num('offlineMinutes','Fora do ar por mais de',1,1440,'min')}</div>
+  <div className="form-grid">{num('cpuPct','CPU alta a partir de',50,100,'%')}{num('cpuMinutes','por mais de',1,240,'min')}</div>
+  <div className="form-footer"><button className="primary" onClick={save}>Salvar alertas</button></div>
  </div>;
 }

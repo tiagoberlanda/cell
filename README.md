@@ -178,6 +178,7 @@ Os arquivos gerados aparecem **anexados à resposta** do agente (toque para baix
 | `pc_rename` / `pc_mkdir` | Renomeia e cria pastas. | **Sim** |
 | `pc_write` | Cria um arquivo de texto (substituir um existente aparece na aprovação; o anterior é guardado). | **Sim** |
 | `pc_delete` | Exclui arquivos e pastas, vários de uma vez. Vão para a **Lixeira** e podem ser restaurados. | **Sim** |
+| `pc_edit` | Altera trechos de um arquivo de texto. A aprovação mostra as linhas removidas e adicionadas. | **Sim** |
 | `pc_save_file` | Salva um arquivo da biblioteca do Cell (um PDF ou planilha gerado, um anexo) numa pasta do PC. | **Sim** |
 | `pc_import` | Traz um arquivo do PC para a conversa, anexado à resposta (até 25 MB). | Não |
 
@@ -190,6 +191,8 @@ Todas as alterações em pastas ganham o botão **Desfazer** na conversa (em *Fe
 | `pc_run` | Roda um comando num computador conectado: PowerShell neste PC e nos Windows por SSH, bash nos Linux. Mostra o computador e o script antes. | **Sim, sempre** |
 | `pc_status` | Mostra quais computadores estão conectados, com nome, usuário, sistema, tempo ligado e memória. | Não |
 | `pc_job` | Mostra as tarefas em segundo plano e a saída delas. | Não |
+| `pc_wake` | Liga à distância um computador com o endereço MAC cadastrado (Wake-on-LAN). | Não |
+| `pc_recipe` / `pc_recipe_trusted` | Roda uma receita de comando salva por você. As marcadas como **Liberada** rodam sem aprovação. | Sim / Não |
 
 Comandos longos (backup, download, compactação) rodam **em segundo plano**, sem limite de tempo: o agente usa `pc_run` com `background`, você acompanha a saída ao vivo no ícone de computadores do topo (com o botão **Cancelar**) e recebe um aviso no celular quando termina.
 
@@ -300,6 +303,12 @@ Como funciona no dia a dia:
 - em **Configurações → Computador** você vê o estado, bloqueia ou libera os comandos num toque e confere os últimos comandos com o resultado.
 
 Para remover: `.\scripts\host.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
+
+**Alertas.** Uma checagem por minuto avisa no celular quando um disco passa do limite, um computador fica fora do ar ou a CPU fica alta por um tempo, e avisa quando volta ao normal. Ajuste os limites em **Configurações → Computador → Alertas dos computadores**. Alertas abertos deixam o ponto do ícone de computadores laranja.
+
+**Receitas.** Em **Configurações → Computador → Últimos comandos**, toque em **Salvar como receita** num comando que você usa sempre. Ele aparece no painel de computadores para rodar com um toque. Os agentes também podem usar as receitas: com aprovação, ou sem, se você marcar **Liberada**.
+
+**Ligar à distância.** Para computadores SSH, cadastre o endereço MAC (ícone de rede no cartão do computador, em Configurações → Computador) e ative o Wake-on-LAN na BIOS e na placa de rede dele. Quando ele estiver desligado, toque em **Ligar** no painel.
 
 **Outros computadores (SSH).** Os agentes também podem usar máquinas Linux (bash) ou Windows com OpenSSH (PowerShell). Em **Configurações → Computador → Adicionar computador por SSH**:
 

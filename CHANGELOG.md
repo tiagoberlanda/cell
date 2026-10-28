@@ -5,6 +5,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- **Alertas dos computadores:** uma checagem por minuto avisa no celular quando um disco passa do limite de uso, quando um computador fica fora do ar e quando a CPU fica alta por um tempo; avisa de novo quando volta ao normal. Os alertas abertos aparecem no ícone de computadores do topo (ponto laranja) e no painel. Limites em Configurações → Computador (padrão: disco 90%, fora do ar 10 min, CPU 90% por 15 min). O Cell Host 1.2.0 passa a informar discos e CPU; os computadores por SSH também.
+- **Ligar à distância (Wake-on-LAN):** cadastre o endereço MAC de um computador SSH (Configurações → Computador, ícone de rede) e use **Ligar** no painel quando ele estiver desligado, ou peça ao agente (`pc_wake`). O sinal sai pelo Cell Host, dentro da sua rede.
+- **Receitas de comandos:** salve um comando dos "Últimos comandos" como receita com nome. Rode com um toque no painel de computadores (o resultado aparece na hora; tarefas longas seguem em segundo plano). Os agentes usam receitas com aprovação (`pc_recipe`) ou, para as marcadas como **Liberada**, sem aprovação (`pc_recipe_trusted`); uma receita alterada depois não roda nos termos antigos.
+- **Editar arquivos com prévia:** `pc_edit` troca trechos exatos de um arquivo de texto numa pasta liberada. O cartão de aprovação mostra as linhas removidas (vermelho) e adicionadas (verde) antes de aprovar; quebras de linha do Windows são preservadas e dá para desfazer.
+- Migração `0022_alerts_wake_recipes_preview`.
+
+### Como foi verificado
+- **Real:** espaço dos discos lido pelo Node no Windows (C: e K:).
+- **Simulado:** teste de integração: alerta de disco imediato, CPU e fora do ar só depois do tempo configurado, resolução; MAC inválido recusado, sinal pelo Cell Host com MAC e broadcast certos; receitas (nome repetido, computador desconhecido, rodar, aprovação versus liberada, alteração depois bloqueada, modo plano); `pc_edit` pelo worker com prévia gravada antes da aprovação, CRLF preservado, trecho ausente ou repetido, desfazer. Teste de navegador da prévia colorida, alertas, Ligar e receita.
+- **Não verificado:** acordar um computador de verdade (depende de Wake-on-LAN ligado na BIOS e na placa de rede dele).
+
 ## [0.25.0] - 2026-10-28
 
 ### Adicionado

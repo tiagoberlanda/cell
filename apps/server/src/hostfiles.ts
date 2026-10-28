@@ -88,10 +88,41 @@ export async function undoFileOp(id:string){
  }else for(const i of items){try{
   if(op.kind==='move'||op.kind==='rename')await back(i.to,i.from);
   else if(op.kind==='mkdir'){const dir=toHost(parseWindowsPath(i.path));if((await readdir(dir).catch(()=>[])).length)throw new Error(`${i.path} não está vazia`);await rm(dir,{recursive:true});}
-  else if(op.kind==='write'||op.kind==='save'){const p=parseWindowsPath(i.path),file=toHost(p);if(await exists(file))await toTrash(op.agent_id,p).catch(async()=>{await rm(file,{force:true});});if(i.backup)await moveItem(i.backup,file);}
+  else if(op.kind==='write'||op.kind==='save'||op.kind==='edit'){const p=parseWindowsPath(i.path),file=toHost(p);if(await exists(file))await toTrash(op.agent_id,p).catch(async()=>{await rm(file,{force:true});});if(i.backup)await moveItem(i.backup,file);}
  }catch(e:any){errors.push(String(e?.message||e));}}
  if(errors.length){await query('UPDATE file_ops SET undo_error=$2 WHERE id=$1',[id,errors.join('; ').slice(0,1000)]);return {ok:false,errors};}
  await query('UPDATE file_ops SET undone_at=now(),undo_error=NULL WHERE id=$1',[id]);return {ok:true};
+}
+
+// --- pc_edit: exact find/replace with a line diff for the approval card.
+const editInput=z.object({path:z.string().min(2).max(500),edits:z.array(z.object({find:z.string().min(1).max(100000),replace:z.string().max(100000),all:z.boolean().optional()})).min(1).max(50)});
+async function applyEdits(agentId:string,x:z.infer<typeof editInput>){
+ const p=await grantFor(agentId,x.path);const file=toHost(p);
+ if(/^\.env/i.test(p.parts.at(-1)!))throw new Error('Arquivos de configuração com segredos não podem ser editados.');
+ const info=await stat(file).catch(()=>null);if(!info?.isFile())throw new Error(`Arquivo não encontrado: ${formatWindowsPath(p)}.`);if(info.size>2_000_000)throw new Error('Arquivo grande demais para editar (limite de 2 MB).');
+ const before=(await readFile(file)).toString('utf8');if(before.includes('�'))throw new Error('O arquivo não parece ser texto UTF-8.');
+ // Windows files often use CRLF; match edits written with plain LF too.
+ const crlf=before.includes('\r\n');let after=before,count=0;
+ for(const e of x.edits){const find=crlf?e.find.replace(/\r?\n/g,'\r\n'):e.find,replace=crlf?e.replace.replace(/\r?\n/g,'\r\n'):e.replace;
+  const n=after.split(find).length-1;if(!n)throw new Error(`Trecho não encontrado: "${e.find.slice(0,80)}"`);if(n>1&&!e.all)throw new Error(`O trecho aparece ${n} vezes; use all=true ou inclua mais contexto: "${e.find.slice(0,80)}"`);
+  after=after.split(find).join(replace);count+=n;}
+ if(after===before)throw new Error('As edições não mudam o arquivo.');
+ return {before,after,count};
+}
+// Changed lines with 2 lines of context ("-" removed, "+" added, " " unchanged, "@@ linha N" between hunks).
+export function lineDiff(before:string,after:string){
+ const a=before.replace(/\r\n/g,'\n').split('\n'),b=after.replace(/\r\n/g,'\n').split('\n');
+ let start=0;while(start<a.length&&start<b.length&&a[start]===b[start])start++;
+ let ea=a.length-1,eb=b.length-1;while(ea>=start&&eb>=start&&a[ea]===b[eb]){ea--;eb--;}
+ // Middle block: LCS when small enough, otherwise all removed then all added.
+ const mid:string[]=[],A=a.slice(start,ea+1),B=b.slice(start,eb+1);
+ if(A.length*B.length<=250000){const L=Array.from({length:A.length+1},()=>new Uint32Array(B.length+1));for(let i=A.length-1;i>=0;i--)for(let j=B.length-1;j>=0;j--)L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
+  let i=0,j=0;while(i<A.length||j<B.length){if(i<A.length&&j<B.length&&A[i]===B[j]){mid.push(' '+A[i]);i++;j++;}else if(i<A.length&&(j>=B.length||L[i+1][j]>=L[i][j+1])){mid.push('-'+A[i]);i++;}else{mid.push('+'+B[j]);j++;}}}
+ else mid.push(...A.map(l=>'-'+l),...B.map(l=>'+'+l));
+ const ctxBefore=a.slice(Math.max(0,start-2),start).map(l=>' '+l),ctxAfter=a.slice(ea+1,ea+3).map(l=>' '+l);
+ // Collapse long unchanged stretches inside the middle block.
+ const out:string[]=[];let same=0;for(const l of mid){if(l[0]===' '){same++;if(same>4)continue;}else same=0;out.push(l);}
+ return [`@@ linha ${Math.max(1,start-1)}`,...ctxBefore,...out,...ctxAfter].join('\n').slice(0,30000);
 }
 
 export function hostFileTools():Tool[]{
@@ -145,6 +176,10 @@ export function hostFileTools():Tool[]{
   {name:'pc_write',description:'Cria um arquivo de texto (txt, md, csv, json, html, ps1, etc.) numa pasta liberada. Não sobrescreve, a menos que overwrite=true (o usuário vê isso na aprovação; o arquivo anterior é guardado e pode ser restaurado com Desfazer).',parameters:object({path:pathArg,content:{type:'string'},overwrite:{type:'boolean'}},['path','content']),write:true,target:'Pastas do computador',
    execute:async(a,r)=>{const x=z.object({path:z.string().min(2).max(500),content:z.string().max(2_000_000),overwrite:z.boolean().optional()}).parse(a);
     return JSON.stringify(await placeFile(r,'write',x.path,Buffer.from(x.content,'utf8'),!!x.overwrite));}},
+  {name:'pc_edit',description:'Altera trechos de um arquivo de texto numa pasta liberada: cada edição troca o texto exato de find por replace (find precisa aparecer uma vez, ou use all=true para todas). O usuário vê as linhas removidas e adicionadas antes de aprovar, e pode desfazer. Leia o arquivo com pc_read antes, para copiar find exatamente.',
+   parameters:object({path:pathArg,edits:{type:'array',maxItems:50,items:object({find:{type:'string'},replace:{type:'string'},all:{type:'boolean'}},['find','replace'])}},['path','edits']),write:true,target:'Pastas do computador',
+   preview:async(a,r)=>{const x=editInput.parse(a);const {before,after}=await applyEdits(r.agent_id,x);return lineDiff(before,after);},
+   execute:async(a,r)=>{const x=editInput.parse(a);const {after,count}=await applyEdits(r.agent_id,x);return JSON.stringify({...await placeFile(r,'edit',x.path,Buffer.from(after,'utf8'),true),replacements:count});}},
   {name:'pc_save_file',description:'Salva um arquivo da biblioteca do Cell (por exemplo um PDF, planilha ou imagem que você gerou, ou um anexo da conversa) numa pasta liberada do computador. path é o caminho final com o nome do arquivo. Não sobrescreve, a menos que overwrite=true.',parameters:object({fileId:{type:'string'},path:pathArg,overwrite:{type:'boolean'}},['fileId','path']),write:true,target:'Pastas do computador',
    execute:async(a,r)=>{const x=z.object({fileId:z.string().uuid(),path:z.string().min(2).max(500),overwrite:z.boolean().optional()}).parse(a);const f=await fileData(x.fileId);
     return JSON.stringify({...await placeFile(r,'save',x.path,f.data,!!x.overwrite),from:f.name});}},

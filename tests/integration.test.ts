@@ -41,7 +41,8 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.post('/v1/search',async()=>({results:[{title:'Fonte de teste',url:'https://example.com',snippet:'Resultado controlado.'}]}));
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
  const hostRuns:any[]=[];const hostToken='h'.repeat(40);
- fake.get('/host/status',async(req,reply)=>req.headers.authorization===`Bearer ${hostToken}`?{version:'1.0.0',computer:'pc-teste',user:'Tiago',os:'Windows_NT',uptimeHours:2,memory:{totalGb:32,freeGb:8},cpus:8,home:'C:\\Users\\Tiago'}:reply.code(401).send({error:'unauthorized'}));
+ const hostMetrics={disks:[{drive:'C:',totalGb:100,freeGb:60},{drive:'K:',totalGb:100,freeGb:5}],cpuPct:20};
+ fake.get('/host/status',async(req,reply)=>req.headers.authorization===`Bearer ${hostToken}`?{...hostMetrics,version:'1.2.0',computer:'pc-teste',user:'Tiago',os:'Windows_NT',uptimeHours:2,memory:{totalGb:32,freeGb:8},cpus:8,home:'C:\\Users\\Tiago'}:reply.code(401).send({error:'unauthorized'}));
  const winToHost=(w:string)=>{const m=/^([A-Za-z]):\\?(.*)$/.exec(w)!;return join(process.env.HOST_DRIVES_ROOT!,m[1].toLowerCase(),...m[2].split('\\').filter(Boolean));};
  const hostJobs=new Map<string,{polls:number;cancelled:boolean}>();
  fake.post('/host/jobs',async(req:any,reply)=>{if(req.headers.authorization!==`Bearer ${hostToken}`)return reply.code(401).send({error:'unauthorized'});const id=crypto.randomUUID();hostJobs.set(id,{polls:0,cancelled:false});hostRuns.push({job:req.body});return {id,running:true,exitCode:null,output:''};});
@@ -49,6 +50,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   return j.cancelled?{running:false,exitCode:1,cancelled:true,output:'progresso 1'}:j.polls<2?{running:true,exitCode:null,output:'progresso 1'}:{running:false,exitCode:0,output:'progresso 1\npronto: 3 arquivos'};});
  fake.post('/host/jobs/:id/cancel',async(req:any)=>{const j=hostJobs.get(req.params.id);if(j)j.cancelled=true;return {ok:true};});
  fake.post('/host/run',async(req:any,reply)=>{if(req.headers.authorization!==`Bearer ${hostToken}`)return reply.code(401).send({error:'unauthorized'});hostRuns.push(req.body);
+  if(String(req.body.command).includes('EnableBroadcast'))return {exitCode:0,stdout:'sent',stderr:'',timedOut:false,truncated:false,ms:30};
   const list=/FromBase64String\('([^']+)'\)/.exec(req.body.command||'');
   if(list&&/SendToRecycleBin|Namespace\(10\)/.test(req.body.command)){const {renameSync,existsSync:ex,mkdirSync:mk}=await import('node:fs');const bin=join(process.env.HOST_DRIVES_ROOT!,'_recycle');mk(bin,{recursive:true});const out:any={};
    for(const w of JSON.parse(Buffer.from(list[1],'base64').toString('utf8'))){const h=winToHost(w),b=join(bin,Buffer.from(w).toString('hex'));
@@ -69,6 +71,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
    if(text.includes('CALL_MCP_FAIL')){tool=mcpFailName;args={value:'falha'};}
    // Keys in an order jsonb rewrites (it sorts by length): the approval must survive the round trip through the database.
    if(text.includes('RUN_CMD')){tool='pc_run';args={command:'Get-Date',reason:'Ver a data do computador'};}
+   if(text.includes('EDIT_FILE')){tool='pc_edit';args={path:'K:\\Downloads\\config.ini',edits:[{find:'porta=80',replace:'porta=8080'}]};}
    if(text.includes('OPEN_NOTION')){tool='use_app';args={app:'notion'};}
    if(text.includes('MAKE_SHEET')){tool='create_spreadsheet';args={name:'Vendas: 3º trimestre.xlsx',sheets:[{name:'Resumo',columns:['Mês','Vendas','Meta','Atingido'],rows:[['Julho',120,100,'=B2/C2'],['Agosto',98,110,'=B3/C3']]}]};}
    if(text.includes('PC_ACCESS')){tool='pc_request_access';args={path:'k:/Downloads/',reason:'Organizar os downloads'};}
@@ -465,8 +468,8 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   const {toolsFor}=await import('../apps/server/src/tools.js');
   const tools=async(agentId:string,mode='execute')=>(await toolsFor({agent_id:agentId,mode},{agent:{tools:[]}})).filter((x:any)=>x.name.startsWith('pc_')&&x.app!=='computador');
   const pc=async(agentId:string,name:string,args:any)=>(await tools(agentId)).find((x:any)=>x.name===name)!.execute(args,{agent_id:agentId},{});
-  const mine=await tools(agent.id);assert.deepEqual(mine.map((x:any)=>x.name).sort(),['pc_delete','pc_import','pc_list','pc_mkdir','pc_move','pc_read','pc_rename','pc_request_access','pc_save_file','pc_write']);
-  assert.deepEqual(mine.filter((x:any)=>x.write).map((x:any)=>x.name).sort(),['pc_delete','pc_mkdir','pc_move','pc_rename','pc_request_access','pc_save_file','pc_write'],'pedido, mudanças e exclusões pedem aprovação');
+  const mine=await tools(agent.id);assert.deepEqual(mine.map((x:any)=>x.name).sort(),['pc_delete','pc_edit','pc_import','pc_list','pc_mkdir','pc_move','pc_read','pc_rename','pc_request_access','pc_save_file','pc_write']);
+  assert.deepEqual(mine.filter((x:any)=>x.write).map((x:any)=>x.name).sort(),['pc_delete','pc_edit','pc_mkdir','pc_move','pc_rename','pc_request_access','pc_save_file','pc_write'],'pedido, mudanças e exclusões pedem aprovação');
   assert.deepEqual((await tools(agent.id,'plan')).map((x:any)=>x.name).sort(),['pc_list','pc_read'],'modo plano só lê');
   await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso a K:\\Downloads/);
   // The agent asks; the run waits for the owner; approving grants the folder.
@@ -524,6 +527,21 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   const imp=JSON.parse(await exec('pc_import',{path:'K:\\Downloads\\dados.xyz'},await newCall('pc_import')));
   assert.equal(imp.name,'dados.xyz');assert.equal(imp.mime,'application/octet-stream');assert.equal((await fileData(imp.id)).data.toString(),'qualquer formato');
   await assert.rejects(exec('pc_import',{path:'K:\\Outros\\privado.txt'},await newCall('pc_import')),/Sem acesso/);
+  // pc_edit: diff preview before approval (computed by the worker), exact edits, undo.
+  writeFileSync(join(hostRoot,'k','Downloads','config.ini'),'[servidor]\r\nnome=casa\r\nporta=80\r\nmodo=dev\r\n');
+  const ed=await task('EDIT_FILE');await poll(ed.id,'waiting_approval');
+  const pv=(await one("SELECT preview FROM tool_calls WHERE run_id=$1 AND tool='pc_edit'",[ed.id])).preview;
+  assert.match(pv,/^@@ linha 1/);assert.match(pv,/\n-porta=80\n\+porta=8080/);assert.match(pv,/ nome=casa/,'contexto');
+  const edAp=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[ed.id]);
+  const edCalls=(await request('GET','/conversations/'+(await one('SELECT conversation_id FROM runs WHERE id=$1',[ed.id])).conversation_id)).calls;assert.equal(edCalls.find((c:any)=>c.tool==='pc_edit').preview,pv,'a conversa recebe a prévia');
+  await request('POST','/approvals/'+edAp.id,{decision:'approved'});await poll(ed.id,'completed');
+  const {readFileSync}=await import('node:fs');assert.equal(readFileSync(join(hostRoot,'k','Downloads','config.ini'),'utf8'),'[servidor]\r\nnome=casa\r\nporta=8080\r\nmodo=dev\r\n','CRLF preservado');
+  const edCall=(await one("SELECT id FROM tool_calls WHERE run_id=$1 AND tool='pc_edit'",[ed.id])).id;await request('POST','/file-ops/'+edCall+'/undo');
+  assert.equal(readFileSync(join(hostRoot,'k','Downloads','config.ini'),'utf8'),'[servidor]\r\nnome=casa\r\nporta=80\r\nmodo=dev\r\n','edição desfeita');
+  await assert.rejects(exec('pc_edit',{path:'K:\\Downloads\\config.ini',edits:[{find:'nao existe',replace:'x'}]},await newCall('pc_edit')),/não encontrado/);
+  writeFileSync(join(hostRoot,'k','Downloads','dup.txt'),'a\na\n');
+  await assert.rejects(exec('pc_edit',{path:'K:\\Downloads\\dup.txt',edits:[{find:'a',replace:'b'}]},await newCall('pc_edit')),/aparece 2 vezes/);
+  await exec('pc_edit',{path:'K:\\Downloads\\dup.txt',edits:[{find:'a',replace:'b',all:true}]},await newCall('pc_edit'));assert.equal(readFileSync(join(hostRoot,'k','Downloads','dup.txt'),'utf8'),'b\nb\n');
   // Revoking is immediate.
   await request('DELETE','/host-access/'+access.grants[0].id);await assert.rejects(pc(agent.id,'pc_list',{path:'K:\\Downloads'}),/Sem acesso/);
  });
@@ -658,6 +676,44 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal((await one('SELECT status FROM computer_jobs WHERE id=$1',[second.jobId])).status,'cancelled');
   await assert.rejects(request('POST','/computer-jobs/'+second.jobId+'/cancel'),/não está rodando/);
  });
+ await t.test('alertas, ligar à distância e receitas de comandos',async()=>{
+  const {checkAlerts}=await import('../apps/server/src/computer.js');const {encrypt}=await import('../apps/server/src/security.js');const {toolsFor}=await import('../apps/server/src/tools.js');
+  // Disk: notified at once; resolved when space is freed.
+  await request('PUT','/computer-alerts/settings',{enabled:true,diskPct:90,offlineMinutes:1,cpuPct:90,cpuMinutes:1});
+  await checkAlerts();let open=(await request('GET','/computers')).alerts;assert.equal(open.length,1);assert.equal(open[0].kind,'disk:K:');assert.match(open[0].detail,/95% usado/);
+  assert.match((await request('GET','/computers')).computers[0].info.disks[1].drive,/K:/);
+  hostMetrics.cpuPct=97;await checkAlerts();assert.equal((await request('GET','/computers')).alerts.length,1,'CPU alta só avisa depois do tempo configurado');
+  await query("UPDATE computer_alerts SET since=now()-interval '2 minutes' WHERE kind='cpu' AND resolved_at IS NULL");await checkAlerts();
+  assert.ok((await request('GET','/computers')).alerts.some((a:any)=>a.kind==='cpu'));
+  hostMetrics.disks[1].freeGb=50;hostMetrics.cpuPct=10;await checkAlerts();assert.equal((await request('GET','/computers')).alerts.length,0,'resolvidos');
+  // Offline: an SSH computer that does not answer.
+  const pc=await one("INSERT INTO computers(name,host,port,username,auth,shell,fingerprint) VALUES('Servidor Desligado','127.0.0.1',1,'x',$1,'bash','SHA256:x') RETURNING id",[encrypt({password:'x'})]);
+  await checkAlerts();assert.equal((await request('GET','/computers')).alerts.length,0,'espera o tempo de fora do ar');
+  await query("UPDATE computer_alerts SET since=now()-interval '5 minutes' WHERE kind='offline' AND resolved_at IS NULL");await checkAlerts();
+  assert.equal((await request('GET','/computers')).alerts.find((a:any)=>a.kind==='offline').computer_name,'Servidor Desligado');
+  // Wake-on-LAN through the Cell Host.
+  await assert.rejects(request('PATCH','/computers/'+pc.id,{mac:'zz:11'}),/MAC inválido/);
+  await assert.rejects(request('POST','/computers/'+pc.id+'/wake'),/Cadastre o endereço MAC/);
+  await request('PATCH','/computers/'+pc.id,{mac:'AA-BB-CC-DD-EE-01',broadcast:'192.168.0.255'});
+  assert.deepEqual(await request('POST','/computers/'+pc.id+'/wake'),{sent:true,via:'Cell Host'});
+  const wakeScript=hostRuns.at(-1).command;assert.match(wakeScript,/aabbccddee01/);assert.match(wakeScript,/192\.168\.0\.255/);
+  const wakeTool=(await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}})).find((x:any)=>x.name==='pc_wake')!;assert.deepEqual(wakeTool.parameters.properties.computer.enum,['servidor-desligado']);
+  await query('DELETE FROM computers WHERE id=$1',[pc.id]);await checkAlerts();
+  // Recipes: run by the owner; agents need approval unless the recipe is trusted.
+  await assert.rejects(request('POST','/recipes',{name:'X',computer_key:'nao-existe',command:'x'}),/desconhecido/);
+  const rec=await request('POST','/recipes',{name:'Data',computer_key:'este-pc',command:'Get-Date'});
+  await assert.rejects(request('POST','/recipes',{name:'data',computer_key:'este-pc',command:'x'}),/Já existe/);
+  const ran=await request('POST','/recipes/'+rec.id+'/run');assert.equal(ran.ok,true);assert.equal(hostRuns.at(-1).command,'Get-Date');
+  let tools:any[]=await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}});
+  assert.equal(tools.find((x:any)=>x.name==='pc_recipe').write,true);assert.ok(!tools.some((x:any)=>x.name==='pc_recipe_trusted'));
+  await request('PATCH','/recipes/'+rec.id,{trusted:true});tools=await toolsFor({agent_id:agent.id,mode:'execute'},{agent:{tools:[]}});
+  const trusted=tools.find((x:any)=>x.name==='pc_recipe_trusted');assert.equal(trusted.write,false,'liberada roda sem aprovação');assert.ok(!tools.some((x:any)=>x.name==='pc_recipe'));
+  assert.equal(JSON.parse(await trusted.execute({name:'Data'},{agent_id:agent.id},{})).ok,true);
+  await query("UPDATE command_recipes SET command='Remove-Item C:\\*' WHERE id=$1",[rec.id]);
+  await assert.rejects(trusted.execute({name:'Data'},{agent_id:agent.id},{}),/mudou/,'receita alterada depois não roda nos termos antigos');
+  assert.ok(!(await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:[]}})).some((x:any)=>x.name.startsWith('pc_recipe')),'modo plano não roda receitas');
+  await request('DELETE','/recipes/'+rec.id);
+ });
  await t.test('fixar até 3 agentes, renomear e mover de seção pelo menu',async()=>{
   const all=await request('GET','/agents');const others=all.filter((a:any)=>!a.archived&&!a.pinned);
   const room=3-all.filter((a:any)=>a.pinned&&!a.archived).length;for(const a of others.slice(0,room))await request('POST',`/agents/${a.id}/pin`,{pinned:true});
@@ -686,4 +742,10 @@ test('nomes de ferramentas MCP longos não colidem (Grok recusa duplicados)',asy
  assert.notEqual(a,b);assert.ok(a.length<=64&&b.length<=64);assert.match(a,/^[a-zA-Z0-9_-]+$/);
  assert.equal(mcpToolName(id,'notion-fetch'),'mcp_8f39d201c1354291b0f4b50da4c10fcb_notion-fetch','nomes curtos não mudam');
  assert.equal(mcpToolName(id,'notion-calendar-list-calendars'),a,'estável');
+});
+
+test('prévia de alterações em linhas (pc_edit)',async()=>{
+ const {lineDiff}=await import('../apps/server/src/hostfiles.js');
+ assert.equal(lineDiff('a\nb\nc\nd\ne','a\nb\nX\nd\ne'),'@@ linha 1\n a\n b\n-c\n+X\n d\n e');
+ assert.equal(lineDiff('um\ndois','um\ndois\ntrês'),'@@ linha 1\n um\n dois\n+três');
 });

@@ -12,7 +12,7 @@ import { nextOccurrence } from './schedule.js';
 import { z } from 'zod';
 import { hash } from './security.js';
 // app: connected application the tool belongs to; those tools are offered to the model only after use_app opens it.
-export interface Tool {name:string;description:string;parameters:any;write:boolean;target?:string;binding?:string;app?:string;execute:(args:any,run:any,cfg:any)=>Promise<string>}
+export interface Tool {name:string;description:string;parameters:any;write:boolean;target?:string;binding?:string;app?:string;preview?:(args:any,run:any)=>Promise<string>;execute:(args:any,run:any,cfg:any)=>Promise<string>}
 // Function name for an MCP tool. Providers cap names at 64 characters; plain truncation made distinct tools collide
 // (notion-calendar-list-calendars vs notion-calendar-list-calendar-events), which xAI/Grok rejects as a duplicate
 // definition. Names that fit stay as they were (saved agent settings keep working); longer ones get a hash suffix.

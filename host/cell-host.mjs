@@ -5,14 +5,14 @@
 // Config: %LOCALAPPDATA%\Cell\host.json {port, token}, written by scripts/host.ps1 (or CELL_HOST_CONFIG).
 import { createServer } from 'node:http';
 import { spawn, execFile } from 'node:child_process';
-import { readFileSync, appendFileSync, mkdirSync, existsSync, statSync, createWriteStream, openSync, readSync, closeSync, fstatSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, existsSync, statSync, statfsSync, createWriteStream, openSync, readSync, closeSync, fstatSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 const dir = path.join(process.env.LOCALAPPDATA || os.homedir(), 'Cell');
 const configPath = process.env.CELL_HOST_CONFIG || path.join(dir, 'host.json');
 const logPath = path.join(dir, 'host.log');
@@ -64,8 +64,16 @@ function tail(file, bytes = 8000) {
 }
 const jobView = j => ({ id: j.id, running: j.running, exitCode: j.exitCode, cancelled: j.cancelled, startedAt: j.startedAt, finishedAt: j.finishedAt, output: tail(j.file), truncated: j.size >= MAX_JOB_LOG });
 
+// CPU use over the last 15 s (os.loadavg is always 0 on Windows) and free space of every drive letter.
+let cpuPct = null, lastCpu = os.cpus();
+setInterval(() => { const now = os.cpus(); let idle = 0, total = 0; now.forEach((c, i) => { const p = lastCpu[i]?.times || c.times; for (const k of Object.keys(c.times)) total += c.times[k] - p[k]; idle += c.times.idle - p.idle; }); lastCpu = now; if (total > 0) cpuPct = Math.round(100 * (1 - idle / total)); }, 15000).unref();
+function disks() {
+  const out = [];
+  for (const l of 'CDEFGHIJKLMNOPQRSTUVWXYZ') { try { const s = statfsSync(`${l}:/`); if (s.blocks > 0) out.push({ drive: `${l}:`, totalGb: Math.round(s.blocks * s.bsize / 1e8) / 10, freeGb: Math.round(s.bavail * s.bsize / 1e8) / 10 }); } catch {} }
+  return out;
+}
 function status() {
-  return { version: VERSION, computer: os.hostname(), user: os.userInfo().username, os: `${os.type()} ${os.release()}`, uptimeHours: Math.round(os.uptime() / 360) / 10,
+  return { version: VERSION, cpuPct, disks: disks(), computer: os.hostname(), user: os.userInfo().username, os: `${os.type()} ${os.release()}`, uptimeHours: Math.round(os.uptime() / 360) / 10,
     memory: { totalGb: Math.round(os.totalmem() / 1e8) / 10, freeGb: Math.round(os.freemem() / 1e8) / 10 }, cpus: os.cpus().length, home: os.homedir() };
 }
 

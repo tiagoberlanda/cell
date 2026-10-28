@@ -8,7 +8,7 @@ import { saveFile } from './files.js';
 import { stripThinking } from '../../../packages/shared/src/index.js';
 import { decrypt,approvalFingerprint,safeError } from './security.js';
 import { toolsFor,offeredTools } from './tools.js';
-import { pollJobs } from './computer.js';
+import { pollJobs,checkAlerts } from './computer.js';
 import { undoFileOp } from './hostfiles.js';
 import { McpToolError } from './mcp.js';
 import { notifyAnswer,notifyApproval } from './push.js';
@@ -67,6 +67,8 @@ async function processRun(id:string){
     if(run.steps>=cfg.maxSteps)throw new Error('Limite de ferramentas atingido. As chamadas anteriores foram processadas.');
     context.push({role:'assistant',content:result.text||null,tool_calls:result.calls});run.steps++;
     await transaction(async tx=>{await tx.query('UPDATE runs SET context=$2,steps=$3,usage=$4,updated_at=now() WHERE id=$1',[id,JSON.stringify(context),run.steps,JSON.stringify(usage)]);for(const c of result.calls){let args;try{args=JSON.parse(c.function.arguments);}catch{throw new Error('Argumentos inválidos de ferramenta.');}const t=tools.find(t=>t.name===c.function.name);if(!t)throw new Error('Modelo solicitou ferramenta não habilitada.');await tx.query('INSERT INTO tool_calls(run_id,call_id,tool,args,fingerprint,external_write,target,binding) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(run_id,call_id) DO NOTHING',[id,c.id,c.function.name,JSON.stringify(args),approvalFingerprint(c.function.name,args,t.binding||''),t.write,t.target||null,t.binding||'']);}});
+    // What the change will look like (e.g. pc_edit's diff), shown on the approval card before it is approved.
+    for(const c of result.calls){const t=tools.find(t=>t.name===c.function.name);if(!t?.preview)continue;let pv='';try{pv=await t.preview(JSON.parse(c.function.arguments),run);}catch(e){pv='!'+safeError(e);}await query('UPDATE tool_calls SET preview=$3 WHERE run_id=$1 AND call_id=$2 AND preview IS NULL',[id,c.id,pv.slice(0,30000)]);}
    }
   }catch(e){if(!abort.signal.aborted){await setState(id,'failed',safeError(e));if(run.parent_id)await enqueue(run.parent_id);}}finally{clearInterval(timer);}
  }finally{if(agentLock)await connection.query('SELECT pg_advisory_unlock(hashtext($1))',[run.agent_id]);if(slot!==undefined)await connection.query('SELECT pg_advisory_unlock(720001,$1)',[slot]);connection.release();}
@@ -108,6 +110,8 @@ for(const r of await query("UPDATE runs SET state='queued',updated_at=now() WHER
 await boss.work<{id:string}>('run',{localConcurrency:10,batchSize:1},async jobs=>{for(const j of jobs)await processRun(j.data.id);});
 // Undo of computer file changes, requested from the app (only the worker has the drives).
 await boss.work<{id:string}>('file-undo',{batchSize:1},async jobs=>{for(const j of jobs){try{await undoFileOp(j.data.id);}catch(e){await query('UPDATE file_ops SET undo_error=$2 WHERE id=$1',[j.data.id,safeError(e)]);}}});
-let ticking=false;const interval=setInterval(()=>{if(!ticking){ticking=true;tick().then(()=>pollJobs()).catch(()=>console.error('Falha no agendador.')).finally(()=>ticking=false);}},10000);await tick();
+// Computer alerts once a minute (each check asks every computer for its status).
+let lastAlerts=0;const alertsDue=()=>{if(Date.now()-lastAlerts<60000)return false;lastAlerts=Date.now();return true;};
+let ticking=false;const interval=setInterval(()=>{if(!ticking){ticking=true;tick().then(()=>pollJobs()).then(()=>alertsDue()?checkAlerts():undefined).catch(()=>console.error('Falha no agendador.')).finally(()=>ticking=false);}},10000);await tick();
 console.log('Worker Cell pronto.');
 for(const signal of ['SIGTERM','SIGINT'] as const)process.on(signal,async()=>{stopping=true;clearInterval(interval);await boss.stop({graceful:true,timeout:15000});await pool.end();process.exit(0);});

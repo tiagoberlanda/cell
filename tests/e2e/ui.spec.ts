@@ -511,3 +511,40 @@ test('desfazer alteração e tarefas em segundo plano com saída ao vivo', async
   await expect(job.locator('.job-state')).toHaveText('Cancelada');
   await noHorizontalScroll(page);
 });
+
+test('alertas, ligar à distância, receitas e prévia da edição na aprovação', async ({ page }) => {
+  let woke = false;
+  await page.route('**/api/computers', route => route.fulfill({ json: { enabled: true, hostInstalled: true,
+    alerts: [{ id: 'a1', computer_key: 'este-pc', computer_name: 'Este computador', kind: 'disk:K:', detail: 'K: com 95% usado (5 GB livres de 100 GB)', since: new Date().toISOString() }],
+    computers: [
+      { key: 'este-pc', id: 'local', name: 'Este computador', kind: 'local', shell: 'powershell', online: true, info: { computer: 'PC', user: 'U', os: 'Windows', uptimeHours: 1, memory: { totalGb: 8, freeGb: 4 }, cpus: 4, cpuPct: 12, disks: [{ drive: 'C:', totalGb: 100, freeGb: 60 }, { drive: 'K:', totalGb: 100, freeGb: 5 }] } },
+      { key: 'servidor', id: '00000000-0000-0000-0000-0000000000bb', name: 'Servidor', kind: 'ssh', shell: 'bash', host: '192.168.0.50', port: 22, username: 'cell', online: false, error: 'SSH: connect ETIMEDOUT', mac: 'AA:BB:CC:DD:EE:01', lastSeen: null }
+    ] } }));
+  await page.route('**/api/computers/*/wake', route => { woke = true; return route.fulfill({ json: { sent: true, via: 'Cell Host' } }); });
+  await page.route('**/api/recipes', route => route.fulfill({ json: [{ id: 'r1', name: 'Espaço em disco', computer_key: 'este-pc', command: 'Get-PSDrive', trusted: true, background: false }] }));
+  await page.route('**/api/recipes/r1/run', route => route.fulfill({ json: { recipe: 'Espaço em disco', computer: 'Este computador', ok: true, exitCode: 0, stdout: 'C: 380 GB livres' } }));
+  await page.route('**/api/computer-jobs', route => route.fulfill({ json: [] }));
+  await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch(); const body = await res.json();
+    body.calls = [...(body.calls || []), { id: 'e1', run_id: 'x', tool: 'pc_edit', args: { path: 'K:\config.ini', edits: [{ find: 'porta=80', replace: 'porta=8080' }] }, status: 'pending', approval_id: '00000000-0000-0000-0000-0000000000e1', approval_status: 'pending', preview: '@@ linha 1\n [servidor]\n-porta=80\n+porta=8080\n modo=dev' }];
+    return route.fulfill({ response: res, json: body });
+  });
+  await page.reload(); await expect(page.locator('.chat-header')).toBeVisible();
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  const card = page.locator('.approval-card', { hasText: 'Editar este arquivo no computador?' });
+  await expect(card.locator('.diff-preview .del')).toHaveText('− porta=80\n');
+  await expect(card.locator('.diff-preview .add')).toHaveText('+ porta=8080\n');
+  await expect(page.locator('.pc-indicator')).toHaveClass(/alert/);
+  await page.locator('.pc-indicator').click();
+  const dialog = page.getByRole('dialog', { name: 'Computadores' });
+  await expect(dialog.locator('.alert-card')).toContainText('Disco quase cheio em Este computador');
+  await expect(dialog.locator('.computer-card').first()).toContainText('Discos usados: C: 40% · K: 95%');
+  await dialog.locator('.computer-card', { hasText: 'Servidor' }).getByRole('button', { name: 'Ligar' }).click();
+  await expect.poll(() => woke).toBe(true);
+  await dialog.getByRole('button', { name: /Espaço em disco/ }).click();
+  await page.getByRole('button', { name: 'Rodar', exact: true }).click();
+  await expect(page.locator('.swal2-popup')).toContainText('C: 380 GB livres');
+  await noHorizontalScroll(page);
+});

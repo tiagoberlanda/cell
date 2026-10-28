@@ -47,6 +47,8 @@ function approvalSummary(tool:string,args:any,target:string|null){
  if(tool==='pc_rename')return `Renomear ${a.path} → ${a.newName}`;
  if(tool==='pc_write'||tool==='pc_save_file')return `${a.overwrite?'Substituir':'Criar'} ${a.path}`;
  if(tool==='pc_mkdir')return `Criar pasta ${a.path}`;
+ if(tool==='pc_edit')return `Editar ${a.path} (${(a.edits||[]).length} alteração(ões))`;
+ if(tool==='pc_recipe')return `Receita: ${a.name}`;
  return target||tool;
 }
 // Delay before notifying: if the conversation is opened on any device in the meantime (seen_at moves forward), no push is sent.

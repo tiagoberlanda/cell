@@ -11,7 +11,7 @@ import { pool,one,query,event,transaction,ensureSection } from './db.js';
 import { key,hash,safeEqual,encrypt,decrypt,validateEndpoint,safeError } from './security.js';
 import { estimateTokens } from './context.js';
 import { approvalToken } from './push.js';
-import { hostConfigured,commandsSwitchOn,hostStatus,computersStatus,sshInput,sshAuth,sshStatus,jobState,cancelJob } from './computer.js';
+import { hostConfigured,commandsSwitchOn,hostStatus,computersStatus,sshInput,sshAuth,sshStatus,jobState,cancelJob,openAlerts,alertSettings,alertSettingsInput,macInput,wake,runRecipe,listComputers } from './computer.js';
 import { publicConfig,saveConfig,models,imageModels,audioModels,transcribe,synthesize,probeModel,config,routerRequest } from './router.js';
 import { migrate } from './migrate.js';
 import { startQueue,boss,createRun,cancelRun,enqueue } from './runtime.js';
@@ -123,7 +123,22 @@ export async function buildApp(){
  // Computer folders granted to agents (approving an agent's access request creates the grant); revoking is immediate.
  // Commands on the computer (Cell Host): installed?, switched on?, reachable?, and the latest commands with their result.
  // Computers for commands: this one (Cell Host) plus SSH machines. Status is checked live, in parallel.
- app.get('/api/computers',async()=>({enabled:await commandsSwitchOn(),hostInstalled:hostConfigured(),computers:await computersStatus()}));
+ app.get('/api/computers',async()=>({enabled:await commandsSwitchOn(),hostInstalled:hostConfigured(),computers:await computersStatus(),alerts:await openAlerts()}));
+ // Alerts thresholds (Settings → Computador).
+ app.get('/api/computer-alerts/settings',async()=>alertSettings());
+ app.put('/api/computer-alerts/settings',async req=>{const d=alertSettingsInput.parse(req.body);await query("INSERT INTO settings(id,value) VALUES(1,jsonb_build_object('alerts',$1::jsonb)) ON CONFLICT(id) DO UPDATE SET value=settings.value||jsonb_build_object('alerts',$1::jsonb)",[JSON.stringify(d)]);return d;});
+ // Wake-on-LAN: MAC (and optional broadcast address) per SSH computer, and the button that sends the signal.
+ app.patch('/api/computers/:id',async req=>{const d=z.object({mac:z.union([macInput,z.literal('')]).optional(),broadcast:z.union([z.string().trim().regex(/^\d{1,3}(\.\d{1,3}){3}$/,'Broadcast inválido.'),z.literal('')]).optional()}).parse(req.body);
+  const row=await one('UPDATE computers SET mac=CASE WHEN $2::text IS NULL THEN mac ELSE NULLIF($2,\'\') END,broadcast=CASE WHEN $3::text IS NULL THEN broadcast ELSE NULLIF($3,\'\') END WHERE id=$1 RETURNING id,mac,broadcast',[id(req),d.mac??null,d.broadcast??null]);if(!row)throw new Error('Computador não encontrado.');return row;});
+ app.post('/api/computers/:id/wake',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async req=>{const c=await one('SELECT name,mac,broadcast FROM computers WHERE id=$1',[id(req)]);if(!c?.mac)throw new Error('Cadastre o endereço MAC deste computador.');return {sent:true,via:await wake(c.mac,c.broadcast||undefined)};});
+ // Recipes: saved commands, run by the owner with one tap or by agents (trusted ones without approval).
+ const recipeInput=z.object({name:z.string().trim().min(1).max(60),computer_key:z.string().min(1).max(60),command:z.string().trim().min(1).max(20000),cwd:z.string().max(500).optional().nullable(),background:z.boolean().default(false),trusted:z.boolean().default(false)});
+ app.get('/api/recipes',async()=>query('SELECT * FROM command_recipes ORDER BY lower(name)'));
+ app.post('/api/recipes',async req=>{const d=recipeInput.parse(req.body);if(!(await listComputers()).some(c=>c.key===d.computer_key))throw new Error('Computador desconhecido.');if(await one('SELECT 1 FROM command_recipes WHERE lower(name)=lower($1)',[d.name]))throw new Error('Já existe uma receita com esse nome.');
+  return one('INSERT INTO command_recipes(name,computer_key,command,cwd,background,trusted) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[d.name,d.computer_key,d.command,d.cwd||null,d.background,d.trusted]);});
+ app.patch('/api/recipes/:id',async req=>{const d=z.object({trusted:z.boolean().optional(),name:z.string().trim().min(1).max(60).optional()}).parse(req.body);const r=await one('UPDATE command_recipes SET trusted=COALESCE($2,trusted),name=COALESCE($3,name) WHERE id=$1 RETURNING *',[id(req),d.trusted??null,d.name??null]);if(!r)throw new Error('Receita não encontrada.');return r;});
+ app.delete('/api/recipes/:id',async req=>{await query('DELETE FROM command_recipes WHERE id=$1',[id(req)]);return {ok:true};});
+ app.post('/api/recipes/:id/run',{config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async req=>{const r=await one('SELECT * FROM command_recipes WHERE id=$1',[id(req)]);if(!r)throw new Error('Receita não encontrada.');if(!await commandsSwitchOn())throw new Error('Os comandos estão desativados em Configurações → Computador.');return runRecipe(r);});
  // Adding an SSH computer: the first call (no fingerprint) connects, runs the status script and returns the server's
  // fingerprint for the owner to confirm; saving repeats the check pinned to that fingerprint.
  app.post('/api/computers/test',{config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async req=>{const x=sshInput.parse(req.body);const r=await sshStatus({host:x.host,port:x.port,username:x.username,password:x.password,privateKey:x.privateKey,passphrase:x.passphrase,fingerprint:x.fingerprint},x.shell);return {fingerprint:r.fingerprint,info:r.info};});
@@ -148,7 +163,7 @@ export async function buildApp(){
   if(j.status!=='running')return j;try{const s=await jobState(j);return {...j,output:s.output,finishing:!s.running};}catch(e){return {...j,unreachable:safeError(e)};}})));
  app.post('/api/computer-jobs/:id/cancel',async req=>{const j=await one("SELECT * FROM computer_jobs WHERE id=$1 AND status='running'",[id(req)]);if(!j)throw new Error('A tarefa não está rodando.');await cancelJob(j);return {ok:true};});
  app.get('/api/host-access/commands',async()=>{const configured=hostConfigured(),enabled=await commandsSwitchOn();let status=null,error='';if(configured){try{status=await hostStatus();}catch(e){error=safeError(e);}}
-  const recent=await query("SELECT t.id,t.args->>'command' AS command,t.args->>'reason' AS reason,t.status,t.result,t.created_at,a.name AS agent_name,ap.status AS approval FROM tool_calls t JOIN runs r ON r.id=t.run_id JOIN agents a ON a.id=r.agent_id LEFT JOIN approvals ap ON ap.call_id=t.id WHERE t.tool='pc_run' ORDER BY t.created_at DESC LIMIT 20");
+  const recent=await query("SELECT t.id,t.args->>'command' AS command,t.args->>'reason' AS reason,t.args->>'computer' AS computer,t.args->>'cwd' AS cwd,(t.args->>'background')::boolean AS background,t.status,t.result,t.created_at,a.name AS agent_name,ap.status AS approval FROM tool_calls t JOIN runs r ON r.id=t.run_id JOIN agents a ON a.id=r.agent_id LEFT JOIN approvals ap ON ap.call_id=t.id WHERE t.tool='pc_run' ORDER BY t.created_at DESC LIMIT 20");
   return {configured,enabled,status,error,recent:recent.map(c=>{let exitCode=null;try{exitCode=JSON.parse(c.result).exitCode;}catch{}return {...c,result:undefined,exitCode};})};});
  app.post('/api/host-access/commands',async req=>{const {enabled}=z.object({enabled:z.boolean()}).parse(req.body);await query("INSERT INTO settings(id,value) VALUES(1,jsonb_build_object('computerCommands',$1::boolean)) ON CONFLICT(id) DO UPDATE SET value=settings.value||jsonb_build_object('computerCommands',$1::boolean)",[enabled]);return {enabled};});
  app.get('/api/host-access',async()=>({drives:(await one("SELECT drives FROM worker_health WHERE id='primary'"))?.drives||[],grants:await query('SELECT g.id,g.path,g.created_at,a.id AS agent_id,a.name AS agent_name FROM host_grants g JOIN agents a ON a.id=g.agent_id ORDER BY a.name,g.path')}));
