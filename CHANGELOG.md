@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.25.0] - 2026-10-28
+
 ### Adicionado
 - **Aprovar pela notificação:** a notificação de aprovação no celular mostra o que será feito (o comando e o computador, os arquivos ou a pasta) e tem os botões **Aprovar** e **Negar**, que respondem sem abrir o app. Cada botão leva um código de uso único, válido só para aquela aprovação e aquela decisão, enquanto ela estiver pendente; a notificação confirma o resultado.
 - **Lixeira e Desfazer:** exclusões vão para a **Lixeira do Windows** (pelo Cell Host) ou, sem ele, para a lixeira do Cell (`.cell-lixeira` dentro da pasta liberada, invisível para os agentes). Mover, renomear, excluir, criar pasta, gravar e salvar arquivos ficam registrados, e as ferramentas usadas na conversa ganham o botão **Desfazer**: os itens voltam para onde estavam, os excluídos saem da Lixeira e um arquivo substituído volta à versão anterior.
