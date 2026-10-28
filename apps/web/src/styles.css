@@ -177,3 +177,11 @@
  .app-shell.sidebar-collapsed .new-section{justify-content:center;gap:0;font-size:0;padding:8px 0}
  .app-shell.sidebar-collapsed .new-section svg{width:15px;height:15px}
 }
+
+/* Sino de notificações dentro da lista de agentes: no celular a gaveta cobre o cabeçalho,
+   então o aviso de aprovação precisa aparecer aqui também (mesmo sem conversa aberta). */
+.drawer-bell{display:none}
+@media(max-width:767px){
+ .drawer-bell{display:inline-flex;align-items:center}
+ .drawer-bell .icon-btn.bell{width:36px;height:36px;min-width:36px}
+}

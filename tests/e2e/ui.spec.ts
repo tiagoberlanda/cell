@@ -166,7 +166,8 @@ test('notificações: painel de ativação por aparelho', async ({ page }) => {
 });
 
 test('sino de notificações abre a aprovação pendente', async ({ page }) => {
-  const bell = page.locator('.icon-btn.bell');
+  // O mesmo sino também existe no topo da lista de agentes (celular); aqui interessa o do cabeçalho.
+  const bell = page.locator('.chat-header .icon-btn.bell');
   await expect(bell.locator('.bell-count')).toBeVisible();
   await bell.click();
   // The Coordenador conversation is open on screen, so its message is not listed as unread.
@@ -178,6 +179,26 @@ test('sino de notificações abre a aprovação pendente', async ({ page }) => {
   await item.click();
   await expect(page.locator('.agent-title')).toContainText('Redator');
   await expect(page).toHaveTitle(/^\(\d+\) Cell/);
+});
+
+test('sino de notificações fica visível na lista de agentes no celular', async ({ page }) => {
+  // A gaveta de agentes cobre o cabeçalho inteiro no celular: sem o sino aqui, um pedido de
+  // aprovação que chega com a lista aberta (nenhuma conversa na tela) passaria em branco.
+  test.skip(!mobile(page), 'A lista em gaveta só existe abaixo de 768 px');
+  await page.getByLabel('Abrir agentes').click();
+  await expect(page.locator('.sidebar.open')).toBeVisible();
+  const bell = page.locator('.sidebar .icon-btn.bell');
+  await expect(bell).toBeVisible();
+  await expect(bell.locator('.bell-count')).toBeVisible();
+  await bell.click();
+  const item = page.locator('.notification-item', { hasText: 'Redator' });
+  await expect(item).toContainText('Aprovação');
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `test-results/sino-agentes-${page.viewportSize()!.width}.png` });
+  // Abrir o aviso leva à conversa do agente e fecha a gaveta.
+  await item.click();
+  await expect(page.locator('.agent-title')).toContainText('Redator');
+  await expect(page.locator('.sidebar.open')).toHaveCount(0);
 });
 
 test('notificações por agente e convite para ativar no aparelho', async ({ page }) => {
