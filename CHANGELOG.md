@@ -1,7 +1,7 @@
 # Changelog
 
-Todas as mudanças relevantes do Cell ficam registradas aqui.
-O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+Todas as mudan?as relevantes do Cell ficam registradas aqui.
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as vers?es seguem o [Versionamento Sem?ntico](https://semver.org/lang/pt-BR/).
 
 ## [N?o lan?ado]
 
