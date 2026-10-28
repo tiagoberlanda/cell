@@ -86,7 +86,7 @@ export function DiagnosticsPanel({notify}:Notice){
    {card('Conexões MCP',Plug,d.mcp,<McpSummary connections={d.mcp.connections||[]}/>)}
    {card('Proxy e IP real',Shield,{ok:true},<p>{d.proxy.mode==='secret'?'CF-Connecting-IP aceito só com o segredo do túnel (recomendado).':d.proxy.mode==='proxies'?`CF-Connecting-IP aceito só de: ${d.proxy.proxies.join(', ')}.`:'CF-Connecting-IP aceito de qualquer rede privada. Defina CELL_PROXY_SECRET (veja o README) para que só o túnel informe o IP real.'}</p>)}
   </div>
-  <p className="hint">Backups: rode <code>.\scripts\backup.ps1</code> e depois <code>npm run backup:verify -- backups\&lt;pasta&gt;</code>, que restaura o backup num banco temporário isolado e confere o conteúdo.</p>
+  <p className="hint">Backups: Configurações → Backup gera um arquivo cifrado com tudo e restaura a partir dele.</p>
  </div>;
 }
 

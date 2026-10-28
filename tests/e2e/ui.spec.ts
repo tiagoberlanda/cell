@@ -641,3 +641,30 @@ test('menu estreito: menu do agente ao lado dele, não lidas visíveis e atalhos
   if (w >= 1200) await page.getByLabel('Expandir menu de agentes').click();
   await noHorizontalScroll(page);
 });
+
+test('backup: baixar com a senha da conta e verificar o arquivo', async ({ page }) => {
+  const w = page.viewportSize()!.width;
+  test.skip(w !== 390 && w !== 1440, 'um tamanho de celular e um de computador bastam');
+  await openAgents(page);
+  if (tablet(page)) await page.locator('.profile').click(); else await page.getByRole('button', { name: /e2e/ }).click();
+  await page.getByRole('menuitem', { name: 'Configurações' }).click();
+  await page.getByRole('button', { name: 'Backup', exact: true }).click();
+  await page.getByRole('button', { name: 'Fazer backup e baixar' }).click();
+  await page.locator('.swal2-input').fill('senha-errada');
+  await page.getByRole('button', { name: 'Fazer backup', exact: true }).click();
+  await expect(page.getByText('Senha da conta incorreta.')).toBeVisible();
+  await page.getByRole('button', { name: 'Fazer backup e baixar' }).click();
+  await page.locator('.swal2-input').fill(process.env.E2E_PASSWORD!);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Fazer backup', exact: true }).click();
+  const file = await (await download).path();
+  expect((await import('node:fs')).readFileSync(file).subarray(0, 12).toString()).toBe('CELLBACKUP1\n');
+  await page.getByLabel('Arquivo do backup').setInputFiles({ name: 'cell.cellbackup', mimeType: 'application/octet-stream', buffer: (await import('node:fs')).readFileSync(file) });
+  await page.getByLabel('Senha do backup').fill(process.env.E2E_PASSWORD!);
+  await page.getByRole('button', { name: 'Enviar e verificar' }).click();
+  const summary = page.locator('.backup-summary');
+  await expect(summary).toContainText('Backup válido');
+  await expect(summary.locator('li', { hasText: 'Agentes' })).toContainText(/\d/);
+  await expect(summary.getByRole('button', { name: 'Restaurar este backup' })).toBeVisible();
+  await noHorizontalScroll(page);
+});

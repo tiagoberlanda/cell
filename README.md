@@ -60,7 +60,7 @@ Você vai precisar de:
 | **Docker Desktop** | Roda os containers. | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Deixe-o aberto. |
 | **Git** | Baixar o projeto. | [git-scm.com](https://git-scm.com/download/win) |
 | **Um provedor de modelos** | É quem responde (a "inteligência"). | Veja abaixo. |
-| Node.js 22 ou mais novo (opcional) | Para o Cell Host (comandos no computador), verificar backups e rodar testes. | [nodejs.org](https://nodejs.org/) |
+| Node.js 22 ou mais novo (opcional) | Para o Cell Host (comandos no computador) e para rodar os testes. | [nodejs.org](https://nodejs.org/) |
 
 ### O provedor de modelos (9router)
 
@@ -353,7 +353,8 @@ Menu do usuário (canto inferior esquerdo) → **Configurações**:
 | **Execução** | Fuso horário, execuções simultâneas, etapas de ferramentas, profundidade de delegação, tokens por resposta e janela de contexto. |
 | **Computador** | Cell Host e interruptor dos comandos, computadores SSH, alertas, receitas, últimos comandos, discos e pastas liberadas. |
 | **Conta** | Trocar a senha e sair de todos os outros aparelhos. |
-| **Uso e dados** | Tokens usados por modelo e orientações de backup. |
+| **Uso e dados** | Tokens usados por modelo. |
+| **Backup** | Fazer backup (baixar) e restaurar a partir de um arquivo. |
 | **Notificações** | Ativar neste aparelho, enviar teste e aparelhos inscritos. |
 | **Diagnóstico** | Saúde do worker, banco, fila, provedor e conexões. |
 
@@ -410,18 +411,35 @@ Com um **Cloudflare Tunnel** você acessa o Cell de qualquer lugar **sem abrir p
 
 ### Backup
 
-```powershell
-.\scripts\backup.ps1                                   # cria backups\AAAAMMDD-HHmmss
-npm run backup:verify -- backups\20261026-120000      # confere se o backup restaura (precisa do Node.js)
-.\scripts\restore.ps1 -Backup .\backups\20261026-120000
+Pelo próprio Cell, em qualquer aparelho: **Configurações → Backup**.
+
+- **Fazer backup e baixar:** digite a senha da conta e o navegador baixa um arquivo `.cellbackup` com **tudo**: agentes, conversas, mensagens, arquivos, rotinas, habilidades, conexões e aplicativos, computadores, receitas e configurações. O arquivo sai **cifrado com a senha da conta** (AES-256): sem ela, ninguém lê o conteúdo. Guarde o arquivo e lembre-se da senha.
+- **Restaurar:** escolha o arquivo, digite a senha usada quando ele foi feito e toque em **Enviar e verificar**. O Cell mostra a data, a versão e quantos agentes, conversas e arquivos o backup tem, **sem mudar nada**. Se estiver certo, toque em **Restaurar este backup** e confirme com a senha atual. Tudo é substituído pelo conteúdo do backup e todos os aparelhos precisam entrar de novo (com a senha da conta da época do backup).
+- **Em outra instalação:** funciona direto. Os tokens e senhas salvos são adaptados à chave da instalação nova, sem precisar copiar o `.env`.
+- **Versões:** um backup de uma versão anterior pode ser restaurado numa versão mais nova. O contrário é recusado, com o aviso para atualizar o Cell antes.
+- **Tamanho:** pelo domínio público (Cloudflare), envios passam de no máximo 100 MB. Para restaurar backups maiores, use o endereço da rede local ou a linha de comando.
+
+Pela linha de comando, em qualquer sistema com Docker (na pasta do Cell). Aqui a senha só protege o arquivo; use a mesma da conta para não esquecer. Ela vai por variável de ambiente e não fica no histórico dos comandos:
+
+```bash
+export CELL_BACKUP_PASSWORD='senha-do-backup'      # PowerShell: $env:CELL_BACKUP_PASSWORD='senha-do-backup'
+docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- create
+docker compose cp api:/data/backups/saved/<arquivo>.cellbackup .
 ```
 
-O backup pausa o Cell por alguns segundos e salva o banco e os arquivos. **Guarde o `.env` junto, em lugar seguro:** a restauração precisa da mesma `SECRET_KEY`, porque tokens e credenciais são cifrados com ela. A verificação restaura o backup num banco temporário e confere tudo, sem tocar no Cell em uso.
+Para conferir ou restaurar um arquivo, copie-o para o container e rode `verify` ou `restore`:
+
+```bash
+docker compose cp cell-20261028.cellbackup api:/data/backups/saved/
+docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- verify /data/backups/saved/cell-20261028.cellbackup
+docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- restore /data/backups/saved/cell-20261028.cellbackup
+```
 
 ### Atualizar para uma versão nova
 
+Faça um backup antes (Configurações → Backup) e depois:
+
 ```powershell
-.\scripts\backup.ps1
 git pull
 .\scripts\deploy.ps1
 ```
@@ -491,12 +509,12 @@ Estrutura:
 
 | Pasta | Conteúdo |
 |-------|----------|
-| `apps/server/src` | API (`api.ts`), worker (`worker.ts`), ferramentas (`tools.ts`, `documents.ts`, `hostfiles.ts`, `computer.ts`, `connectors.ts`), provedor de modelos (`router.ts`). |
+| `apps/server/src` | API (`api.ts`), worker (`worker.ts`), ferramentas (`tools.ts`, `documents.ts`, `hostfiles.ts`, `computer.ts`, `connectors.ts`), provedor de modelos (`router.ts`), backup (`backup.ts`, `backup-cli.ts`). |
 | `host` | Cell Host (`cell-host.mjs`): roda no Windows e executa os comandos aprovados. |
 | `apps/server/migrations` | Migrações do banco, em ordem. |
 | `apps/web/src` | Interface React. |
 | `packages/shared` | Tipos e validações compartilhados. |
-| `scripts` | Instalação, deploy, backup, restauração, certificado, discos e versões. |
+| `scripts` | Instalação, deploy, certificado, discos, Cell Host, testes e versões. |
 | `tests` | Testes de integração e de navegador. |
 
 Convenções:

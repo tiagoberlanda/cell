@@ -5,6 +5,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- **Backup pelo app:** Configurações → **Backup**. "Fazer backup e baixar" pede a senha da conta e baixa um arquivo `.cellbackup` com tudo (agentes, conversas, mensagens, execuções, arquivos, rotinas, habilidades, conexões, computadores, receitas e configurações), cifrado com a senha da conta (AES-256-GCM, chave derivada com scrypt). "Restaurar" envia o arquivo, mostra o conteúdo sem mudar nada e só substitui tudo depois da confirmação com a senha atual; todos os aparelhos saem e entram de novo.
+- O backup funciona em outra instalação: os segredos salvos são re-cifrados para a `SECRET_KEY` da instalação nova. Backups de versões anteriores são aceitos; de versões mais novas, recusados com aviso. Execuções que estavam em andamento no momento do backup voltam como interrompidas.
+- Linha de comando para qualquer sistema com Docker: `docker compose exec -e CELL_BACKUP_PASSWORD api npm run backup -- create | verify | restore`.
+
+### Removido
+- `scripts/backup.ps1`, `scripts/restore.ps1`, `scripts/verify-backup.mjs` e `npm run backup:verify` (só funcionavam no Windows e exigiam o `.env` original para restaurar).
+
 ### Alterado
 - `.env.example` revisado: só as variáveis que o `.env` realmente usa, separadas em obrigatórias, provedor e opcionais, com explicação de cada uma. Saíram `DATABASE_URL`, `COOKIE_SECURE`, `WORKSPACE_PATH` e `PORT` (o `compose.yaml` define essas sozinho; no `.env` não tinham efeito) e entraram `CELL_HOST_URL`, `CELL_HOST_TOKEN`, `CELL_PROXY_SECRET` e `TRUSTED_PROXIES`.
 - Endereço padrão do provedor: `http://host.docker.internal:20128/v1` (um 9router no próprio computador) em vez de um IP de rede específico, no `.env.example`, no `setup.ps1`, no `compose.yaml` e no código. Instalações existentes não mudam (o endereço fica no `.env` e nas configurações).

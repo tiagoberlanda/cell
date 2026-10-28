@@ -196,3 +196,4 @@
  .app-shell.sidebar-collapsed .agent-row-wrap .agent-menu{display:grid;width:0;margin:0;overflow:hidden;opacity:0!important;pointer-events:none}
  .app-shell.sidebar-collapsed .sidebar-top .row{display:flex;flex-direction:column;gap:6px}
 }
+.backup-panel>button{align-self:flex-start;display:inline-flex;align-items:center;gap:8px}.backup-summary{flex-direction:column;align-items:stretch!important}.backup-summary .backup-head{display:flex;align-items:center;gap:8px;color:var(--green)}.backup-summary.bad .backup-head{color:#e0a53a}.backup-summary ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 16px;margin:4px 0}.backup-summary li{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}.backup-summary li b{color:var(--text)}.backup-summary>button{align-self:flex-start}

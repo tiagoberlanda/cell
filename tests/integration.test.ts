@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {spawn,type ChildProcess} from 'node:child_process';
@@ -20,7 +21,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  const {migrate}=await import('../apps/server/src/migrate.js');
  const {buildApp,seed}=await import('../apps/server/src/api.js');
  const {startQueue,boss,enqueue}=await import('../apps/server/src/runtime.js');
- const {fileData,saveFile}=await import('../apps/server/src/files.js');
+ const {fileData,saveFile,deleteFile}=await import('../apps/server/src/files.js');
  const fake=Fastify();let writes=0,reads=0,worker:ChildProcess|undefined;let workerErrors='';
  const chatTools:string[][]=[];let targetAgent='';let mcpName='';let mcpFailName='';const summaryRequests:any[]=[];
  fake.get('/v1/models',async(req,reply)=>req.headers.authorization==='Bearer test-secret'?{data:[{id:'cell-test',name:'Modelo de teste'}]}:reply.code(401).send({error:'unauthorized'}));
@@ -725,6 +726,54 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await request('PATCH','/agents/'+extra.id,{name:extra.name,section:extra.section});
  });
  await t.test('memória, habilidades e conversa persistem',async()=>{const skill=await request('POST','/skills',{name:'Checklist',body:'# Revisar\nConferir as fontes.'});agent.skills=[skill.id];agent.memory='Prefere respostas objetivas.';await request('PUT','/agents/'+agent.id,agent);const r=await task('Persistência');await poll(r.id,'completed');const stored=await one('SELECT context FROM runs WHERE id=$1',[r.id]);assert.ok(stored.context[0].content.includes('Prefere respostas objetivas.'));assert.ok(stored.context[0].content.includes('Conferir as fontes.'));const year=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',year:'numeric'}).format(new Date());assert.match(stored.context[0].content,new RegExp(`Data e hora atuais: .*${year}`),'contexto traz a data atual');});
+ // Last: restoring replaces everything and signs everyone out.
+ await t.test('backup completo: baixar, verificar, restaurar, outra instalação e versão mais nova',async()=>{
+  const {inspectBackup,restoreBackup,createBackup,backupDir}=await import('../apps/server/src/backup.js');
+  const {writeFileSync:wf,mkdirSync:mk}=await import('node:fs');const {decrypt,encrypt}=await import('../apps/server/src/security.js');
+  const upload=async(buf:Buffer,password:string)=>{const form=new FormData();form.append('password',password);form.append('backup',new Blob([new Uint8Array(buf)]),'x.cellbackup');const r=new Request('http://cell/upload',{method:'POST',body:form});
+   return app.inject({method:'POST',url:'/api/backup/inspect',headers:{cookie,'x-csrf-token':csrf,origin:'http://localhost:5173','content-type':r.headers.get('content-type')!},payload:Buffer.from(await r.arrayBuffer())});};
+  // State before the backup.
+  const before={agents:(await one('SELECT count(*)::int n FROM agents')).n,messages:(await one('SELECT count(*)::int n FROM messages')).n,conversations:(await one('SELECT count(*)::int n FROM conversations')).n};
+  const kept=await saveFile('guardado.txt',Buffer.from('conteúdo do backup'),agent.id);
+  await query("INSERT INTO connections(name,url,auth,status) VALUES('Segredo','http://x.test/mcp',$1,'disconnected')",[encrypt({Authorization:'Bearer segredo-do-backup'})]);
+  // Download: needs the account password.
+  assert.equal((await app.inject({method:'POST',url:'/api/backup',headers:{cookie,'x-csrf-token':csrf,origin:'http://localhost:5173'},payload:{password:'errada'}})).statusCode,400);
+  const dl=await app.inject({method:'POST',url:'/api/backup',headers:{cookie,'x-csrf-token':csrf,origin:'http://localhost:5173'},payload:{password:'test-password-long'}});
+  assert.equal(dl.statusCode,200,dl.body);assert.match(String(dl.headers['content-disposition']),/attachment; filename="cell-\d+-[0-9a-f]+\.cellbackup"/);
+  const file=dl.rawPayload;assert.equal(file.subarray(0,12).toString(),'CELLBACKUP1\n');
+  assert.ok(!file.includes(Buffer.from('conteúdo do backup'))&&!file.includes(Buffer.from('Coordenador')),'conteúdo cifrado');
+  // Change things after the backup.
+  await request('POST','/agents',{name:'Depois do backup',role:'x',color:'#18b99c',shape:'ameba'});await query('DELETE FROM messages WHERE id=(SELECT id FROM messages ORDER BY created_at LIMIT 1)');
+  await deleteFile(kept.id);const extra=await saveFile('novo.txt',Buffer.from('depois'),agent.id);
+  // Check: wrong password, damaged file, then the real summary (nothing changes yet).
+  assert.match((await upload(file,'errada')).body,/Senha incorreta ou arquivo de backup danificado/);
+  const damaged=Buffer.from(file);damaged[200]^=1;assert.match((await upload(damaged,'test-password-long')).body,/danificado/);
+  const insp=await upload(file,'test-password-long');assert.equal(insp.statusCode,200,insp.body);const info=insp.json();
+  assert.equal(info.compatible,true);assert.equal(info.sameKey,true);assert.equal(info.meta.counts.agents,before.agents);assert.equal(info.meta.counts.sessions,undefined,'sessões não vão no backup');
+  assert.equal((await one('SELECT count(*)::int n FROM agents')).n,before.agents+1,'verificar não altera nada');
+  // Restore: needs the current password; signs everyone out.
+  await assert.rejects(request('POST','/backup/restore',{uploadId:info.uploadId,password:'errada'}),/Senha da conta incorreta/);
+  const restored=await request('POST','/backup/restore',{uploadId:info.uploadId,password:'test-password-long'});
+  assert.equal(restored.ok,true);assert.equal(restored.rekeyed,false);
+  assert.equal((await one('SELECT count(*)::int n FROM agents')).n,before.agents);assert.equal((await one('SELECT count(*)::int n FROM messages')).n,before.messages);assert.equal((await one('SELECT count(*)::int n FROM conversations')).n,before.conversations);
+  assert.equal((await one("SELECT count(*)::int n FROM agents WHERE name='Depois do backup'")).n,0);
+  assert.equal((await fileData(kept.id)).data.toString(),'conteúdo do backup','arquivo apagado depois volta');await assert.rejects(fileData(extra.id),/não encontrado/i);
+  assert.equal((await one("SELECT count(*)::int n FROM runs WHERE state IN('queued','running','waiting_agent')")).n,0,'execuções em andamento ficam interrompidas');
+  assert.equal((await app.inject({method:'GET',url:'/api/me',headers:{cookie}})).statusCode,401,'todos saem');
+  const relog=await app.inject({method:'POST',url:'/api/login',payload:{username:'tester',password:'test-password-long'}});assert.equal(relog.statusCode,200);cookie=String(relog.headers['set-cookie']).split(';')[0];csrf=relog.json().csrf;
+  // Another installation (different SECRET_KEY): stored secrets are re-encrypted for it.
+  const saved=path.join(backupDir(),'t.cellbackup');mk(backupDir(),{recursive:true});wf(saved,file);
+  const originalKey=process.env.SECRET_KEY!;process.env.SECRET_KEY='ab'.repeat(32);
+  try{
+   assert.equal((await inspectBackup(saved,'test-password-long')).sameKey,false);
+   assert.equal((await restoreBackup(saved,'test-password-long')).rekeyed,true);
+   assert.deepEqual(decrypt((await one("SELECT auth FROM connections WHERE name='Segredo'")).auth),{Authorization:'Bearer segredo-do-backup'},'segredo abre com a chave nova');
+  }finally{process.env.SECRET_KEY=originalKey;}
+  // A backup from a newer version (unknown migration) is refused.
+  await query("INSERT INTO migrations(name) VALUES('9999_futuro.sql')");const newer=await createBackup('test-password-long','99.0.0');await query("DELETE FROM migrations WHERE name='9999_futuro.sql'");
+  const ni=await inspectBackup(newer.file,'test-password-long');assert.equal(ni.compatible,false);assert.deepEqual(ni.newer,['9999_futuro.sql']);
+  await assert.rejects(restoreBackup(newer.file,'test-password-long'),/versão mais nova/);
+ });
 });
 
 test('vozes conhecidas por modelo de síntese',async()=>{

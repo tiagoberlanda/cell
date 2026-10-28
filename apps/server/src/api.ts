@@ -3,8 +3,12 @@ import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import argon2 from 'argon2';
+import { createBackup,inspectBackup,restoreBackup,cleanBackups,backupDir } from './backup.js';
 import { randomBytes } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream,createWriteStream } from 'node:fs';
+import { rm,mkdir,stat } from 'node:fs/promises';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { z,ZodError } from 'zod';
 import { agentInput,messageInput,settingsInput,skillInput,routineInput } from '../../../packages/shared/src/index.js';
 import { pool,one,query,event,transaction,ensureSection } from './db.js';
@@ -57,6 +61,35 @@ export async function buildApp(){
  });
  app.get('/api/me',async req=>({username:(req as any).session.username,csrf:(req as any).session.csrf}));
  app.post('/api/logout',async(req,reply)=>{await query('DELETE FROM sessions WHERE id=$1',[(req as any).session.id]);reply.clearCookie(sessionCookie,{path:'/',secure:secureCookie});return {ok:true};});
+ // Backup and restore from the app. The account password confirms each action and encrypts the backup file.
+ const checkPassword=async(req:any,password:string)=>{const u=await one('SELECT password_hash FROM users WHERE id=$1',[req.session.user_id]);if(!u||!await argon2.verify(u.password_hash,password))throw new Error('Senha da conta incorreta.');};
+ app.post('/api/backup',{config:{rateLimit:{max:5,timeWindow:'10 minutes'}}},async(req,reply)=>{
+  const {password}=z.object({password:z.string().min(1).max(1000)}).parse(req.body);await checkPassword(req,password);await cleanBackups();
+  const b=await createBackup(password,version);
+  const stream=createReadStream(b.file);stream.on('close',()=>{rm(b.file,{force:true}).catch(()=>{});});
+  return reply.header('Content-Disposition',`attachment; filename="${b.name}"`).header('X-Backup-Summary',encodeURIComponent(JSON.stringify({counts:b.meta.counts,files:b.meta.files}))).type('application/octet-stream').send(stream);
+ });
+ // Step 1: upload and check (nothing changes). The file waits on the server for step 2 (up to an hour).
+ app.post('/api/backup/inspect',{config:{rateLimit:{max:10,timeWindow:'10 minutes'}}},async req=>{
+  await cleanBackups();await mkdir(backupDir(),{recursive:true});
+  let password='',file='';
+  for await(const part of req.parts({limits:{fileSize:4*1024*1024*1024,files:1}})){
+   if(part.type==='field'){if(part.fieldname==='password')password=String(part.value||'');continue;}
+   file=path.join(backupDir(),`upload-${randomBytes(12).toString('hex')}.cellbackup`);await pipeline(part.file,createWriteStream(file));
+   if(part.file.truncated){await rm(file,{force:true});throw new Error('Arquivo grande demais.');}
+  }
+  if(!file)throw new Error('Envie o arquivo do backup.');
+  try{if(!password)throw new Error('Informe a senha do backup.');const info=await inspectBackup(file,password);return {uploadId:path.basename(file,'.cellbackup'),...info};}
+  catch(e){await rm(file,{force:true});throw e;}
+ });
+ // Step 2: replace everything. Needs the current account password; the backup's own password if it was different.
+ app.post('/api/backup/restore',{config:{rateLimit:{max:5,timeWindow:'10 minutes'}}},async(req,reply)=>{
+  const d=z.object({uploadId:z.string().regex(/^upload-[0-9a-f]{24}$/),password:z.string().min(1).max(1000),backupPassword:z.string().max(1000).optional()}).parse(req.body);
+  await checkPassword(req,d.password);
+  const file=path.join(backupDir(),d.uploadId+'.cellbackup');if(!await stat(file).catch(()=>null))throw new Error('O arquivo enviado expirou. Envie o backup de novo.');
+  try{const r=await restoreBackup(file,d.backupPassword||d.password);reply.clearCookie(sessionCookie,{path:'/',secure:secureCookie});return {ok:true,...r};}
+  finally{await rm(file,{force:true});}
+ });
  app.post('/api/account/password',async req=>{const input=z.object({current:z.string(),password:z.string().min(12).max(200)}).parse(req.body),u=await one('SELECT * FROM users WHERE id=$1',[(req as any).session.user_id]);if(!await argon2.verify(u.password_hash,input.current))throw new Error('Senha atual incorreta.');await query('UPDATE users SET password_hash=$1 WHERE id=$2',[await argon2.hash(input.password),u.id]);await query('DELETE FROM sessions WHERE user_id=$1 AND id<>$2',[u.id,(req as any).session.id]);return {ok:true};});
  // Signs out every other device (e.g. a lost phone) without changing the password.
  app.post('/api/account/logout-others',async req=>{const s=(req as any).session;const rows=await query('DELETE FROM sessions WHERE user_id=$1 AND id<>$2 RETURNING id',[s.user_id,s.id]);return {ended:rows.length};});
