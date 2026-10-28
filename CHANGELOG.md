@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.4
+- **Aprovações com resultado incerto:** a interface agora exibe o resultado da tentativa anterior, identifica claramente a ação como uma nova tentativa e oferece a opção "Não tentar novamente". Isso evita aprovações ambíguas quando o serviço pode já ter executado a operação.
+
+
 Todas as mudan?as relevantes do Cell ficam registradas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as vers?es seguem o [Versionamento Sem?ntico](https://semver.org/lang/pt-BR/).
 

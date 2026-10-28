@@ -1,7 +1,7 @@
 {
   "name": "cell",
   "private": true,
-  "version": "0.30.3",
+  "version": "0.30.4",
   "type": "module",
   "workspaces": [
     "apps/*",
