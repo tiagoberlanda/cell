@@ -5,6 +5,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- **Lista de agentes vazia e "Operação inválida." ao abrir o Cell** (v0.30.1): a consulta de agentes ficou com `created_at` ambíguo depois de passar a ignorar conversas arquivadas. Colunas qualificadas.
+- Acentos corrompidos em mensagens da v0.30.1 ("Conversa n?o encontrada", "dispon?veis", "ser?o apagadas", "exclu?da").
+
 ## [0.30.1] - 2026-10-28
 
 ### Adicionado
