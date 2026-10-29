@@ -12,6 +12,7 @@ import { nextOccurrence } from './schedule.js';
 import { z } from 'zod';
 import { hash } from './security.js';
 import { readSharedMemory, writeSharedMemory, SHARED_MEMORY_MAX } from './shared-memory.js';
+import { skillTools } from './skill-tools.js';
 // app: connected application the tool belongs to; those tools are offered to the model only after use_app opens it.
 export interface Tool {name:string;description:string;parameters:any;write:boolean;target?:string;binding?:string;app?:string;preview?:(args:any,run:any)=>Promise<string>;execute:(args:any,run:any,cfg:any)=>Promise<string>}
 // Function name for an MCP tool. Providers cap names at 64 characters; plain truncation made distinct tools collide
@@ -46,11 +47,11 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
   {name:'delegate',description:'Delega uma tarefa a outro agente e aguarda seu resultado. Inclua apenas o contexto necessário.',parameters:object({agentId:str,task:str},['agentId','task']),write:false,execute:async(a,r,c)=>{const x=z.object({agentId:z.string().uuid(),task:z.string().min(1).max(12000)}).parse(a);const existing=await one('SELECT id FROM runs WHERE source_call_id=$1',[r.callId]);if(existing)return JSON.stringify({childRunId:existing.id});const conversation=await one('INSERT INTO conversations(agent_id,title) VALUES($1,$2) RETURNING id',[x.agentId,'Delegação']);const child=await createRun(x.agentId,conversation.id,x.task,[],r,c,r.callId);return JSON.stringify({childRunId:child.id});}},
   {name:'propose_routine',description:'Cria proposta de rotina desativada para confirmação do usuário. daily=HH:mm, weekly=dia HH:mm, once=ISO, cron=5 campos.',parameters:object({name:str,prompt:str,kind:{type:'string',enum:['once','daily','weekly','cron']},schedule:str},['name','prompt','kind','schedule']),write:false,execute:async(a,r,c)=>{const x=z.object({name:z.string().min(1).max(120),prompt:z.string().min(1).max(10000),kind:z.enum(['once','daily','weekly','cron']),schedule:z.string().max(100)}).parse(a);const next=nextOccurrence(x.kind,x.schedule,c.timezone);const routine=await one('INSERT INTO routines(agent_id,name,prompt,kind,schedule,timezone,next_at,conversation_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[r.agent_id,x.name,x.prompt,x.kind,x.schedule,c.timezone,next,r.conversation_id||null]);return JSON.stringify({...routine,status:'Proposta salva e desativada. Diga ao usuário que ela só roda depois que ele tocar em "Ativar" no cartão da rotina nesta conversa; a mensagem será enviada nesta mesma conversa.'});}}
  ];
- native.push({name:'list_skills',description:'Lista todas as habilidades disponíveis.',parameters:object({},[]),write:false,execute:async()=>JSON.stringify(await query('SELECT id,name,body FROM skills ORDER BY name'))});
+ const skills=skillTools();native.push(...skills);
  native.push({name:'read_shared_memory',description:'Lê a memória compartilhada por todos os agentes (texto completo).',parameters:object({},[]),write:false,execute:async()=>(await readSharedMemory())||'(memória compartilhada vazia)'});
  native.push({name:'write_shared_memory',description:'Grava na memória compartilhada por todos os agentes. mode=append (padrão) acrescenta um bloco no fim; mode=replace troca o texto inteiro (leia antes com read_shared_memory para não perder nada).',parameters:object({content:str,mode:{type:'string',enum:['append','replace']}},['content']),write:true,target:'Cell — memória compartilhada',execute:async a=>{const x=z.object({content:z.string().trim().min(1).max(SHARED_MEMORY_MAX),mode:z.enum(['append','replace']).default('append')}).parse(a);const body=await writeSharedMemory(x.content,x.mode);return `Memória compartilhada ${x.mode==='replace'?'substituída':'atualizada'} (${body.length} caracteres).`;}});
  native.push({name:'delete_shared_memory',description:'Apaga toda a memória compartilhada. Só quando o usuário pedir explicitamente.',parameters:object({},[]),write:true,target:'Cell — apagar memória compartilhada',execute:async()=>{await writeSharedMemory('','replace');return 'Memória compartilhada apagada.';}});
- const result=native.filter(t=>enabled.includes(t.name)||['list_skills','read_shared_memory','write_shared_memory','delete_shared_memory'].includes(t.name));
+ const result=native.filter(t=>enabled.includes(t.name)||skills.some(s=>s.name===t.name)||['read_shared_memory','write_shared_memory','delete_shared_memory'].includes(t.name));
  // The master agent always manages the team, regardless of its enabled tool list.
  if((await one('SELECT is_master FROM agents WHERE id=$1',[run.agent_id]))?.is_master)result.push(...masterTools);
  const connections=await query('SELECT * FROM connections WHERE status=\'connected\'');
@@ -69,7 +70,7 @@ export async function toolsFor(run:any,cfg:any):Promise<Tool[]>{
  const seen=new Set<string>();
  const unique=result.filter(t=>!seen.has(t.name)&&seen.add(t.name));
  result.length=0;result.push(...unique);
- const usable=run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','pc_list','pc_read','pc_status'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
+ const usable=run.mode==='plan'?result.filter(t=>['web_search','web_fetch','list_files','read_file','list_agents','list_skills','read_skill','pc_list','pc_read','pc_status'].includes(t.name)||((t.name.startsWith('mcp_')||t.name.startsWith('gtasks_'))&&!t.write)):result;
  // One light tool stands in for every connected app; its own tools are offered only once opened (see offeredTools).
  const apps=new Map<string,{name:string;about:string;tools:Tool[]}>();
  for(const t of usable)if(t.app){const c=connections.find(x=>appKey(x)===t.app);if(!apps.has(t.app))apps.set(t.app,{name:c?.name||builtinApps[t.app]?.name||t.app,about:catalog.find(e=>e.key===c?.catalog_key)?.description||builtinApps[t.app]?.about||'',tools:[]});apps.get(t.app)!.tools.push(t);}

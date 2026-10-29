@@ -5,6 +5,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.12] - 2026-10-29
+
+### Adicionado
+- Todos os agentes podem listar, ler, criar, atualizar e excluir habilidades, além de vincular/desvincular habilidades de si mesmos. Alterações exigem aprovação; o modo de planejamento permite apenas listar e ler.
+
+### Corrigido
+- API e ferramentas compartilham validação e operações de habilidades. Exclusões removem os vínculos dos agentes na mesma transação, e habilidades inexistentes retornam erro explícito.
+
 ## [0.30.11] - 2026-10-29
 
 ### Corrigido

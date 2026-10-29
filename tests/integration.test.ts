@@ -155,6 +155,33 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await assert.rejects(tool('write_shared_memory').execute({content:'x'.repeat(99995)},{}),/passaria de/);
   await tool('delete_shared_memory').execute({},{});assert.equal(await tool('read_shared_memory').execute({},{}),'(memória compartilhada vazia)');
  });
+ await t.test('habilidades: CRUD compartilhado, vínculos idempotentes, plano e limpeza',async()=>{
+  const {toolsFor}=await import('../apps/server/src/tools.js');
+  const run={agent_id:targetAgent,mode:'execute'},cfg={agent:{tools:[]}};
+  const tools=await toolsFor(run,cfg),call=async(name:string,args:any)=>JSON.parse(await tools.find(x=>x.name===name)!.execute(args,run,cfg));
+  for(const name of ['list_skills','read_skill','create_skill','update_skill','delete_skill','assign_skill','unassign_skill'])assert.ok(tools.some(x=>x.name===name),'especialista recebe '+name);
+  const plan=await toolsFor({...run,mode:'plan'},cfg);assert.ok(plan.some(x=>x.name==='list_skills'));assert.ok(plan.some(x=>x.name==='read_skill'));assert.ok(!plan.some(x=>['create_skill','update_skill','delete_skill','assign_skill','unassign_skill'].includes(x.name)));
+  const created=await call('create_skill',{name:'Habilidade de teste',body:'Primeiro conteúdo'});
+  assert.equal((await request('GET','/skills/'+created.id)).body,'Primeiro conteúdo');
+  await request('PUT','/skills/'+created.id,{name:'Renomeada',body:'Segundo conteúdo'});
+  assert.equal((await call('read_skill',{id:created.id})).body,'Segundo conteúdo');
+  await call('update_skill',{id:created.id,name:'Final',body:'Terceiro conteúdo'});
+  assert.ok((await call('list_skills',{})).some((s:any)=>s.id===created.id&&s.name==='Final'));
+  const before=(await one('SELECT skills FROM agents WHERE id=$1',[agent.id])).skills;
+  await call('assign_skill',{id:created.id});await call('assign_skill',{id:created.id});
+  assert.equal((await one('SELECT skills FROM agents WHERE id=$1',[targetAgent])).skills.filter((id:string)=>id===created.id).length,1);
+  assert.deepEqual((await one('SELECT skills FROM agents WHERE id=$1',[agent.id])).skills,before);
+  await call('unassign_skill',{id:created.id});await call('unassign_skill',{id:created.id});
+  assert.ok(!(await one('SELECT skills FROM agents WHERE id=$1',[targetAgent])).skills.includes(created.id));
+  await call('assign_skill',{id:created.id});
+  await query('UPDATE agents SET skills=skills || $2::jsonb WHERE id=$1',[agent.id,JSON.stringify([created.id])]);
+  await request('DELETE','/skills/'+created.id);
+  assert.equal((await query('SELECT id FROM agents WHERE skills @> $1::jsonb',[JSON.stringify([created.id])])).length,0);
+  for(const name of ['read_skill','delete_skill','assign_skill','unassign_skill'])await assert.rejects(call(name,{id:created.id}),/Habilidade não encontrada/);
+  await assert.rejects(call('update_skill',{id:created.id,name:'Não existe',body:'Texto'}),/Habilidade não encontrada/);
+  const response=await app.inject({url:'/api/skills/'+created.id,headers:{cookie}});assert.equal(response.statusCode,404);
+  const apiSkill=await request('POST','/skills',{name:'Criada pela API',body:'Texto'});await call('delete_skill',{id:apiSkill.id});
+ });
  await t.test('texto antes das ferramentas fica como mensagem própria',async()=>{const r=await task('SEARCH_WEB SAY_FIRST');await poll(r.id,'completed');const said=await query('SELECT content FROM messages WHERE run_id=$1 ORDER BY created_at',[r.id]);assert.deepEqual(said.map((m:any)=>m.content),['Vou pesquisar primeiro.','Resultado concluído com evidências.']);});
  await t.test('MCP descobre ferramentas; escrita espera aprovação',async()=>{const c=await request('POST','/connections',{name:'MCP teste',url:base+'/mcp',headers:{Authorization:'Bearer mcp-secret'},readTools:['read_public']});const discovery=await request('POST',`/connections/${c.id}/test`);assert.equal(discovery.tools.length,3);mcpName=(await request('GET','/tools')).find((x:any)=>x.label.includes('write_external')).name;agent.tools.push(mcpName);await request('PUT','/agents/'+agent.id,agent);const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');assert.equal(writes,0);const approval=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+approval.id,{decision:'approved'});await poll(r.id,'completed');assert.equal(writes,1);await enqueue(r.id);await sleep(500);assert.equal(writes,1);});
  await t.test('negar uma chamada impede escrita externa',async()=>{const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');const a=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+a.id,{decision:'denied'});await poll(r.id,'completed');assert.equal(writes,1);});
@@ -286,7 +313,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  await t.test('/plan restringe ferramentas no backend',async()=>{
   const {toolsFor}=await import('../apps/server/src/tools.js');
   const all=['web_search','web_fetch','generate_image','list_files','read_file','write_file','list_agents','delegate','propose_routine'];
-  assert.deepEqual((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:all}})).map((x:any)=>x.name).sort(),['list_agents','list_files','pc_list','pc_read','pc_status','read_file','use_app','web_fetch','web_search'],'só leitura (pastas do computador incluídas)');
+  assert.deepEqual((await toolsFor({agent_id:agent.id,mode:'plan'},{agent:{tools:all}})).map((x:any)=>x.name).sort(),['list_agents','list_files','list_skills','pc_list','pc_read','pc_status','read_file','read_skill','use_app','web_fetch','web_search'],'só leitura (pastas do computador incluídas)');
   const cv=await request('POST',`/agents/${agent.id}/conversations`,{});
   const ok=await request('POST',`/conversations/${cv.id}/messages`,{content:'Planeje a migração',mode:'plan'});await poll(ok.id,'completed');
   const run=await one('SELECT mode,context FROM runs WHERE id=$1',[ok.id]);assert.equal(run.mode,'plan');assert.equal((run.context[0].content.match(/Modo planejamento/g)||[]).length,1);
