@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.11] - 2026-10-29
+
 ### Corrigido
 - **Tabelas nas mensagens voltaram a funcionar com qualquer formato.** A versão 0.30.10 fixou larguras e proibiu quebra de linha nas colunas 2 e 3 (feito para uma lista de arquivos com nome, tamanho e data), o que fazia o texto de tabelas com mais colunas invadir as vizinhas e deixava as linhas enormes. Agora cada coluna tem largura mínima, as palavras curtas nunca são cortadas, só um nome longo demais para a coluna (por exemplo, um arquivo sem espaços) quebra no meio, e uma tabela larga rola para o lado dentro do balão. Valores como tamanhos e horários usam algarismos de largura fixa.
 
