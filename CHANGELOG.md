@@ -1,31 +1,47 @@
 # Changelog
 
-## 0.30.10
-- **Tabela de arquivos:** a coluna de tamanho agora preserva os valores, mantém alinhamento numérico e recebe espaço próprio sem ser comprimida pela coluna de nomes.
-
-## 0.30.9
-- **Tabelas no histórico:** tabelas de arquivos agora usam largura fixa e quebra de texto dentro das células, impedindo que nomes longos estourem ou deformem o balão da mensagem.
-
-## 0.30.8
-- **Áudios no histórico:** anexos de áudio agora ocupam sempre uma linha inteira, com largura controlada pelo balão, evitando que múltiplos players fiquem lado a lado e comprimidos.
-
-## 0.30.7
-- **Layouto das mensagens:** anexos de áudio e imagem agora quebram corretamente em telas estreitas, tabelas continuam rolando dentro do balão e nomes longos não estouram o cartão.
-
-## 0.30.6
-- **Histórico de aprovações:** cada chamada de ferramenta agora mantém o estado da permissão visível no histórico da conversa, incluindo aprovado, negado, cancelado ou pendente.
-
-## 0.30.5
-- **Acesso a pastas:** erros determinísticos do pedido de acesso não entram mais no fluxo de resultado incerto. O agente recebe o erro real e pode interpretar o caminho, listar diretórios-pai e tentar localizar a pasta correta sem ficar preso em um loop de aprovação.
-
-## 0.30.4
-- **Aprovações com resultado incerto:** a interface agora exibe o resultado da tentativa anterior, identifica claramente a ação como uma nova tentativa e oferece a opção "Não tentar novamente". Isso evita aprovações ambíguas quando o serviço pode já ter executado a operação.
-
-
-Todas as mudan?as relevantes do Cell ficam registradas aqui.
-O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as vers?es seguem o [Versionamento Sem?ntico](https://semver.org/lang/pt-BR/).
+Todas as mudanças relevantes do Cell ficam registradas aqui.
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
+
+### Corrigido
+- **Tabelas nas mensagens voltaram a funcionar com qualquer formato.** A versão 0.30.10 fixou larguras e proibiu quebra de linha nas colunas 2 e 3 (feito para uma lista de arquivos com nome, tamanho e data), o que fazia o texto de tabelas com mais colunas invadir as vizinhas e deixava as linhas enormes. Agora cada coluna tem largura mínima, as palavras curtas nunca são cortadas, só um nome longo demais para a coluna (por exemplo, um arquivo sem espaços) quebra no meio, e uma tabela larga rola para o lado dentro do balão. Valores como tamanhos e horários usam algarismos de largura fixa.
+
+## [0.30.10] - 2026-10-28
+
+### Corrigido
+- **Tabela de arquivos:** a coluna de tamanho agora preserva os valores, mantém alinhamento numérico e recebe espaço próprio sem ser comprimida pela coluna de nomes.
+
+## [0.30.9] - 2026-10-28
+
+### Corrigido
+- **Tabelas no histórico:** tabelas de arquivos agora usam largura fixa e quebra de texto dentro das células, impedindo que nomes longos estourem ou deformem o balão da mensagem.
+
+## [0.30.8] - 2026-10-28
+
+### Corrigido
+- **Áudios no histórico:** anexos de áudio agora ocupam sempre uma linha inteira, com largura controlada pelo balão, evitando que múltiplos players fiquem lado a lado e comprimidos.
+
+## [0.30.7] - 2026-10-28
+
+### Corrigido
+- **Layout das mensagens:** anexos de áudio e imagem agora quebram corretamente em telas estreitas, tabelas continuam rolando dentro do balão e nomes longos não estouram o cartão.
+
+## [0.30.6] - 2026-10-28
+
+### Corrigido
+- **Histórico de aprovações:** cada chamada de ferramenta agora mantém o estado da permissão visível no histórico da conversa, incluindo aprovado, negado, cancelado ou pendente.
+
+## [0.30.5] - 2026-10-28
+
+### Corrigido
+- **Acesso a pastas:** erros determinísticos do pedido de acesso não entram mais no fluxo de resultado incerto. O agente recebe o erro real e pode interpretar o caminho, listar diretórios-pai e tentar localizar a pasta correta sem ficar preso em um loop de aprovação.
+
+## [0.30.4] - 2026-10-28
+
+### Corrigido
+- **Aprovações com resultado incerto:** a interface agora exibe o resultado da tentativa anterior, identifica claramente a ação como uma nova tentativa e oferece a opção "Não tentar novamente". Isso evita aprovações ambíguas quando o serviço pode já ter executado a operação.
 
 ## [0.30.3] - 2026-10-28
 

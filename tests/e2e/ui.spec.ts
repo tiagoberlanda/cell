@@ -678,11 +678,13 @@ test('backup: baixar com a senha da conta e verificar o arquivo', async ({ page 
 });
 
 test('tabela na mensagem: sem quebrar palavras no meio e rolagem lateral no celular', async ({ page }) => {
-  const table = '## Resumo\n\n| Vídeo | Canal | YouTube | Instagram | TikTok | Status |\n|---|---|---|---|---|---|\n| O Homem de Taured (horizontal) | Fatos o que é | 16:00 | 16:00 | — | Pronto, não publicado |\n| Corte 1: O Viajante Sem País (vertical) | Fatos o que é | 16:00 | 16:00 | 16:00 | Pronto, não publicado |';
+  const table = "Amanhã, **quinta 29/10/2026**, estes são os vídeos marcados no banco **canais** do Notion. O calendário do Google e o do Notion estão vazios nesse dia.\n\n### Sai amanhã (horário de Brasília)\n\n| Horário | Vídeo | Canal | Onde | Situação |\n|---|---|---|---|---|\n| **14:00** | \"Olha para os Céus e Conta as Estrelas\" — Gênesis 29 | O caminho da vida em Cristo | YouTube horizontal + Instagram + TikTok | Em andamento. Sem aprovação, edição nem thumbnail |\n| **14:00** | Gênesis 29 (Corte 1) | O caminho da vida em Cristo | Shorts + Instagram | A fazer. Short marcado, ainda sem edição |\n| **16:00** | O Homem de Taured (Short Completo) | Fatos o que é | Shorts + Instagram | **Pronto e aprovado.** Ainda não publicado |\n| **16:00** | Corte 2: O Enigma Revelado — A Verdade Sobre o Homem de Taured | Fatos o que é | Shorts + Instagram | Em andamento. Já tem link de Short (`KPS2wkWABME`), mas não está marcado como publicado |\n\nO horizontal de **O Homem de Taured** já saiu hoje (28/10 às 16:00, [youtu.be/nJIGMWYYcjg](https://youtu.be/nJIGMWYYcjg)). O Short desse vídeo está agendado para amanhã às 16:00.\n\n### O que ainda não está pronto para sair\n\n- **Gênesis 29 (horizontal):** em andamento, sem aprovação, edição ou capa. O Short dele no card principal está para **30/10 às 14:00**, mas o **Corte 1** está para amanhã às 14:00 e ainda está em \"A fazer\".\n- **Corte 2 de Taured:** data de amanhã, status ainda \"Em andamento\", sem aprovação.\n\nO único item com status **Pronto** e aprovado para amanhã é o **Short completo de O Homem de Taured**, às 16:00.";
+  // A file list: a long name without spaces must not widen the page, and the sizes stay whole.
+  const files = '| Nome | Tamanho | Modificado |\n|---|---|---|\n| `Sabotage_Rap_e_Compromisso_x_Write_This_Down_V2_Grave_Ajustado_Final_Master.mp3` | 12.5 MB | 28/10 14:02 |\n| capa.png | 840 KB | 28/10 13:10 |';
   await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.continue();
     const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
-    body.messages = [...body.messages, { id: 'tbl', role: 'assistant', content: table, created_at: new Date().toISOString(), attachments: [], files: [] }];
+    body.messages = [...body.messages, { id: 'arq', role: 'assistant', content: files, created_at: new Date(Date.now() - 1000).toISOString(), attachments: [], files: [] }, { id: 'tbl', role: 'assistant', content: table, created_at: new Date().toISOString(), attachments: [], files: [] }];
     return route.fulfill({ response: res, json: body });
   });
   await openAgents(page);
@@ -691,8 +693,12 @@ test('tabela na mensagem: sem quebrar palavras no meio e rolagem lateral no celu
   await expect(t).toBeVisible();
   // Headers stay on one line and no word is split across lines.
   await expect.poll(() => t.evaluate(el => Math.max(...[...el.querySelectorAll('th')].map(th => { const r = document.createRange(); r.selectNodeContents(th); return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size; })))).toBe(1);
-  const broken = await t.evaluate(el => [...el.querySelectorAll('th,td')].some(c => { const r = document.createRange(); r.selectNodeContents(c); const rects = [...r.getClientRects()]; const words = (c.textContent || '').trim().split(/\s+/); return rects.length > words.length; }));
-  expect(broken).toBe(false);
+  // No ordinary word is split across lines (a token longer than its column, like a file name, may break).
+  const broken = await t.evaluate(el => { const out: string[] = []; const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); for (let n = walk.nextNode(); n; n = walk.nextNode()) for (const m of (n.textContent || '').matchAll(/\S+/g)) { if (m[0].length > 14) continue; const r = document.createRange(); r.setStart(n, m.index!); r.setEnd(n, m.index! + m[0].length); if (new Set([...r.getClientRects()].map(x => Math.round(x.top))).size > 1) out.push(m[0]); } return out; });
+  expect(broken).toEqual([]);
+  const sizes = page.locator('.bubble table').first().locator('td:nth-child(2)');
+  await expect.poll(() => sizes.evaluateAll(els => els.map(e => { const r = document.createRange(); r.selectNodeContents(e); return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size; }))).toEqual([1, 1]);
+  await expect(sizes.first()).toHaveText('12.5 MB');
   await t.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `test-results/tabela-${page.viewportSize()!.width}.png` });
   await noHorizontalScroll(page);
