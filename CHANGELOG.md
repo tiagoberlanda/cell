@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.30.10
+- **Tabela de arquivos:** a coluna de tamanho agora preserva os valores, mantém alinhamento numérico e recebe espaço próprio sem ser comprimida pela coluna de nomes.
+
 ## 0.30.9
 - **Tabelas no histórico:** tabelas de arquivos agora usam largura fixa e quebra de texto dentro das células, impedindo que nomes longos estourem ou deformem o balão da mensagem.
 

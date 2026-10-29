@@ -201,7 +201,7 @@
    keep headers on one line and give cells a minimum width; a wide table scrolls sideways inside the bubble, with a
    shadow on the edge that still has content (the shadows travel with the scroll position). */
 .bubble table{display:table;width:100%;max-width:100%;table-layout:fixed;overflow:hidden;border-collapse:collapse;margin:10px 0;font-size:13px;line-height:1.45;overflow-wrap:anywhere;word-break:break-word;background:var(--surface)}
-.bubble th,.bubble td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;min-width:0;max-width:none;overflow-wrap:anywhere;word-break:break-word}.bubble th:first-child,.bubble td:first-child{width:45%}.bubble th:nth-child(2),.bubble td:nth-child(2){width:25%}.bubble th:nth-child(3),.bubble td:nth-child(3){width:30%}
+.bubble th,.bubble td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;min-width:0;max-width:none;overflow-wrap:anywhere;word-break:break-word}.bubble th:first-child,.bubble td:first-child{width:58%;text-align:left}.bubble th:nth-child(2),.bubble td:nth-child(2){width:17%;text-align:right;white-space:nowrap}.bubble th:nth-child(3),.bubble td:nth-child(3){width:25%;text-align:right;white-space:nowrap}.bubble td:first-child{overflow-wrap:anywhere;word-break:break-word}.bubble td:nth-child(2),.bubble td:nth-child(3){font-variant-numeric:tabular-nums}
 .bubble th{white-space:nowrap;font-weight:600;background:color-mix(in srgb,var(--line) 45%,transparent)}
 .bubble td:first-child{min-width:120px}
 .bubble td code{white-space:nowrap}
