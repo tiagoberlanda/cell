@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.13] - 2026-10-29
+
 ### Adicionado
 - O agente Coordenador cria uma conversa separada para cada especialista quando delega tarefas, registrando a conversa de origem e facilitando a navegação direta entre o chat principal e as tarefas delegadas.
 
