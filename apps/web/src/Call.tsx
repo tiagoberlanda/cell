@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {CSSProperties} from 'react';
 import {PhoneOff,Mic,MicOff,Send,Square} from 'lucide-react';
-import {stripThinking,type Agent} from '../../../packages/shared/src/index';
+import {stripThinking,jobEventOf,type Agent} from '../../../packages/shared/src/index';
 import {CellAvatar} from './CellAvatar';
 import {speak,stopSpeaking,clock,recordingFormat} from './Voice';
 
@@ -89,7 +89,7 @@ export function VoiceCall({agent,messages,runs,send,onClose}:{agent:Agent;messag
  // The reply is the first new assistant message after the turn was sent; a failed run ends the wait.
  useEffect(()=>{
   const s=live.current,wait=s.wait;if(!wait||s.phase!=='thinking')return;
-  const reply=messages.find((m:any)=>m.role==='assistant'&&!wait.baseline.has(m.id));
+  const reply=messages.find((m:any)=>m.role==='assistant'&&!jobEventOf(m)&&!wait.baseline.has(m.id));
   if(reply){playReply(reply);return;}
   const run=runs.find((r:any)=>r.id===wait.run);
   if(run&&['failed','cancelled'].includes(run.state)){s.wait=null;setError(run.error||'O agente não conseguiu responder.');listen();}

@@ -5,6 +5,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.17] - 2026-10-30
+
+### Corrigido
+- Retornos de comandos em segundo plano aparecem como eventos “Cell · Sistema”, não como respostas do agente, com saída recolhida em “Detalhes técnicos”. Eventos antigos no formato reconhecido também recebem essa apresentação.
+- Encerramento com saída 0 não é apresentado como validação da tarefa completa; caminhos locais nos logs não são convertidos em downloads.
+- Eventos técnicos ficam separados das respostas de voz, chamadas, notificações de respostas e contexto do agente, preservando sua origem como dados técnicos não confiáveis.
+
 ## [0.30.16] - 2026-10-30
 
 ### Corrigido

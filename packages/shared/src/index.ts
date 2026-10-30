@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './jobEvents.js';
 // Agent icons are cell types; the web draws each one in CellAvatar.
 export const shapes = ['animal','vegetal','bacilo','coco','neuronio','hemacia','ameba','paramecio','euglena','diatomacea','levedura','leucocito'] as const;
 export const states = ['queued','running','waiting_approval','waiting_agent','completed','failed','cancelled'] as const;

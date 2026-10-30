@@ -1,3 +1,4 @@
+import {jobEventOf} from '../../../packages/shared/src/index.js';
 import webpush from 'web-push';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -82,13 +83,13 @@ export function registerPush(app:FastifyInstance){
  app.delete('/api/push/devices/:id',async req=>{await query('DELETE FROM push_subscriptions WHERE id=$1',[z.string().uuid().parse((req.params as any).id)]);return {ok:true};});
  // Notification center: unread agent messages (top-level conversations, agents with notifications on) and pending approvals.
  app.get('/api/notifications',async()=>{
-  const messages=await query(`SELECT 'message' AS kind,m.id,m.content AS text,m.created_at AS at,c.id AS conversation_id,c.title,a.id AS agent_id,a.name AS agent_name,a.color,a.shape,(SELECT i.content FROM messages i WHERE i.id=r.input_message_id) AS input
+  const messages=await query(`SELECT 'message' AS kind,m.role,m.run_id,m.system_event,m.id,m.content AS text,m.created_at AS at,c.id AS conversation_id,c.title,a.id AS agent_id,a.name AS agent_name,a.color,a.shape,(SELECT i.content FROM messages i WHERE i.id=r.input_message_id) AS input
    FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id LEFT JOIN runs r ON r.id=m.run_id
    WHERE m.role='assistant' AND m.created_at>c.seen_at AND c.archived_at IS NULL AND a.notify AND NOT a.archived AND r.parent_id IS NULL ORDER BY m.created_at DESC LIMIT 30`);
   const approvals=await query(`SELECT 'approval' AS kind,ap.id,COALESCE(t.target,t.tool) AS text,ap.created_at AS at,r.conversation_id,c.title,a.id AS agent_id,a.name AS agent_name,a.color,a.shape
    FROM approvals ap JOIN tool_calls t ON t.id=ap.call_id JOIN runs r ON r.id=t.run_id JOIN conversations c ON c.id=r.conversation_id JOIN agents a ON a.id=r.agent_id
    WHERE ap.status='pending' AND r.state='waiting_approval' AND a.notify ORDER BY ap.created_at DESC LIMIT 20`);
-  const items=[...approvals,...messages].map(({input,...n}:any)=>({...n,routine:/^\[Rotina agendada: ([^\]]+)\]/.exec(input||'')?.[1]||null,text:clip(n.kind==='message'?plain(n.text):n.text,160)})).sort((x,y)=>new Date(y.at).getTime()-new Date(x.at).getTime());
+  const items=[...approvals,...messages.filter(m=>!jobEventOf({...m,content:m.text}))].map(({input,...n}:any)=>({...n,routine:/^\[Rotina agendada: ([^\]]+)\]/.exec(input||'')?.[1]||null,text:clip(n.kind==='message'?plain(n.text):n.text,160)})).sort((x,y)=>new Date(y.at).getTime()-new Date(x.at).getTime());
   return {items,unread:items.length};
  });
  app.post('/api/notifications/read-all',async()=>{await query('UPDATE conversations SET seen_at=now() WHERE archived_at IS NULL');return {ok:true};});

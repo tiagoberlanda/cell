@@ -3,6 +3,7 @@ import crypto,{ createHash } from 'node:crypto';
 import { Client } from 'ssh2';
 import { one,query,event } from './db.js';
 import { sendPush } from './push.js';
+import {jobEventTitle,type JobEvent} from '../../../packages/shared/src/index.js';
 import { encrypt,decrypt } from './security.js';
 import type { Tool } from './tools.js';
 
@@ -178,14 +179,15 @@ export async function pollJobs(){
   const status=s.lost?'lost':s.cancelled||s.exitCode===130?'cancelled':s.exitCode===0?'done':'failed';
   const row=await one("UPDATE computer_jobs SET status=$2,exit_code=$3,output=$4,finished_at=now() WHERE id=$1 AND status='running' RETURNING *",[job.id,status,s.exitCode,s.output]);
   if(!row)continue;
-  if(!row.conversation_id){await sendPush({title:`Tarefa ${status==='done'?'concluída':status==='failed'?'com erro':status==='cancelled'?'cancelada':'perdida'} · ${row.computer_name}`,body:(row.reason||row.command).slice(0,160),url:'/?computers=1',tag:`job-${row.id}`}).catch(()=>{});continue;}
-  const title={done:'Tarefa concluída',failed:'Tarefa terminou com erro',cancelled:'Tarefa cancelada',lost:'Tarefa perdida'}[status];
-  const out=s.output.trim().slice(-3000);
-  const text=`**${title}** em ${row.computer_name}${status==='failed'?` (saída ${s.exitCode})`:''}${row.reason?` · ${row.reason}`:''}\n\n${status==='lost'?'O computador foi reiniciado ou o Cell Host foi reaberto durante a tarefa; não dá para saber se ela terminou.\n\n':''}${out?'```\n'+out.replace(/```/g,'ʼʼʼ')+'\n```':'Sem saída.'}`;
-  await query("INSERT INTO messages(conversation_id,role,content) VALUES($1,'assistant',$2)",[row.conversation_id,text]);
+  const title=jobEventTitle(status);
+  const body=`${row.reason||'Comando em segundo plano'}${status==='done'?' · Resultado da tarefa não validado.':''}`.slice(0,160);
+  if(!row.conversation_id){await sendPush({title:`Cell · ${title} · ${row.computer_name}`,body,url:'/?computers=1',tag:`job-${row.id}`}).catch(()=>{});continue;}
+  const jobEvent:JobEvent={type:'computer_job',jobId:row.id,status,computerName:row.computer_name,reason:row.reason||'',exitCode:s.exitCode,output:s.output.trim().slice(-3000)};
+  const text=`${title} em ${row.computer_name}${row.reason?` · ${row.reason}`:''}`;
+  await query("INSERT INTO messages(conversation_id,role,content,system_event) VALUES($1,'assistant',$2,$3)",[row.conversation_id,text,JSON.stringify(jobEvent)]);
   await event('message',{conversationId:row.conversation_id});
   const agent=row.agent_id?await one('SELECT name,notify FROM agents WHERE id=$1',[row.agent_id]):null;
-  if(agent?.notify!==false)await sendPush({title:`${title} · ${row.computer_name}`,body:(row.reason||row.command).slice(0,160),url:`/?agent=${row.agent_id}&conversation=${row.conversation_id}`,tag:`job-${row.id}`}).catch(()=>{});
+  if(agent?.notify!==false)await sendPush({title:`Cell · ${title} · ${row.computer_name}`,body,url:`/?agent=${row.agent_id}&conversation=${row.conversation_id}`,tag:`job-${row.id}`}).catch(()=>{});
  }
 }
 

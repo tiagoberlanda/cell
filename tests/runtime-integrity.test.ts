@@ -33,6 +33,7 @@ test('isolated database: ordinal migration and delegation/cancellation serializa
   const ids=['ffffffff-ffff-4fff-afff-ffffffffffff','00000000-0000-4000-a000-000000000001'];
   for(const [i,id] of ids.entries())await db.query("INSERT INTO tool_calls(id,run_id,call_id,tool,args,fingerprint,created_at) VALUES($1,$2,$3,'test','{}','test','2026-01-01')",[id,root.id,'legacy'+i]);
   await db.query(await readFile(new URL('0026_tool_call_order.sql',dir),'utf8'));
+  for(const name of migrations.filter(x=>x>'0026_tool_call_order.sql'))await db.query(await readFile(new URL(name,dir),'utf8'));
   await t.test('backfill retains old timestamp/UUID order; explicit order overrides UUIDs',async()=>{
    assert.deepEqual((await db.query('SELECT id FROM tool_calls WHERE run_id=$1 ORDER BY ordinal',[root.id])).map(x=>x.id),[...ids].reverse());
    await db.query('UPDATE tool_calls SET ordinal=CASE WHEN id=$1 THEN 1 ELSE 2 END WHERE run_id=$2',[ids[0],root.id]);

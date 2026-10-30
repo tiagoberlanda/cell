@@ -1,4 +1,5 @@
 import {one,query} from './db.js';
+import {messageForContext,jobEventOf} from '../../../packages/shared/src/index.js';
 import {fileData} from './files.js';
 import {config,type ChatMessage} from './router.js';
 
@@ -20,7 +21,7 @@ export async function prepareContext(run:any,cfg:any):Promise<ChatMessage[]> {
  // Current attachments get priority. Each document is included once, with explicit omissions.
  const parts=new Map<string,any[]>();
  for(const m of [input,...history]){
-  const content:any[]=[{type:'text',text:String(m.content).slice(0,50000)}];
+  const content:any[]=[{type:'text',text:String(messageForContext(m).content).slice(0,50000)}];
   for(const id of m.files||[]){
    if(seen.has(id))continue;seen.add(id);
    const meta=await one('SELECT id,name,mime,size FROM files WHERE id=$1',[id]);
@@ -41,7 +42,7 @@ export async function prepareContext(run:any,cfg:any):Promise<ChatMessage[]> {
  const current=parts.get(input.id)!;
  const plan=run.mode==='plan'?'\nModo planejamento: apenas pesquisa e leitura. Entregue o plano, sem executar alterações.':'';
  // History fills what the window has left after the instructions and the new message, newest first.
- const asMessage=(m:any,content:any[])=>({role:m.role,content:content.length===1?content[0].text:content});
+ const asMessage=(m:any,content:any[])=>({role:jobEventOf(m)?'user':m.role,content:content.length===1?content[0].text:content});
  let budget=contextTokens-estimateTokens([{content:system+plan},asMessage(input,current)]);
  const selected:any[]=[];
  for(const m of history){if(budget<=0)break;const msg=asMessage(m,parts.get(m.id)!),cost=estimateTokens([msg]);if(cost>budget)continue;budget-=cost;selected.push(msg);}
