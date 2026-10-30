@@ -28,7 +28,7 @@ function oauthProvider(connection:any,oauth:any,save:()=>Promise<void>){
 export async function mcpClient(connection:any){
  const headers=connection.auth?decrypt<Record<string,string>>(connection.auth):{};
  const oauth=connection.oauth?decrypt<any>(connection.oauth):{};
- const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]).then(()=>{});
+ const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2 AND url=$3',[encrypt(oauth),connection.id,connection.url]).then(()=>{});
  if(!oauth.state){oauth.state=oauth.fixedRedirect?newState(connection.id):randomBytes(32).toString('hex');await save();}
  const transport=new StreamableHTTPClientTransport(new URL(validateEndpoint(connection.url)),{requestInit:{headers},authProvider:oauthProvider(connection,oauth,save)});
  const client=new Client({name:'cell',version:'0.1.0'},{capabilities:{}});
@@ -38,8 +38,8 @@ export async function mcpClient(connection:any){
 export const readOnlyTools=(tools:any[])=>tools.filter(t=>t.annotations?.readOnlyHint===true||(t.annotations?.readOnlyHint===undefined&&/^(get|list|search|fetch|read|find|query|retrieve|lookup|describe)[_-]?/i.test(String(t.name)))).map(t=>t.name);
 export async function discover(connection:any){const {client}=await mcpClient(connection);try{let cursor:string|undefined;const tools:any[]=[];do{const page=await client.listTools({cursor});tools.push(...page.tools);cursor=page.nextCursor;if(tools.length>300)throw new Error('Limite de 300 ferramentas por conexão.');}while(cursor);
  // Catalog connections classify read tools automatically; custom connections keep the owner's choice.
- if(connection.catalog_key)await query("UPDATE connections SET tools=$1,status='connected',read_tools=$3 WHERE id=$2",[JSON.stringify(tools),connection.id,JSON.stringify(readOnlyTools(tools))]);
- else await query("UPDATE connections SET tools=$1,status='connected' WHERE id=$2",[JSON.stringify(tools),connection.id]);
+ if(connection.catalog_key)await query("UPDATE connections SET tools=$1,status='connected',read_tools=$3 WHERE id=$2 AND url=$4",[JSON.stringify(tools),connection.id,JSON.stringify(readOnlyTools(tools)),connection.url]);
+ else await query("UPDATE connections SET tools=$1,status='connected' WHERE id=$2 AND url=$3",[JSON.stringify(tools),connection.id,connection.url]);
  return tools;}finally{await client.close();}}
 // The MCP server reported a tool failure (isError): the call completed and the action did not happen.
 export class McpToolError extends Error {}
@@ -48,13 +48,13 @@ export async function mcpCall(connectionId:string,name:string,args:any){const co
 // a connection as connected while every call fails. Returns the authorization URL, or null when tokens are already valid.
 export async function startAuthorization(connection:any):Promise<string|null>{
  const oauth=connection.oauth?decrypt<any>(connection.oauth):{};
- const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]).then(()=>{});
+ const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2 AND url=$3',[encrypt(oauth),connection.id,connection.url]).then(()=>{});
  const result=await auth(oauthProvider(connection,oauth,save),{serverUrl:new URL(validateEndpoint(connection.url)),...(oauth.scope?{scope:oauth.scope}:{})});
  return result==='REDIRECT'?oauth.authorizationUrl:null;
 }
 export async function finishOAuth(connection:any,code:string){
  const headers=connection.auth?decrypt<Record<string,string>>(connection.auth):{},oauth=connection.oauth?decrypt<any>(connection.oauth):{};
- const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2',[encrypt(oauth),connection.id]).then(()=>{});
+ const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2 AND url=$3',[encrypt(oauth),connection.id,connection.url]).then(()=>{});
  const transport=new StreamableHTTPClientTransport(new URL(connection.url),{requestInit:{headers},authProvider:oauthProvider(connection,oauth,save)});
  await transport.finishAuth(code);await transport.close();
 }

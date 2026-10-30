@@ -5,6 +5,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.15] - 2026-10-30
+
+### Corrigido
+- Modo seguro exige aprovação para comandos genéricos, sem depender de uma lista incompleta de comandos destrutivos.
+- Aprovações de comandos e receitas vinculadas ao destino e à configuração apresentados ao usuário.
+- Chamadas de ferramentas preservam a ordem declarada pelo modelo; cancelamento e criação de delegações são coordenados.
+- Envios e uploads não substituem conversas selecionadas depois nem apagam rascunhos mais recentes; controles de conversas anteriores não permanecem ativos durante a troca.
+- Alterar o endpoint MCP invalida OAuth, credenciais anteriores não fornecidas novamente e catálogo; respostas antigas não repõem autenticação de outro destino.
+
 ## [0.30.14] - 2026-10-30
 
 ### Corrigido

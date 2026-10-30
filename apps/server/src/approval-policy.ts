@@ -17,6 +17,8 @@ export async function autoApproval(agentId:string,call:{tool:string;args:any;tar
  const a=await one('SELECT approval_mode,auto_approve FROM agents WHERE id=$1',[agentId]);if(!a)return null;
  if((a.auto_approve||[]).some((r:any)=>r.tool===call.tool))return 'always';
  if(a.approval_mode==='yolo')return 'mode';
- if(a.approval_mode==='safe'&&!await isDeletion(call))return 'mode';
+ // Arbitrary shell code cannot be classified safely with a deletion blacklist (aliases, .NET, interpreters,
+ // downloads, etc.). Saved untrusted recipes are shell code too. Explicit always/full rules above still win.
+ if(a.approval_mode==='safe'&&!['pc_run','pc_recipe'].includes(call.tool)&&!await isDeletion(call))return 'mode';
  return null;
 }

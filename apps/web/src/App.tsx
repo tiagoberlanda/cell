@@ -9,6 +9,7 @@ import {AgentList} from './AgentList';
 import {confirmDialog} from './dialogs';
 import {api,setCsrf} from './api';
 import {VoiceCall,type CallTurn} from './Call';
+import {ComposerOwnership,type ChatVisit} from './composerOwnership';
 import {ComputersIndicator,ComputersPanel,useComputers} from './Computers';
 import {AgentEditor,SettingsPanel,SkillsPanel,ConnectionsPanel,RoutinesPanel,FilesPanel,SearchPanel,Modal} from './Panels';
 import {SLASH_COMMANDS,findMatchingCommands,type SlashCommand} from './commands';
@@ -20,7 +21,7 @@ const activeStates=['queued','running','waiting_approval','waiting_agent'];
 type ApprovalMode='ask'|'safe'|'yolo';
 const approvalModes:Record<ApprovalMode,{label:string;hint:string;short:string}>={
  ask:{label:'Pedir aprovação',hint:'Toda ação pede sua confirmação',short:'Pede aprovação'},
- safe:{label:'Aprovar tudo menos exclusão',hint:'Só exclusões pedem confirmação',short:'Aprova tudo menos exclusão'},
+ safe:{label:'Aprovação reduzida',hint:'Exclusões e comandos genéricos pedem confirmação; permissões explícitas continuam valendo',short:'Confirma exclusões e comandos'},
  yolo:{label:'YOLO (aprovação total)',hint:'Nada pede confirmação',short:'Modo YOLO: nada pede aprovação'}};
 // A run can leave several messages (what the agent said before each tool step, then the answer). Each message gets
 // the run's calls made after the previous message up to its own timestamp; the last one also gets the specialists' calls.
@@ -49,14 +50,22 @@ export function App(){
  // pulse: bumped on every server event so open panels (activity center) refresh live.
  const [pulse,setPulse]=useState(0),[settingsTab,setSettingsTab]=useState('router');
  const [notes,setNotes]=useState<NotificationItem[]>([]),[alerts,setAlerts]=useState<NotificationItem[]>([]),[offerPush,setOfferPush]=useState(false),knownNotes=useRef<Set<string>|null>(null);
- const [user,setUser]=useState<any>(null),[checking,setChecking]=useState(true),[agents,setAgents]=useState<Agent[]>([]),[sections,setSections]=useState<string[]>([]),[selected,setSelected]=useState<string|null>(openTarget.agent||localStorage.getItem('cell.agent')),[conversation,setConversation]=useState<string|null>(null),[conversations,setConversations]=useState<any[]>([]),[delegations,setDelegations]=useState<any[]>([]),[chat,setChat]=useState<any>({messages:[],runs:[],calls:[]}),[draft,setDraft]=useState(''),[attachments,setAttachments]=useState<any[]>([]),[drawer,setDrawer]=useState(false),[details,setDetails]=useState(false),[tab,setTab]=useState('details'),[modal,setModal]=useState<string|null>(null),[editAgent,setEditAgent]=useState<Agent|null>(null),[editorTab,setEditorTab]=useState('profile'),[skillDraft,setSkillDraft]=useState<any>(null),[toast,setToast]=useState(''),[busy,setBusy]=useState(false),[streams,setStreams]=useState<Record<string,string>>({}),[online,setOnline]=useState(true),[configured,setConfigured]=useState(true),[slashIdx,setSlashIdx]=useState(0);
+ const [user,setUser]=useState<any>(null),[checking,setChecking]=useState(true),[agents,setAgents]=useState<Agent[]>([]),[sections,setSections]=useState<string[]>([]),[selected,storeSelected]=useState<string|null>(openTarget.agent||localStorage.getItem('cell.agent')),[conversation,storeConversation]=useState<string|null>(null),[conversations,setConversations]=useState<any[]>([]),[delegations,setDelegations]=useState<any[]>([]),[chat,setChat]=useState<any>({messages:[],runs:[],calls:[]}),[draft,storeDraft]=useState(''),[attachments,storeAttachments]=useState<any[]>([]),[drawer,setDrawer]=useState(false),[details,setDetails]=useState(false),[tab,setTab]=useState('details'),[modal,setModal]=useState<string|null>(null),[editAgent,setEditAgent]=useState<Agent|null>(null),[editorTab,setEditorTab]=useState('profile'),[skillDraft,setSkillDraft]=useState<any>(null),[toast,setToast]=useState(''),[busy,setBusy]=useState(false),[streams,setStreams]=useState<Record<string,string>>({}),[online,setOnline]=useState(true),[configured,setConfigured]=useState(true),[slashIdx,setSlashIdx]=useState(0);
  // Size the composer to its text on every change, including when sending clears it (otherwise it keeps the last message's height).
  useLayoutEffect(()=>{const el=document.getElementById('composer') as HTMLTextAreaElement|null;if(!el)return;el.style.height='auto';if(draft)el.style.height=Math.min(el.scrollHeight,160)+'px';},[draft]);
  const [theme,setTheme]=useState(localStorage.getItem('cell.theme')||'dark');
  // Desktop: recolher o menu para um rail só com os avatares (a escolha fica lembrada neste aparelho).
  const [collapsed,setCollapsed]=useState<boolean>(()=>{try{return localStorage.getItem('cell.sidebar')==='collapsed';}catch{return false;}});
  useEffect(()=>{try{localStorage.setItem('cell.sidebar',collapsed?'collapsed':'expanded');}catch{/* storage optional */}},[collapsed]);
- const input=useRef<HTMLInputElement>(null),bottom=useRef<HTMLDivElement>(null),scroll=useRef<HTMLDivElement>(null),stayBottom=useRef(true),selection=useRef({selected,conversation});selection.current={selected,conversation};
+ const input=useRef<HTMLInputElement>(null),bottom=useRef<HTMLDivElement>(null),scroll=useRef<HTMLDivElement>(null),stayBottom=useRef(true),selection=useRef({selected,conversation});
+ const ownership=useRef(new ComposerOwnership(selected,conversation)).current,renderVisit=ownership.visit;
+ const setDraft=(value:string)=>{ownership.edit();storeDraft(value);};
+ const setAttachments=(value:any[]|((prev:any[])=>any[]))=>{ownership.edit();storeAttachments(value);};
+ // Invalidate synchronously at navigation, before a pending request can complete.
+ const clearVisit=useCallback(()=>{setChat({messages:[],runs:[],calls:[]});setDelegations([]);storeDraft('');storeAttachments([]);setBusy(false);setCall(false);voiceBaseline.current=null;},[]);
+ const setSelected=useCallback((id:string|null)=>{if(id===selection.current.selected)return;if(ownership.select(id,null)){selection.current={selected:id,conversation:null};clearVisit();setConversations([]);storeConversation(null);}storeSelected(id);},[ownership,clearVisit]);
+ const setConversation=useCallback((id:string|null)=>{if(ownership.select(selection.current.selected,id)){selection.current={selected:selection.current.selected,conversation:id};clearVisit();}storeConversation(id);},[ownership,clearVisit]);
+ const adoptConversation=(visit:ChatVisit,cv:any)=>{if(!ownership.adopt(visit,cv.id))return;selection.current={selected:visit.selected,conversation:cv.id};setConversations(prev=>[cv,...prev]);storeConversation(cv.id);};
  const current=conversations.find(c=>c.id===conversation),archived=!!current?.archived_at,activeChats=conversations.filter(c=>!c.archived_at),archivedChats=conversations.filter(c=>c.archived_at);
  const agent=agents.find(a=>a.id===selected),running=chat.runs.filter((r:any)=>activeStates.includes(r.state));
  // Failed runs sit right after the message that started them (same transaction timestamp, so messages sort first).
@@ -87,27 +96,27 @@ export function App(){
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),6000);return()=>clearTimeout(t);},[toast]);
  useEffect(()=>{const media=matchMedia('(prefers-color-scheme: dark)');const apply=()=>document.documentElement.dataset.theme=theme==='system'?(media.matches?'dark':'light'):theme;apply();media.addEventListener('change',apply);localStorage.setItem('cell.theme',theme);return()=>media.removeEventListener('change',apply);},[theme]);
  const refreshAgents=useCallback(async()=>{const [rows,secs]=await Promise.all([api<Agent[]>('/agents'),api<{name:string}[]>('/sections')]);setAgents(rows);setSections(secs.map(s=>s.name));return rows;},[]);
- const refreshChat=useCallback(async()=>{const current=selection.current.conversation;if(current){const [c,children]=await Promise.all([api('/conversations/'+current+(document.visibilityState==='visible'?'':'?seen=0')),api('/conversations/'+current+'/delegations')]);if(selection.current.conversation===current){setChat(c);setDelegations(children);}}},[]);
+ const refreshChat=useCallback(async()=>{const visit=ownership.visit,current=visit.conversation;if(current){const [c,children]=await Promise.all([api('/conversations/'+current+(document.visibilityState==='visible'?'':'?seen=0')),api('/conversations/'+current+'/delegations')]);if(ownership.owns(visit)){setChat(c);setDelegations(children);}}},[ownership]);
  useEffect(()=>{let stop=false,timer:ReturnType<typeof setTimeout>;const check=(attempt:number)=>api('/me').then(u=>{if(!stop){setUser(u);setCsrf(u.csrf);setChecking(false);}}).catch((e:any)=>{if(stop)return;if(e.status===401||attempt>=8){setChecking(false);return;}timer=setTimeout(()=>check(attempt+1),Math.min(8000,500*2**attempt));});check(0);return()=>{stop=true;clearTimeout(timer);};},[]);
  useEffect(()=>{if(!user)return;refreshAgents().then(rows=>{if(!rows.some(x=>x.id===selection.current.selected&&!x.archived))setSelected(rows.find(x=>!x.archived)?.id||null);}).catch(e=>notify(e.message));api('/settings').then(s=>setConfigured(!!s.defaultModel)).catch(()=>{});let timer:ReturnType<typeof setTimeout>|undefined;const es=new EventSource('/api/events',{withCredentials:true});es.onopen=()=>setOnline(true);es.onerror=()=>setOnline(false);es.onmessage=e=>{const data=JSON.parse(e.data);if(data.type==='delta'){setStreams(prev=>({...prev,[data.runId]:data.text}));return;}if(data.type==='stream_reset'){setStreams(prev=>({...prev,[data.runId]:''}));return;}if(data.type==='run'&&!activeStates.includes(data.state))setStreams(prev=>{const next={...prev};delete next[data.id];return next;});clearTimeout(timer);timer=setTimeout(()=>{refreshAgents().catch(()=>{});refreshChat().catch(()=>{});setPulse(p=>p+1);},150);};const poll=setInterval(()=>{refreshAgents().catch(()=>{});refreshChat().catch(()=>{});},15000);return()=>{es.close();clearInterval(poll);clearTimeout(timer);};},[user,refreshAgents,refreshChat,notify]);
- useEffect(()=>{if(!selected||!user)return;localStorage.setItem('cell.agent',selected);setChat({messages:[],runs:[],calls:[]});setConversation(null);setDraft('');setAttachments([]);setDrawer(false);api('/agents/'+selected+'/conversations').then(rows=>{if(selection.current.selected!==selected)return;setConversations(rows);const want=pendingOpen.current?.agent===selected?pendingOpen.current.conversation:'';if(want)pendingOpen.current=null;setConversation(want&&rows.some((r:any)=>r.id===want)?want:rows.find((r:any)=>!r.archived_at)?.id||null);}).catch(e=>notify(e.message));},[selected,user,notify]);
+ useEffect(()=>{if(!selected||!user)return;const visit=ownership.visit;let live=true;localStorage.setItem('cell.agent',selected);setDrawer(false);api('/agents/'+selected+'/conversations').then(rows=>{if(!live||!ownership.owns(visit))return;setConversations(rows);const want=pendingOpen.current?.agent===selected?pendingOpen.current.conversation:'';if(want)pendingOpen.current=null;setConversation(want&&rows.some((r:any)=>r.id===want)?want:rows.find((r:any)=>!r.archived_at)?.id||null);}).catch(e=>{if(live&&ownership.owns(visit))notify(e.message);});return()=>{live=false;};},[selected,user,notify,ownership,setConversation]);
  useEffect(()=>{if(conversation)refreshChat().catch(e=>notify(e.message));},[conversation,refreshChat,notify]);
  useEffect(()=>{if(stayBottom.current)bottom.current?.scrollIntoView({behavior:'instant'});},[chat.messages,streams,chat.calls]);
  // Opening a notification jumps to the end of that chat, where a pending approval sits (retried until the chat loads).
  const jump=useRef(0);
  const jumpToEnd=useCallback(()=>{stayBottom.current=true;jump.current=Date.now();},[]);
  useEffect(()=>{if(!jump.current)return;if(Date.now()-jump.current>8000){jump.current=0;return;}const el=[...document.querySelectorAll('.message-list > .approval-card')].at(-1)||bottom.current;const t=setTimeout(()=>{el?.scrollIntoView({behavior:'smooth',block:'end'});if(document.querySelector('.message-list > .approval-card'))jump.current=0;},120);return()=>clearTimeout(t);},[chat,conversation,pulse]);
- const refreshConversations=async()=>{if(!agent)return [];const rows=await api('/agents/'+agent.id+'/conversations');setConversations(rows);return rows;};
+ const refreshConversations=async()=>{if(!agent)return [];const visit=ownership.visit,rows=await api('/agents/'+agent.id+'/conversations');if(ownership.owns(visit))setConversations(rows);return rows;};
  const fmtDate=(d:string)=>new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
  async function archiveChat(){if(!conversation||archived)return;if(!await confirmDialog('Arquivar esta conversa?','Ela fica salva no histórico e uma nova conversa começa do zero.',{confirm:'Arquivar'}))return;
-  try{const fresh=await api('/conversations/'+conversation+'/archive','POST');await refreshConversations();setConversation(fresh.id);setChat({messages:[],runs:[],calls:[]});setDraft('');setAttachments([]);notify('Conversa arquivada. Ela está no histórico.');}catch(e:any){notify(e.message);}}
+  try{const point=ownership.checkpoint(),fresh=await api('/conversations/'+conversation+'/archive','POST');if(!ownership.unchanged(point))return;await refreshConversations();if(!ownership.unchanged(point))return;setConversation(fresh.id);setChat({messages:[],runs:[],calls:[]});setDraft('');setAttachments([]);notify('Conversa arquivada. Ela está no histórico.');}catch(e:any){notify(e.message);}}
  async function deleteConversation(target:string){if(!await confirmDialog('Excluir esta conversa?','A conversa e suas mensagens serão apagadas permanentemente.',{confirm:'Excluir',danger:true}))return;try{await api('/conversations/'+target,'DELETE');const rows=await refreshConversations();setConversation(rows.find((c:any)=>!c.archived_at)?.id||null);notify('Conversa excluída.');}catch(e:any){notify(e.message);}}
  async function restoreChat(){if(!conversation)return;try{await api('/conversations/'+conversation+'/restore','POST');await refreshConversations();notify('Conversa restaurada.');}catch(e:any){notify(e.message);}}
- async function newChat(){if(!agent)return;const cv=await api('/agents/'+agent.id+'/conversations','POST',{});setConversations(prev=>[cv,...prev]);setConversation(cv.id);setChat({messages:[],runs:[],calls:[]});setDraft('');}
+ async function newChat(){if(!agent)return;const visit=ownership.visit,cv=await api('/agents/'+agent.id+'/conversations','POST',{});if(!ownership.owns(visit))return;setConversations(prev=>[cv,...prev]);setConversation(cv.id);}
  const slashMatches=draft.startsWith('/')&&!draft.includes(' ')&&!draft.includes('\n')?findMatchingCommands(draft):[];
  const safeSlashIdx=slashMatches.length>0?Math.min(slashIdx,slashMatches.length-1):0;
  // Voice message: upload the recording; the server transcribes it and the agent answers (with audio if it is set to).
- const voiceBaseline=useRef<Set<string>|null>(null),[call,setCall]=useState(false);
+ const voiceBaseline=useRef<Set<string>|null>(null),recordingVisit=useRef<ChatVisit|null>(null),[call,setCall]=useState(false);
  const computers=useComputers(!!user);
  // Phones: the header keeps notifications, archive and call; the rest opens from the ⋮ menu (their own menus stay anchored next to it).
  const [historyOpen,setHistoryOpen]=useState(false);
@@ -120,23 +129,24 @@ export function App(){
  const later=(f:()=>void)=>setTimeout(f,60);
  // One spoken turn of a voice call: always answered with speech; the call screen waits for the reply itself.
  async function sendCallAudio(blob:Blob,ext:string):Promise<CallTurn>{
-  if(!agent)throw new Error('Escolha um agente.');if(archived)throw new Error('Conversa arquivada. Restaure-a para continuar.');
-  let cv=conversation;if(!cv){const newCv=await api('/agents/'+agent.id+'/conversations','POST',{});cv=newCv.id;setConversations(prev=>[newCv,...prev]);setConversation(cv);}
+  if(!ownership.owns(renderVisit))throw new Error('Conversa alterada.');if(!agent)throw new Error('Escolha um agente.');if(archived)throw new Error('Conversa arquivada. Restaure-a para continuar.');const visit=ownership.visit;
+  let cv=visit.conversation;if(!cv){const newCv=await api('/agents/'+agent.id+'/conversations','POST',{});cv=newCv.id;adoptConversation(visit,newCv);}
   const form=new FormData();form.append('mode','execute');form.append('call','1');form.append('audio',blob,'audio.'+ext);
   const baseline=new Set<string>(chat.messages.map((m:any)=>m.id));const r=await api('/conversations/'+cv+'/audio','POST',form);
-  stayBottom.current=true;api('/conversations/'+cv).then(setChat).catch(()=>{});refreshAgents();
+  if(ownership.owns(visit)){stayBottom.current=true;api('/conversations/'+cv).then(next=>{if(ownership.owns(visit))setChat(next);}).catch(()=>{});}refreshAgents().catch(()=>{});
   return {run:r.id,transcript:r.transcript,baseline};
  }
  async function sendAudio(r:Recording){
-  if(!agent||archived)return;setBusy(true);
-  try{let cv=conversation;if(!cv){const newCv=await api('/agents/'+agent.id+'/conversations','POST',{});cv=newCv.id;setConversations(prev=>[newCv,...prev]);setConversation(cv);}
+  if(!agent||archived||ownership.busy||!recordingVisit.current||!ownership.owns(recordingVisit.current))return;const visit=ownership.visit,token=ownership.begin();setBusy(true);
+  try{let cv=visit.conversation;if(!cv){const newCv=await api('/agents/'+agent.id+'/conversations','POST',{});cv=newCv.id;adoptConversation(visit,newCv);}
    const form=new FormData();form.append('mode','execute');form.append('audio',r.blob,'audio.'+r.ext);
-   voiceBaseline.current=new Set(chat.messages.map((m:any)=>m.id));await api('/conversations/'+cv+'/audio','POST',form);
-   stayBottom.current=true;setChat(await api('/conversations/'+cv));await refreshAgents();}
-  catch(e:any){voiceBaseline.current=null;notify(e.message);}finally{setBusy(false);}
+   if(ownership.owns(visit))voiceBaseline.current=new Set(chat.messages.map((m:any)=>m.id));await api('/conversations/'+cv+'/audio','POST',form);
+   const next=await api('/conversations/'+cv);if(ownership.owns(visit)){stayBottom.current=true;setChat(next);}await refreshAgents();}
+  catch(e:any){if(ownership.owns(visit)){voiceBaseline.current=null;notify(e.message);}}finally{if(ownership.finish(token))setBusy(false);}
  }
  const recorder=useRecorder(r=>{sendAudio(r);});
- const startRecording=()=>recorder.start().catch((e:any)=>notify(e.message));
+ const startRecording=()=>{const visit=ownership.visit;recordingVisit.current=visit;return recorder.start().then(()=>{if(!ownership.owns(visit))return recorder.cancel();}).catch((e:any)=>notify(e.message));};
+ useEffect(()=>{if(recordingVisit.current&&!ownership.owns(recordingVisit.current))recorder.cancel();},[selected,conversation,ownership]);
  // The reply to a voice message just sent from this device plays by itself (audio file, or the browser's voice).
  useEffect(()=>{const base=voiceBaseline.current;if(!base)return;const reply=chat.messages.find((m:any)=>m.role==='assistant'&&!base.has(m.id));if(!reply)return;voiceBaseline.current=null;if(!reply.voice)return;
   const a=(reply.attachments||[]).find((f:any)=>f.mime.startsWith('audio/'));if(a)new Audio('/api/files/'+a.id+'?inline=1').play().catch(()=>{});else speak(stripThinking(reply.content));},[chat.messages]);
@@ -148,7 +158,7 @@ export function App(){
     setDraft('');if(!conversation)return;
     if(!chat.messages.length){notify('Nova conversa pronta.');return;}
     if(running.length>0){notify('Aguarde ou cancele a tarefa em andamento antes de arquivar.');return;}
-    try{const fresh=await api('/conversations/'+conversation+'/archive','POST');await refreshConversations();setConversation(fresh.id);setChat({messages:[],runs:[],calls:[]});setAttachments([]);notify('Conversa arquivada. Novo chat iniciado!');}catch(e:any){notify(e.message);}
+    try{const point=ownership.checkpoint(),fresh=await api('/conversations/'+conversation+'/archive','POST');if(!ownership.unchanged(point))return;await refreshConversations();if(!ownership.unchanged(point))return;setConversation(fresh.id);setChat({messages:[],runs:[],calls:[]});setAttachments([]);notify('Conversa arquivada. Novo chat iniciado!');}catch(e:any){notify(e.message);}
     return;
    }
    if(['/new','/novo'].includes(cmd)){setDraft('');await newChat();notify('Nova conversa iniciada.');return;}
@@ -164,11 +174,11 @@ export function App(){
     text=`[MODO PLANEJAMENTO /plan]:\nAnalise minuciosamente a demanda a seguir e elabore um plano estratégico completo antes de qualquer execução:\n\nDemanda: ${args}\n\nEstruture seu plano obrigatoriamente com:\n1. Objetivo Principal e Entendimento do Problema\n2. Premissas, Restrições e Riscos\n3. Plano de Ação Passo a Passo (Etapas claras e sequenciais)\n4. Critérios de Validação e Conclusão\n5. Próximos Passos Imediatos`;
    }
   }
-  if(!agent)return;setBusy(true);
-  try{let cv=conversation;if(!cv){const newCv=await api('/agents/'+agent.id+'/conversations','POST',{});cv=newCv.id;setConversations(prev=>[newCv,...prev]);setConversation(cv);}await api('/conversations/'+cv+'/messages','POST',{content:text,mode,files:attachments.map(x=>x.id)});setDraft('');setAttachments([]);stayBottom.current=true;const next=await api('/conversations/'+cv);setChat(next);await refreshAgents();}catch(e:any){notify(e.message);}finally{setBusy(false);}
+  if(!agent||ownership.busy)return;const visit=ownership.visit,token=ownership.begin(),submitted={text:draft,files:attachments};setDraft('');setAttachments([]);const cleared=ownership.checkpoint();let posted=false;setBusy(true);
+  try{let cv=visit.conversation;if(!cv){const newCv=await api('/agents/'+agent.id+'/conversations','POST',{});cv=newCv.id;adoptConversation(visit,newCv);}await api('/conversations/'+cv+'/messages','POST',{content:text,mode,files:submitted.files.map(x=>x.id)});posted=true;const next=await api('/conversations/'+cv);if(ownership.owns(visit)){stayBottom.current=true;setChat(next);}await refreshAgents();}catch(e:any){if(ownership.owns(visit)){if(!posted&&ownership.unchanged(cleared)){setDraft(submitted.text);setAttachments(submitted.files);}notify(e.message);}}finally{if(ownership.finish(token))setBusy(false);}
  }
  const selectCommand=(cmd:SlashCommand)=>{if(!cmd.hasArgs){send(cmd.name);}else{setDraft(cmd.name+' ');document.getElementById('composer')?.focus();}setSlashIdx(0);};
- async function upload(files:FileList|null){if(!files)return;setBusy(true);try{if(attachments.length+files.length>5)throw new Error('Até cinco anexos por mensagem.');for(const file of [...files]){if(file.size>25*1024*1024)throw new Error('Cada arquivo pode ter até 25 MB.');const form=new FormData();form.append('file',file);const result=await api('/files','POST',form);setAttachments(prev=>[...prev,result]);if(result.warning)notify(result.warning);}}catch(e:any){notify(e.message);}finally{setBusy(false);}}
+ async function upload(files:FileList|null){if(!files||ownership.busy)return;const visit=ownership.visit,token=ownership.begin();setBusy(true);try{if(attachments.length+files.length>5)throw new Error('Até cinco anexos por mensagem.');for(const file of [...files]){if(!ownership.owns(visit))break;if(file.size>25*1024*1024)throw new Error('Cada arquivo pode ter até 25 MB.');const form=new FormData();form.append('file',file);const result=await api('/files','POST',form);if(!ownership.owns(visit))break;setAttachments(prev=>[...prev,result]);if(result.warning)notify(result.warning);}}catch(e:any){if(ownership.owns(visit))notify(e.message);}finally{if(ownership.finish(token))setBusy(false);}}
  // Tapping a notification while Cell is already open: the service worker asks this window to open the conversation.
  // The service worker skips push notifications about the agent shown here while this window is visible.
  useEffect(()=>{if(!('serviceWorker' in navigator))return;navigator.serviceWorker.ready.then(r=>r.active?.postMessage({type:'cell-view',agent:selected||''})).catch(()=>{});},[selected]);

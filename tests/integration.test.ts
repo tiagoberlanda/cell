@@ -83,7 +83,8 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   const packet=(p:any)=>reply.raw.write('data: '+JSON.stringify(p)+'\n\n');
   if(text.includes('SLOW_TEST'))await sleep(2500);
   if(tool&&text.includes('SAY_FIRST'))packet({choices:[{delta:{content:'Vou pesquisar primeiro.'}}]});
-  if(tool){packet({choices:[{delta:{tool_calls:[{index:0,id:'call_'+Math.random().toString(36).slice(2),type:'function',function:{name:tool,arguments:JSON.stringify(args)}}]}}]});}
+  if(last.role==='user'&&text.includes('MULTI_TOOL_ORDER')){packet({choices:[{delta:{tool_calls:Array.from({length:8},(_,index)=>({index,id:'ordered_'+index,type:'function',function:{name:'write_file',arguments:JSON.stringify({name:`ordem-${index}.txt`,content:String(index)})}}))}}]});}
+  else if(tool){packet({choices:[{delta:{tool_calls:[{index:0,id:'call_'+Math.random().toString(36).slice(2),type:'function',function:{name:tool,arguments:JSON.stringify(args)}}]}}]});}
   else{packet({choices:[{delta:{content:'Resultado '}}]});await sleep(20);packet({choices:[{delta:{content:'concluído com evidências.'}}]});}
   packet({choices:[],usage:{prompt_tokens:15,completion_tokens:9}});if(!text.includes('BROKEN_STREAM'))reply.raw.write('data: [DONE]\n\n');reply.raw.end();
  });
@@ -183,6 +184,23 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   const apiSkill=await request('POST','/skills',{name:'Criada pela API',body:'Texto'});await call('delete_skill',{id:apiSkill.id});
  });
  await t.test('texto antes das ferramentas fica como mensagem própria',async()=>{const r=await task('SEARCH_WEB SAY_FIRST');await poll(r.id,'completed');const said=await query('SELECT content FROM messages WHERE run_id=$1 ORDER BY created_at',[r.id]);assert.deepEqual(said.map((m:any)=>m.content),['Vou pesquisar primeiro.','Resultado concluído com evidências.']);});
+ await t.test('chamadas múltiplas preservam a sequência do modelo',async()=>{
+  const r=await task('MULTI_TOOL_ORDER');await poll(r.id,'completed');
+  const rows=await query('SELECT name FROM files WHERE source_call_id IN (SELECT id FROM tool_calls WHERE run_id=$1) ORDER BY created_at',[r.id]);
+  assert.deepEqual(rows.map((f:any)=>f.name),Array.from({length:8},(_,i)=>`ordem-${i}.txt`));
+ });
+ await t.test('alterar endpoint MCP invalida credenciais e catálogo anteriores',async()=>{
+  const {encrypt,decrypt}=await import('../apps/server/src/security.js');
+  const c=await request('POST','/connections',{name:'Limite de credenciais',url:base+'/original',headers:{Authorization:'Bearer old-secret'},readTools:['old_read']});
+  await query("UPDATE connections SET oauth=$2,tools=$3,status='connected' WHERE id=$1",[c.id,encrypt({tokens:{access_token:'old-oauth'}}),JSON.stringify([{name:'old_tool'}])]);
+  await request('PUT',`/connections/${c.id}`,{name:'Mesmo destino',url:base+'/original',readTools:['old_read']});
+  let row=await one('SELECT * FROM connections WHERE id=$1',[c.id]);assert.ok(row.auth);assert.ok(row.oauth);assert.equal(row.status,'connected');assert.equal(row.tools.length,1);
+  await request('PUT',`/connections/${c.id}`,{name:'Novo destino',url:base+'/replacement',readTools:['old_read']});
+  row=await one('SELECT * FROM connections WHERE id=$1',[c.id]);assert.equal(row.auth,null);assert.equal(row.oauth,null);assert.equal(row.status,'disconnected');assert.deepEqual(row.tools,[]);assert.deepEqual(row.read_tools,[]);
+  await request('PUT',`/connections/${c.id}`,{name:'Credencial explícita nova',url:base+'/third',headers:{Authorization:'Bearer new-secret'}});
+  row=await one('SELECT * FROM connections WHERE id=$1',[c.id]);assert.deepEqual(decrypt(row.auth),{Authorization:'Bearer new-secret'});assert.equal(row.oauth,null);
+  await request('DELETE',`/connections/${c.id}`);
+ });
  await t.test('MCP descobre ferramentas; escrita espera aprovação',async()=>{const c=await request('POST','/connections',{name:'MCP teste',url:base+'/mcp',headers:{Authorization:'Bearer mcp-secret'},readTools:['read_public']});const discovery=await request('POST',`/connections/${c.id}/test`);assert.equal(discovery.tools.length,3);mcpName=(await request('GET','/tools')).find((x:any)=>x.label.includes('write_external')).name;agent.tools.push(mcpName);await request('PUT','/agents/'+agent.id,agent);const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');assert.equal(writes,0);const approval=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+approval.id,{decision:'approved'});await poll(r.id,'completed');assert.equal(writes,1);await enqueue(r.id);await sleep(500);assert.equal(writes,1);});
  await t.test('negar uma chamada impede escrita externa',async()=>{const r=await task('CALL_MCP');await poll(r.id,'waiting_approval');const a=await one('SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1',[r.id]);await request('POST','/approvals/'+a.id,{decision:'denied'});await poll(r.id,'completed');assert.equal(writes,1);});
  await t.test('aprovação sobrevive à reordenação de chaves do banco e expira se a execução acaba',async()=>{
@@ -627,10 +645,10 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   // Denied commands never reach the computer.
   const r2=await task('RUN_CMD');await poll(r2.id,'waiting_approval');const ap2=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[r2.id]);
   const runsBefore=hostRuns.length;await request('POST','/approvals/'+ap2.id,{decision:'denied'});await poll(r2.id,'completed');assert.equal(hostRuns.length,runsBefore);
-  // Approval modes: "safe" runs everything but deletions, "yolo" runs everything, "Aprovar sempre" remembers the tool.
+  // Safe mode never infers arbitrary shell safety from its text; explicit yolo/always retain their semantics.
   const approvalOf=async(runId:string)=>one("SELECT a.id,a.status,a.auto FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[runId]);
   await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'safe'});
-  const s1=await task('RUN_CMD');await poll(s1.id,'completed');assert.equal(hostRuns.at(-1).command,'Get-Date');assert.equal((await approvalOf(s1.id)).auto,'mode');
+  const s1=await task('RUN_CMD');await poll(s1.id,'waiting_approval');assert.equal((await approvalOf(s1.id)).status,'pending');await request('POST','/approvals/'+(await approvalOf(s1.id)).id,{decision:'approved'});await poll(s1.id,'completed');assert.equal(hostRuns.at(-1).command,'Get-Date');
   const s2=await task('RUN_RM');await poll(s2.id,'waiting_approval');assert.equal((await approvalOf(s2.id)).status,'pending','exclusão continua pedindo aprovação');
   await request('POST','/approvals/'+(await approvalOf(s2.id)).id,{decision:'denied'});await poll(s2.id,'completed');
   await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'yolo'});

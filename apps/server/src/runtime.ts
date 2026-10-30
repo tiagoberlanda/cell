@@ -31,6 +31,15 @@ export async function createRun(agentId:string,conversationId:string,prompt:stri
  if((prompt.startsWith('[Comando /imagem]')||prompt.startsWith('/imagem'))&&!tools.includes('generate_image')){tools.push('generate_image');}
  const snapshot={...c,agent:{instructions:agent.instructions,tools},capabilities:{tools:!!cap?.tools,vision:!!cap?.vision}};
  const persist=async(tx:import('pg').PoolClient)=>{
+  if(parent){
+   // Shared for descendant insertion, exclusive for cancellation: its recursive
+   // snapshot cannot miss a child committed while it was walking the tree.
+   // Acquire this before row locks to keep lock ordering consistent.
+   await tx.query('SELECT pg_advisory_xact_lock_shared(720002)');
+   const current=(await tx.query('SELECT state FROM runs WHERE id=$1 FOR UPDATE',[parent.id])).rows[0];
+   if(!current||['completed','failed','cancelled'].includes(current.state))throw new Error('A tarefa principal não está mais ativa.');
+   if(sourceCallId){const existing=(await tx.query('SELECT * FROM runs WHERE source_call_id=$1',[sourceCallId])).rows[0];if(existing)return existing;}
+  }
   const message=(await tx.query('INSERT INTO messages(conversation_id,role,content,files,voice,call) VALUES($1,\'user\',$2,$3,$4,$5) RETURNING id',[conversationId,prompt,JSON.stringify(fileIds),!!options.voice,!!options.call])).rows[0];
   const run=(await tx.query('INSERT INTO runs(agent_id,conversation_id,parent_id,model,config,context,depth,source_call_id,mode,input_message_id,context_ready,routine_history_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11) RETURNING *',[agentId,conversationId,parent?.id||null,model,encrypt(snapshot),JSON.stringify(context),parent?parent.depth+1:0,sourceCallId||null,mode,message.id,options.routineHistoryId||null])).rows[0];
   await tx.query('INSERT INTO events(type,payload) VALUES(\'run\',$1)',[JSON.stringify({id:run.id,state:'queued'})]);return run;
@@ -38,4 +47,10 @@ export async function createRun(agentId:string,conversationId:string,prompt:stri
  const run=options.client?await persist(options.client):await transaction(persist);
  if(!options.client)await enqueue(run.id);return run;
 }
-export async function cancelRun(id:string){const rows=await query("WITH RECURSIVE tree AS(SELECT id FROM runs WHERE id=$1 UNION ALL SELECT r.id FROM runs r JOIN tree ON r.parent_id=tree.id) UPDATE runs SET state='cancelled',updated_at=now(),finished_at=now() WHERE id IN(SELECT id FROM tree) AND state NOT IN('completed','failed','cancelled') RETURNING id",[id]);for(const r of rows){await query("UPDATE approvals SET status='cancelled' WHERE status='pending' AND call_id IN(SELECT id FROM tool_calls WHERE run_id=$1)",[r.id]);await event('run',{id:r.id,state:'cancelled'});}}
+export async function cancelRun(id:string){await transaction(async tx=>{
+ // Exclusive against ALL descendant insertions, not just direct children. Take
+ // the tree snapshot in the next statement (READ COMMITTED), after writers commit.
+ await tx.query('SELECT pg_advisory_xact_lock(720002)');
+ const rows=(await tx.query("WITH RECURSIVE tree AS(SELECT id FROM runs WHERE id=$1 UNION ALL SELECT r.id FROM runs r JOIN tree ON r.parent_id=tree.id) UPDATE runs SET state='cancelled',updated_at=now(),finished_at=now() WHERE id IN(SELECT id FROM tree) AND state NOT IN('completed','failed','cancelled') RETURNING id",[id])).rows;
+ for(const r of rows){await tx.query("UPDATE approvals SET status='cancelled' WHERE status='pending' AND call_id IN(SELECT id FROM tool_calls WHERE run_id=$1)",[r.id]);await tx.query("INSERT INTO events(type,payload) VALUES('run',$1)",[JSON.stringify({id:r.id,state:'cancelled'})]);}
+});}

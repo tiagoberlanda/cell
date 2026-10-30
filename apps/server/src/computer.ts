@@ -16,10 +16,17 @@ export const hostConfigured=()=>!!(host().url&&host().token);
 export async function commandsSwitchOn(){return ((await one('SELECT value FROM settings WHERE id=1'))?.value?.computerCommands??true)!==false;}
 export async function commandsEnabled(){return await commandsSwitchOn()&&(await listComputers()).length>0;}
 
-export type Computer={key:string;id:string;name:string;kind:'local'|'ssh';shell:'powershell'|'bash';row?:any};
+export type Computer={key:string;id:string;name:string;kind:'local'|'ssh';shell:'powershell'|'bash';row?:any;destination?:string};
+const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// Keys and names are mutable UI labels, never destination identities. Include credentials/key pins so a
+// reconfigured endpoint cannot inherit an approval. Only hashes leave this module (never host tokens).
+const computerIdentity=(c:Computer)=>[c.id,c.kind,c.shell,c.kind==='local'?c.destination:[c.row.host,c.row.port||22,c.row.username,c.row.fingerprint||'',c.row.auth]];
+const computersBinding=(computers:Computer[])=>digest(computers.map(c=>[c.key,computerIdentity(c)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+const assertComputer=(expected:Computer,current:Computer)=>{if(digest(computerIdentity(expected))!==digest(computerIdentity(current)))throw new Error('O computador mudou. Peça de novo para revisar o destino.');};
+const recipeVersion=(r:any)=>digest([r.id,r.name,r.trusted,r.computer_key,r.command,r.cwd||null,!!r.background]);
 const slug=(s:string)=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40)||'pc';
 export async function listComputers():Promise<Computer[]>{
- const list:Computer[]=[];if(hostConfigured())list.push({key:'este-pc',id:'local',name:'Computador conectado',kind:'local',shell:'powershell'});
+ const list:Computer[]=[];if(hostConfigured())list.push({key:'este-pc',id:'local',name:'Computador conectado',kind:'local',shell:'powershell',destination:digest(host())});
  for(const row of await query('SELECT * FROM computers WHERE enabled ORDER BY created_at')){let key=slug(row.name);while(list.some(c=>c.key===key))key+='-2';list.push({key,id:row.id,name:row.name,kind:'ssh',shell:row.shell,row});}
  return list;
 }
@@ -103,18 +110,19 @@ export async function computerTools():Promise<Tool[]>{
    execute:async(a)=>{const x=z.object({computer:z.string().optional()}).parse(a);const all=await computersStatus();return JSON.stringify(x.computer?all.filter(c=>c.key===x.computer):all);}},
   ...(computers.some(c=>c.row?.mac)?[{name:'pc_wake',app:'computador',write:false,description:'Liga à distância (Wake-on-LAN) um computador desligado ou dormindo que tenha o endereço MAC cadastrado. Ele costuma responder em 1 a 2 minutos.',parameters:object({computer:{type:'string',enum:computers.filter(c=>c.row?.mac).map(c=>c.key)}},['computer']),
    execute:async(a:any)=>{const x=z.object({computer:z.string()}).parse(a);const c=(await listComputers()).find(k=>k.key===x.computer);if(!c?.row?.mac)throw new Error('Computador sem endereço MAC cadastrado.');const via=await wake(c.row.mac,c.row.broadcast||undefined);return JSON.stringify({computer:c.name,sent:true,via,note:'Sinal enviado. Confira com pc_status em 1 a 2 minutos.'});}} as Tool]:[]),
-  ...await recipeTools(),
+  ...await recipeTools(computers),
   {name:'pc_job',app:'computador',write:false,description:'Mostra as tarefas em segundo plano (as mais recentes ou uma pelo jobId), com o estado e o fim da saída.',parameters:object({jobId:{type:'string'}},[]),
    execute:async(a)=>{const x=z.object({jobId:z.string().uuid().optional()}).parse(a);
     const rows=x.jobId?await query('SELECT * FROM computer_jobs WHERE id=$1',[x.jobId]):await query('SELECT * FROM computer_jobs ORDER BY started_at DESC LIMIT 10');
     return JSON.stringify(await Promise.all(rows.map(async j=>{let live:any=null;if(j.status==='running'){try{live=await jobState(j);}catch{}}
      return {jobId:j.id,computer:j.computer_name,command:j.command.slice(0,300),status:j.status==='running'&&live&&!live.running?'finishing':j.status,exitCode:j.exit_code,startedAt:j.started_at,finishedAt:j.finished_at,output:(live?.output??j.output).slice(-4000)};})));}},
-  {name:'pc_run',app:'computador',write:true,target:'Comando no computador',
+  {name:'pc_run',app:'computador',write:true,target:'Comando no computador',binding:computersBinding(computers),
    description:'Roda um comando num computador conectado, com o usuário configurado e sem administrador: PowerShell nos computadores Windows, bash nos Linux. Sempre pede aprovação, mostrando o computador e o comando. Prefira comandos curtos e explique o que fazem em reason. A saída volta limitada a 20 mil caracteres.',
    parameters:object({...(many?{computer:which}:{}),command:{type:'string',description:'Script (PowerShell ou bash, conforme o computador)'},cwd:{type:'string',description:'Pasta onde rodar (opcional)'},timeoutSeconds:{type:'number',description:'Limite em segundos (padrão 60, máximo 600)'},background:{type:'boolean',description:'true para tarefas longas (backup, download, compactação): roda em segundo plano, sem limite de tempo; o usuário é avisado quando terminar e você acompanha com pc_job'},reason:{type:'string',description:'O que o comando faz, em uma frase'}},[...(many?['computer']:[]),'command','reason']),
    execute:async(a,run)=>{const x=z.object({computer:z.string().optional(),command:z.string().trim().min(1).max(20000),cwd:z.string().max(500).optional(),timeoutSeconds:z.number().min(1).max(600).optional(),background:z.boolean().optional(),reason:z.string().max(500).optional()}).parse(a);
     // Current list, not the one from when the tools were built: a computer removed or re-keyed meanwhile must not run.
-    const c=await pick(await listComputers(),x.computer),limit=x.timeoutSeconds||60;let r:any;
+    const expected=await pick(computers,x.computer),c=await pick(await listComputers(),x.computer),limit=x.timeoutSeconds||60;let r:any;
+    assertComputer(expected,c);
     if(x.background){
      // Idempotent per tool call: a retried step must not start the job twice.
      const existing=run?.callId?await one('SELECT id FROM computer_jobs WHERE call_id=$1',[run.callId]):null;
@@ -231,8 +239,9 @@ export async function wake(mac:string,broadcast='255.255.255.255'){
 
 // --- Recipes: saved commands. The owner runs them with one tap; agents use pc_recipe (approval) or, for recipes marked
 // trusted, pc_recipe_trusted (no approval).
-export async function runRecipe(recipe:any,ctx:{agentId?:string|null;callId?:string|null;conversationId?:string|null}={}){
+export async function runRecipe(recipe:any,ctx:{agentId?:string|null;callId?:string|null;conversationId?:string|null}={},expectedComputer?:Computer){
  const c=await pick(await listComputers(),recipe.computer_key);
+ if(expectedComputer)assertComputer(expectedComputer,c);
  await query('UPDATE command_recipes SET last_run_at=now() WHERE id=$1',[recipe.id]);
  if(recipe.background){
   const job=await one('INSERT INTO computer_jobs(computer_key,computer_name,computer_id,remote_id,call_id,agent_id,conversation_id,command,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[c.key,c.name,c.id,await startJob(c,recipe.command,recipe.cwd||undefined),ctx.callId||null,ctx.agentId||null,ctx.conversationId||null,recipe.command,`Receita: ${recipe.name}`]);
@@ -243,15 +252,18 @@ export async function runRecipe(recipe:any,ctx:{agentId?:string|null;callId?:str
  else{const cmd=recipe.cwd?(c.shell==='bash'?`cd ${sq(recipe.cwd)} && ${recipe.command}`:`Set-Location -LiteralPath '${String(recipe.cwd).replace(/'/g,"''")}'; ${recipe.command}`):recipe.command;r=await sshExec(sshTarget(c.row),wrap(c.shell,cmd),600000);}
  return {recipe:recipe.name,computer:c.name,exitCode:r.exitCode,ok:r.exitCode===0&&!r.timedOut,stdout:r.stdout,...(r.stderr?{stderr:r.stderr}:{}),...(r.truncated?{truncated:true}:{})};
 }
-export async function recipeTools():Promise<Tool[]>{
+export async function recipeTools(computers?:Computer[]):Promise<Tool[]>{
+ computers??=await listComputers();
+ const destinations=computers;
  const recipes=await query('SELECT * FROM command_recipes ORDER BY name');if(!recipes.length)return [];
  const make=(trusted:boolean):Tool|null=>{const list=recipes.filter(r=>r.trusted===trusted);if(!list.length)return null;
   return {name:trusted?'pc_recipe_trusted':'pc_recipe',app:'computador',write:!trusted,target:'Receita de comando',
+    binding:digest([computersBinding(destinations),list.map(recipeVersion).sort()]),
    description:(trusted?'Roda uma receita de comando liberada pelo usuário para rodar sem aprovação. ':'Roda uma receita de comando salva pelo usuário (pede aprovação). ')+'Receitas: '+list.map(r=>`${r.name} (${r.computer_key}: ${String(r.command).replace(/\s+/g,' ').slice(0,120)})`).join('; '),
    parameters:object({name:{type:'string',enum:list.map(r=>r.name)}},['name']),
    execute:async(a,run)=>{const x=z.object({name:z.string()}).parse(a);const rec=list.find(r=>r.name===x.name);if(!rec)throw new Error('Receita não encontrada.');
     // Current row: a recipe edited or un-trusted after the tools were built must not run on the old terms.
-    const current=await one('SELECT * FROM command_recipes WHERE id=$1 AND trusted=$2 AND command=$3',[rec.id,trusted,rec.command]);if(!current)throw new Error('A receita mudou. Peça de novo.');
-    return JSON.stringify(await runRecipe(current,{agentId:run?.agent_id,callId:run?.callId,conversationId:run?.conversation_id}));}};};
+    const current=await one('SELECT * FROM command_recipes WHERE id=$1',[rec.id]);if(!current||recipeVersion(current)!==recipeVersion(rec))throw new Error('A receita mudou. Peça de novo.');
+    return JSON.stringify(await runRecipe(current,{agentId:run?.agent_id,callId:run?.callId,conversationId:run?.conversation_id},await pick(destinations,rec.computer_key)));}};};
  return [make(false),make(true)].filter(Boolean) as Tool[];
 }
