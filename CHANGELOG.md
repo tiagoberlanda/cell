@@ -5,6 +5,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.14] - 2026-10-30
+
+### Corrigido
+- Links Markdown em mensagens salvas e em streaming não navegam mais para caminhos locais nem recarregam o chat: downloads usam `/api/files/UUID`, sites HTTP(S) abrem em outra aba e links indisponíveis exibem um aviso claro.
+- Links antigos cujo rótulo corresponde exatamente a um arquivo anexado à própria mensagem passam a baixar esse anexo, sem acessar caminhos arbitrários no computador.
+
+### Adicionado
+- Anexos de áudio exibem o nome do arquivo e um link explícito “Baixar áudio”. Resultados de ferramentas que salvam arquivos fornecem a URL canônica e orientação para criar links de download.
+
 ## [0.30.13] - 2026-10-29
 
 ### Adicionado
