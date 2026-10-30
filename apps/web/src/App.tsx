@@ -21,7 +21,7 @@ const activeStates=['queued','running','waiting_approval','waiting_agent'];
 type ApprovalMode='ask'|'safe'|'yolo';
 const approvalModes:Record<ApprovalMode,{label:string;hint:string;short:string}>={
  ask:{label:'Pedir aprovação',hint:'Toda ação pede sua confirmação',short:'Pede aprovação'},
- safe:{label:'Aprovação reduzida',hint:'Exclusões e comandos genéricos pedem confirmação; permissões explícitas continuam valendo',short:'Confirma exclusões e comandos'},
+ safe:{label:'Aprovar tudo menos exclusão',hint:'Só exclusões detectadas pedem confirmação; comandos e receitas são automáticos. A detecção em scripts não é garantia contra exclusões ocultas; permissões explícitas continuam valendo',short:'Confirma exclusões'},
  yolo:{label:'YOLO (aprovação total)',hint:'Nada pede confirmação',short:'Modo YOLO: nada pede aprovação'}};
 // A run can leave several messages (what the agent said before each tool step, then the answer). Each message gets
 // the run's calls made after the previous message up to its own timestamp; the last one also gets the specialists' calls.

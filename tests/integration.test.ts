@@ -645,10 +645,10 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   // Denied commands never reach the computer.
   const r2=await task('RUN_CMD');await poll(r2.id,'waiting_approval');const ap2=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[r2.id]);
   const runsBefore=hostRuns.length;await request('POST','/approvals/'+ap2.id,{decision:'denied'});await poll(r2.id,'completed');assert.equal(hostRuns.length,runsBefore);
-  // Safe mode never infers arbitrary shell safety from its text; explicit yolo/always retain their semantics.
+  // Safe mode auto-approves non-deletion commands; detected deletions still wait. Explicit yolo/always win.
   const approvalOf=async(runId:string)=>one("SELECT a.id,a.status,a.auto FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[runId]);
   await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'safe'});
-  const s1=await task('RUN_CMD');await poll(s1.id,'waiting_approval');assert.equal((await approvalOf(s1.id)).status,'pending');await request('POST','/approvals/'+(await approvalOf(s1.id)).id,{decision:'approved'});await poll(s1.id,'completed');assert.equal(hostRuns.at(-1).command,'Get-Date');
+  const s1=await task('RUN_CMD');await poll(s1.id,'completed');assert.equal((await approvalOf(s1.id)).status,'approved');assert.equal((await approvalOf(s1.id)).auto,'mode');assert.equal(hostRuns.at(-1).command,'Get-Date');
   const s2=await task('RUN_RM');await poll(s2.id,'waiting_approval');assert.equal((await approvalOf(s2.id)).status,'pending','exclusão continua pedindo aprovação');
   await request('POST','/approvals/'+(await approvalOf(s2.id)).id,{decision:'denied'});await poll(s2.id,'completed');
   await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'yolo'});

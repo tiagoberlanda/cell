@@ -5,6 +5,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.16] - 2026-10-30
+
+### Corrigido
+- Restaurado o modo “Aprovar tudo menos exclusão”: comandos e receitas sem exclusão detectada são aprovados automaticamente; exclusões continuam pedindo confirmação.
+- Detecção ampliada para aliases PowerShell `ri` e `clc`, chamadas `.NET File/Directory.Delete` e formas comuns de exclusão SQL. A interface esclarece que a detecção em scripts é heurística, não uma garantia contra exclusões ocultas.
+- Mantidos os vínculos imutáveis de destino e receita, a reavaliação do modo atual para aprovações pendentes e a confirmação obrigatória de resultados externos incertos.
+
 ## [0.30.15] - 2026-10-30
 
 ### Corrigido
