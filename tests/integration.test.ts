@@ -43,7 +43,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
  fake.post('/v1/web/fetch',async()=>({text:'Texto público de teste.'}));
  const hostRuns:any[]=[];const hostToken='h'.repeat(40);
  const hostMetrics={disks:[{drive:'C:',totalGb:100,freeGb:60},{drive:'K:',totalGb:100,freeGb:5}],cpuPct:20};
- fake.get('/host/status',async(req,reply)=>req.headers.authorization===`Bearer ${hostToken}`?{...hostMetrics,version:'1.2.0',computer:'pc-teste',user:'Tiago',os:'Windows_NT',uptimeHours:2,memory:{totalGb:32,freeGb:8},cpus:8,home:'C:\\Users\\Tiago'}:reply.code(401).send({error:'unauthorized'}));
+ fake.get('/host/status',async(req,reply)=>req.headers.authorization===`Bearer ${hostToken}`?{...hostMetrics,version:'1.2.0',computer:'pc-teste',user:'usuario',os:'Windows_NT',uptimeHours:2,memory:{totalGb:32,freeGb:8},cpus:8,home:'C:\\Users\\usuario'}:reply.code(401).send({error:'unauthorized'}));
  const winToHost=(w:string)=>{const m=/^([A-Za-z]):\\?(.*)$/.exec(w)!;return join(process.env.HOST_DRIVES_ROOT!,m[1].toLowerCase(),...m[2].split('\\').filter(Boolean));};
  const hostJobs=new Map<string,{polls:number;cancelled:boolean}>();
  fake.post('/host/jobs',async(req:any,reply)=>{if(req.headers.authorization!==`Bearer ${hostToken}`)return reply.code(401).send({error:'unauthorized'});const id=crypto.randomUUID();hostJobs.set(id,{polls:0,cancelled:false});hostRuns.push({job:req.body});return {id,running:true,exitCode:null,output:''};});

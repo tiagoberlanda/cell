@@ -5,6 +5,12 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Licença MIT (`LICENSE`), citada no README.
+
+### Alterado
+- O aviso de HTTPS das notificações não cita mais um domínio específico.
+
 ## [0.30.17] - 2026-10-30
 
 ### Corrigido

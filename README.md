@@ -20,6 +20,7 @@
 10. [Solução de problemas](#solução-de-problemas)
 11. [Configuração avançada (.env)](#configuração-avançada-env)
 12. [Desenvolvimento](#desenvolvimento)
+13. [Licença](#licença)
 
 ---
 
@@ -556,3 +557,7 @@ Convenções:
 - Diálogos da interface usam sempre os helpers de `apps/web/src/dialogs.ts` (SweetAlert2). Nunca `alert`, `confirm` ou `prompt` nativos.
 - Versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/). Descreva cada mudança em `## [Não lançado]` no `CHANGELOG.md` e, com tudo commitado, rode `npm run release -- patch|minor|major` e depois `.\scripts\deploy.ps1`.
 - Para usar um banco próprio nos testes, o nome dele precisa terminar em `_test`: `$env:TEST_DATABASE_URL = 'postgres://usuario:senha@127.0.0.1:5432/cell_test'; npm test`.
+
+## Licença
+
+Distribuído sob a licença MIT. Veja [LICENSE](LICENSE).

@@ -38,7 +38,7 @@ export function NotificationsPanel({notify}:Notice){
   <h3>Notificações</h3>
   <p className="hint">Receba um aviso no celular ou no computador quando um agente ou uma rotina enviar mensagem, ou quando uma ação precisar da sua aprovação. Se a conversa estiver aberta em algum aparelho, o aviso não é enviado.</p>
   {!supported()?<div className="setting-card"><BellOff size={20}/><p>Este navegador não suporta notificações push. No Android, use o Chrome; no iPhone, instale o Cell na tela inicial (Compartilhar → Adicionar à Tela de Início) e abra por lá.</p></div>
-  :!secure?<div className="setting-card"><BellOff size={20}/><p>Notificações exigem HTTPS confiável. Abra pelo domínio público (https://cell.tiagoberlanda.com.br) ou instale o certificado local.</p></div>
+  :!secure?<div className="setting-card"><BellOff size={20}/><p>Notificações exigem HTTPS confiável. Abra pelo domínio público configurado (Cloudflare Tunnel) ou instale o certificado local.</p></div>
   :<div className="setting-card"><Bell size={20}/><div className="stack" style={{gap:10}}>
     <p>{permission==='denied'?'As notificações estão bloqueadas para este site. Libere em Configurações do navegador → Configurações do site → Notificações.':subscribed?'Este aparelho recebe notificações.':'Este aparelho ainda não recebe notificações.'}</p>
     <div className="row wrap">{subscribed?<button className="secondary" disabled={busy} onClick={disable}><BellOff size={15}/>Desativar neste aparelho</button>:<button className="primary" disabled={busy||permission==='denied'||!publicKey} onClick={enable}><Bell size={15}/>Ativar notificações neste aparelho</button>}
