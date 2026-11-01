@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="t d">
+  <title id="t">Comunicação do Cell</title>
+  <desc id="d">O app (celular ou navegador) acessa o Cell pela Cloudflare ou direto pela rede local. Dentro do Docker, o Caddy entrega a interface e repassa a API; a API e o worker usam o PostgreSQL. O worker fala com o provedor de modelos e executa comandos aprovados no Host: Windows pelo Cell Host e Linux por SSH.</desc>
+  <style>
+    :root { --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --line:#8c959f; --box:#f6f8fa; --stroke:#d0d7de;
+            --app:#ddf4ff; --app-s:#54aeff; --cf:#fff1e5; --cf-s:#f6a35b; --dk:#eef6ff; --dk-s:#0969da;
+            --host:#dafbe1; --host-s:#4ac26b; --ai:#fbefff; --ai-s:#c297ff; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#6e7681; --box:#161b22; --stroke:#30363d;
+              --app:#0c2d4a; --app-s:#4493f8; --cf:#3a2210; --cf-s:#db8b46; --dk:#0f1d33; --dk-s:#4493f8;
+              --host:#0f2e1b; --host-s:#3fb950; --ai:#2b1a3d; --ai-s:#ab7df8; }
+    }
+    text { font-family: -apple-system, "Segoe UI", system-ui, Helvetica, Arial, sans-serif; fill: var(--fg); }
+    .h { font-size: 15px; font-weight: 600; }
+    .s { font-size: 12px; fill: var(--muted); }
+    .col { font-size: 12px; font-weight: 600; fill: var(--muted); letter-spacing: .06em; }
+    .lbl { font-size: 11px; fill: var(--muted); }
+    .ln { stroke: var(--line); stroke-width: 1.6; fill: none; }
+    .dash { stroke-dasharray: 5 4; }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--line)"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="600" rx="12" fill="var(--bg)"/>
+  <text x="24" y="36" class="h" style="font-size:18px">Como o Cell se comunica</text>
+
+  <!-- Column headings -->
+  <text x="95" y="80" class="col" text-anchor="middle">1 · APP</text>
+  <text x="305" y="80" class="col" text-anchor="middle">2 · CLOUDFLARE</text>
+  <text x="555" y="80" class="col" text-anchor="middle">3 · DOCKER</text>
+  <text x="852" y="80" class="col" text-anchor="middle">4 · HOST</text>
+
+  <!-- 1. App -->
+  <rect x="20" y="110" width="150" height="70" rx="10" fill="var(--app)" stroke="var(--app-s)"/>
+  <text x="95" y="140" class="h" text-anchor="middle">Celular</text>
+  <text x="95" y="160" class="s" text-anchor="middle">PWA Android e iPhone</text>
+  <rect x="20" y="200" width="150" height="70" rx="10" fill="var(--app)" stroke="var(--app-s)"/>
+  <text x="95" y="230" class="h" text-anchor="middle">Navegador</text>
+  <text x="95" y="250" class="s" text-anchor="middle">Windows, Linux, Mac</text>
+
+  <!-- 2. Cloudflare -->
+  <rect x="220" y="120" width="170" height="130" rx="10" fill="var(--cf)" stroke="var(--cf-s)"/>
+  <text x="305" y="150" class="h" text-anchor="middle">Cloudflare</text>
+  <text x="305" y="172" class="s" text-anchor="middle">Tunnel + Access</text>
+  <text x="305" y="190" class="s" text-anchor="middle">HTTPS público</text>
+  <text x="305" y="208" class="s" text-anchor="middle">cell.seudominio.com</text>
+  <text x="305" y="234" class="lbl" text-anchor="middle">túnel: cloudflared no PC</text>
+
+  <path class="ln" marker-end="url(#a)" d="M170 145 L218 168"/>
+  <path class="ln" marker-end="url(#a)" d="M170 235 L218 212"/>
+
+  <!-- 3. Docker -->
+  <rect x="430" y="95" width="250" height="430" rx="12" fill="var(--box)" stroke="var(--dk-s)" stroke-dasharray="6 4"/>
+  <text x="555" y="512" class="lbl" text-anchor="middle">docker compose · mesmo computador</text>
+
+  <rect x="450" y="125" width="210" height="64" rx="9" fill="var(--dk)" stroke="var(--dk-s)"/>
+  <text x="555" y="152" class="h" text-anchor="middle">web · Caddy</text>
+  <text x="555" y="172" class="s" text-anchor="middle">portas 80/443, interface</text>
+
+  <rect x="450" y="225" width="210" height="64" rx="9" fill="var(--dk)" stroke="var(--dk-s)"/>
+  <text x="555" y="252" class="h" text-anchor="middle">api · Fastify</text>
+  <text x="555" y="272" class="s" text-anchor="middle">rotas /api, login, aprovações</text>
+
+  <rect x="450" y="325" width="210" height="64" rx="9" fill="var(--dk)" stroke="var(--dk-s)"/>
+  <text x="555" y="352" class="h" text-anchor="middle">db · PostgreSQL</text>
+  <text x="555" y="372" class="s" text-anchor="middle">dados cifrados e fila</text>
+
+  <rect x="450" y="425" width="210" height="64" rx="9" fill="var(--dk)" stroke="var(--dk-s)"/>
+  <text x="555" y="452" class="h" text-anchor="middle">worker</text>
+  <text x="555" y="472" class="s" text-anchor="middle">agentes, ferramentas, rotinas</text>
+
+  <path class="ln" marker-end="url(#a)" d="M555 189 L555 223"/>
+  <text x="565" y="211" class="lbl">/api</text>
+  <path class="ln" marker-end="url(#a)" marker-start="url(#a)" d="M555 291 L555 323"/>
+  <text x="565" y="311" class="lbl">SQL</text>
+  <path class="ln" marker-end="url(#a)" marker-start="url(#a)" d="M555 391 L555 423"/>
+  <text x="565" y="411" class="lbl">fila de tarefas</text>
+
+  <!-- Cloudflare -> Caddy through cloudflared -->
+  <path class="ln" marker-end="url(#a)" d="M390 165 L448 152"/>
+
+  <!-- Local network, bypassing Cloudflare -->
+  <path class="ln dash" marker-end="url(#a)" d="M95 270 L95 300 L410 300 L410 176 L448 176"/>
+  <text x="200" y="318" class="lbl">rede local: https://IP-do-computador</text>
+
+  <!-- 4. Provider and Host -->
+  <rect x="735" y="120" width="245" height="80" rx="10" fill="var(--ai)" stroke="var(--ai-s)"/>
+  <text x="857" y="148" class="h" text-anchor="middle">Provedor de modelos</text>
+  <text x="857" y="168" class="s" text-anchor="middle">9router, OpenAI ou compatível</text>
+  <text x="857" y="186" class="lbl" text-anchor="middle">API /v1, fora do Docker</text>
+
+  <rect x="720" y="255" width="270" height="270" rx="12" fill="none" stroke="var(--host-s)" stroke-dasharray="6 4"/>
+  <text x="736" y="276" class="lbl">comandos que você aprova no app</text>
+
+  <rect x="735" y="290" width="245" height="100" rx="10" fill="var(--host)" stroke="var(--host-s)"/>
+  <text x="857" y="316" class="h" text-anchor="middle">Windows</text>
+  <text x="857" y="337" class="s" text-anchor="middle">Cell Host (Node.js) → PowerShell</text>
+  <text x="857" y="355" class="s" text-anchor="middle">HTTP + token, porta 47821</text>
+  <text x="857" y="375" class="lbl" text-anchor="middle">pastas: discos montados no worker</text>
+
+  <rect x="735" y="410" width="245" height="100" rx="10" fill="var(--host)" stroke="var(--host-s)"/>
+  <text x="857" y="436" class="h" text-anchor="middle">Linux</text>
+  <text x="857" y="457" class="s" text-anchor="middle">SSH → bash</text>
+  <text x="857" y="475" class="s" text-anchor="middle">este ou outros servidores</text>
+  <text x="857" y="495" class="lbl" text-anchor="middle">pastas: montagem no worker</text>
+
+  <!-- worker -> provider / Windows / Linux -->
+  <path class="ln" d="M660 457 L700 457"/>
+  <path class="ln" d="M700 160 L700 460"/>
+  <path class="ln" marker-end="url(#a)" d="M700 160 L733 160"/>
+  <path class="ln" marker-end="url(#a)" d="M700 340 L733 340"/>
+  <path class="ln" marker-end="url(#a)" d="M700 460 L733 460"/>
+  <text x="694" y="240" class="lbl" transform="rotate(-90 694 240)" text-anchor="middle">host.docker.internal</text>
+
+  <text x="24" y="566" class="s">Linha tracejada: acesso direto pela rede de casa, sem Cloudflare. Toda ação que muda algo no Host pede a sua aprovação.</text>
+</svg>

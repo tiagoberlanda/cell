@@ -7,6 +7,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ### Adicionado
 - Licença MIT (`LICENSE`), citada no README.
+- README: diagrama da comunicação (app → Cloudflare → Docker → Host Windows/Linux) em `docs/arquitetura.svg` e instalação detalhada para Windows e Linux, com comandos equivalentes no Linux para pastas, comandos por SSH, certificado, Cloudflare Tunnel, atualização e senha.
+- `host.docker.internal` passa a funcionar também no Linux (Docker Engine): `api` e `worker` mapeiam o nome para o computador com `host-gateway`. No Docker Desktop o endereço continua o mesmo.
 
 ### Alterado
 - O aviso de HTTPS das notificações mostra o domínio público lido do `APP_ORIGIN` (primeiro endereço HTTPS por nome, sem IP nem localhost), em vez de um domínio fixo.

@@ -12,6 +12,8 @@
 2. [Como funciona por dentro](#como-funciona-por-dentro)
 3. [Antes de começar](#antes-de-começar)
 4. [Instalação passo a passo](#instalação-passo-a-passo)
+   - [Windows](#instalação-no-windows)
+   - [Linux](#instalação-no-linux)
 5. [Primeiro uso](#primeiro-uso)
 6. [Ferramentas dos agentes](#ferramentas-dos-agentes)
 7. [Usando o Cell no dia a dia](#usando-o-cell-no-dia-a-dia)
@@ -39,6 +41,15 @@
 
 ## Como funciona por dentro
 
+![Diagrama de comunicação do Cell: o app (celular ou navegador) chega pela Cloudflare ou pela rede local ao Caddy, dentro do Docker; a API e o worker usam o PostgreSQL; o worker fala com o provedor de modelos e executa comandos aprovados no Host Windows (Cell Host) ou Linux (SSH).](docs/arquitetura.svg)
+
+O caminho de um pedido, da esquerda para a direita:
+
+1. **App:** você usa o Cell pelo navegador ou pelo app instalado no celular (PWA).
+2. **Cloudflare (opcional):** de fora de casa, o pedido chega pelo domínio público. O **Cloudflare Tunnel** leva o tráfego até o programa `cloudflared`, que roda no computador do Cell e abre a conexão de dentro para fora, sem abrir portas no roteador. Na rede de casa, o app fala direto com o computador (`https://IP-do-computador`, linha tracejada).
+3. **Docker:** o **Caddy** (`web`) recebe o HTTPS, entrega a interface e repassa `/api` para a **API**. A API grava no **PostgreSQL** e coloca as tarefas numa fila; o **worker** pega as tarefas, roda os agentes e as ferramentas.
+4. **Host:** para responder, o worker chama o **provedor de modelos** (9router ou compatível). Para mexer no computador, ele usa o **Host**: no **Windows**, o **Cell Host** roda os comandos em PowerShell; no **Linux** (e em outros servidores), o Cell conecta por **SSH** e roda bash. De dentro do Docker, o próprio computador é o endereço `host.docker.internal`. Toda ação que muda algo no Host pede a sua aprovação.
+
 O Cell roda em quatro containers Docker:
 
 | Serviço  | O que faz |
@@ -48,21 +59,27 @@ O Cell roda em quatro containers Docker:
 | `worker` | Executa as tarefas dos agentes, as ferramentas e as rotinas. |
 | `web`    | Caddy: entrega a interface e faz o HTTPS nas portas 80 e 443. |
 
-Opcionalmente, o **Cell Host** roda fora do Docker, no Windows, para os agentes executarem comandos aprovados neste computador (veja [Comandos no computador](#comandos-no-computador)).
+Fora do Docker, e opcionais: o **Cell Host** (só Windows) para os agentes executarem comandos aprovados neste computador, ou um acesso **SSH** no Linux (veja [Comandos no computador](#comandos-no-computador)), e o `cloudflared` para o [acesso pela internet](#acesso-pela-internet-cloudflare-tunnel).
 
 Os modelos de IA **não** rodam dentro do Cell. Ele conversa com um provedor compatível com a API da OpenAI, chamado neste projeto de **9router** (veja a seguir).
 
 ## Antes de começar
 
-Você vai precisar de:
+O Cell roda em **Windows 10/11** (com Docker Desktop) e em **Linux** (com Docker Engine). Em resumo:
 
-| Item | Para quê | Como obter |
-|------|----------|------------|
-| **Windows 10 ou 11** | Os scripts são em PowerShell. | Linux e macOS funcionam com [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) e Docker, exceto as pastas do computador (`drives.ps1`) e o Cell Host (`host.ps1`), que são só para Windows. |
-| **Docker Desktop** | Roda os containers. | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/). Deixe-o aberto. |
-| **Git** | Baixar o projeto. | [git-scm.com](https://git-scm.com/download/win) |
-| **Um provedor de modelos** | É quem responde (a "inteligência"). | Veja abaixo. |
-| Node.js 22 ou mais novo (opcional) | Para o Cell Host (comandos no computador) e para rodar os testes. | [nodejs.org](https://nodejs.org/) |
+| Item | Windows | Linux |
+|------|---------|-------|
+| **Sistema** | Windows 10 (22H2) ou 11, 64 bits, com virtualização ligada na BIOS | Ubuntu 22.04+, Debian 12+, Fedora ou outra distribuição com Docker, 64 bits |
+| **Hardware** | 4 GB de RAM livres e 10 GB de disco (os modelos de IA rodam no provedor, não no Cell) | Igual |
+| **Docker** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) com WSL 2 | [Docker Engine](https://docs.docker.com/engine/install/) com o plugin `docker compose` |
+| **Git** | [git-scm.com](https://git-scm.com/download/win) | Pacote `git` da distribuição |
+| **Scripts** | PowerShell (já vem no Windows) | bash; os comandos estão na [instalação no Linux](#instalação-no-linux) |
+| **Provedor de modelos** | É quem responde (a "inteligência"). Veja abaixo. | Igual |
+| **Comandos no computador** (opcional) | [Cell Host](#comandos-no-computador), precisa do [Node.js](https://nodejs.org/) 22+ | Por SSH, com o `openssh-server` |
+| **Pastas do computador** (opcional) | `scripts\drives.ps1` | Um arquivo `compose.override.yaml` escrito à mão |
+| **Acesso pela internet** (opcional) | Domínio na Cloudflare e o `cloudflared` | Igual |
+
+O Node.js também é necessário para rodar os testes, nos dois sistemas.
 
 ### O provedor de modelos (9router)
 
@@ -78,18 +95,57 @@ O Cell fala com qualquer serviço **compatível com a API da OpenAI** (`/v1/chat
 
 Você vai precisar do **endereço** (ex.: `http://host.docker.internal:20128/v1` para um 9router no próprio PC, `http://192.168.0.20:20128/v1` em outra máquina da rede, ou `https://api.openai.com/v1`) e do **token** (chave de API) do seu provedor.
 
+> **Provedor no próprio computador:** `host.docker.internal` é o computador visto de dentro do Docker. No Windows, um provedor que escuta só em `127.0.0.1` já funciona. No Linux, ele precisa escutar num endereço que os containers alcancem (`0.0.0.0` ou o IP da ponte do Docker, normalmente `172.17.0.1`), e o firewall precisa liberar a porta para as redes do Docker (veja o passo 7 da [instalação no Linux](#instalação-no-linux)).
+
 ## Instalação passo a passo
 
-### 1. Baixe o projeto
+Escolha o seu sistema:
 
-Abra o **PowerShell** e rode:
+- [Instalação no Windows](#instalação-no-windows)
+- [Instalação no Linux](#instalação-no-linux)
+
+Nos dois casos, o Cell fica disponível em `https://localhost` no próprio computador e em `https://IP-do-computador` nos outros aparelhos da rede. O usuário da conta é **`cell`**.
+
+### Instalação no Windows
+
+#### 1. Prepare o Windows
+
+Abra o **PowerShell como administrador** (botão direito no menu Iniciar → *Terminal (Admin)*) e instale o WSL 2, que o Docker Desktop usa:
+
+```powershell
+wsl --install
+```
+
+Reinicie o computador se ele pedir. Se o `wsl --install` disser que a virtualização está desligada, ative *Intel VT-x* ou *AMD-V/SVM* na BIOS.
+
+#### 2. Instale o Docker Desktop e o Git
+
+Ainda no PowerShell (pode ser sem administrador):
+
+```powershell
+winget install -e --id Docker.DockerDesktop
+winget install -e --id Git.Git
+```
+
+Sem o `winget`, baixe pelos sites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) e [Git](https://git-scm.com/download/win).
+
+Abra o **Docker Desktop**, aceite os termos e espere aparecer *Engine running*. Em *Settings → General*, deixe marcado **Start Docker Desktop when you sign in**, para o Cell voltar sozinho quando o computador ligar. Feche e abra o PowerShell de novo (para ele achar o `git` e o `docker`) e confira:
+
+```powershell
+docker compose version
+git --version
+```
+
+#### 3. Baixe o projeto
+
+Abra o PowerShell na pasta onde quer guardar o Cell (por exemplo, `Documentos`) e rode:
 
 ```powershell
 git clone https://github.com/tiagoberlanda/cell.git
 cd cell
 ```
 
-### 2. Descubra o endereço do computador na rede
+#### 4. Descubra o endereço do computador na rede
 
 Para abrir o Cell de outros aparelhos (celular, notebook), você precisa do IP deste computador:
 
@@ -97,9 +153,11 @@ Para abrir o Cell de outros aparelhos (celular, notebook), você precisa do IP d
 ipconfig
 ```
 
-Procure "Endereço IPv4" (algo como `192.168.0.10`). Se for usar só neste computador, pode pular e usar `localhost`.
+Procure "Endereço IPv4" do adaptador que está ligado na rede (algo como `192.168.0.10`). Se for usar só neste computador, pode pular e usar `localhost`.
 
-### 3. Rode a instalação
+> Dica: reserve esse IP para o computador nas configurações do roteador (*DHCP estático* ou *reserva de endereço*). Se o IP mudar, os aparelhos param de achar o Cell.
+
+#### 5. Rode a instalação
 
 Troque `192.168.0.10` pelo seu IP:
 
@@ -117,11 +175,138 @@ Ao final aparece **"Cell pronto em https://…"**.
 
 > Se o PowerShell disser que a execução de scripts está desabilitada, rode antes `Set-ExecutionPolicy -Scope Process Bypass` (vale só para essa janela).
 
-### 4. Abra no navegador
+#### 6. Libere o acesso pela rede (se precisar)
+
+O Docker Desktop costuma criar as regras de firewall sozinho. Se o celular não abrir `https://SEU-IP`, libere as portas 80 e 443 no PowerShell **como administrador**:
+
+```powershell
+New-NetFirewallRule -DisplayName 'Cell HTTPS' -Direction Inbound -Protocol TCP -LocalPort 80,443 -Action Allow -Profile Private
+```
+
+A regra vale só para redes marcadas como **Privada** (rede de casa). Confira em *Configurações → Rede e Internet → propriedades da rede*.
+
+#### 7. Abra no navegador
 
 Acesse `https://localhost` (ou `https://SEU-IP`). O navegador vai mostrar um **aviso de segurança**. Isso é esperado: o Cell usa um certificado próprio, emitido na sua máquina. Você pode clicar em "Avançado → Continuar" ou, melhor, [instalar o certificado](#certificado-https-sem-aviso-do-navegador) para o aviso sumir de vez.
 
-Entre com o usuário **`cell`** e a senha que você criou.
+Entre com o usuário **`cell`** e a senha que você criou. Depois siga o [Primeiro uso](#primeiro-uso).
+
+Opcionais no Windows: [pastas do computador](#pastas-do-computador), [comandos no computador (Cell Host)](#comandos-no-computador) e [acesso pela internet](#acesso-pela-internet-cloudflare-tunnel).
+
+### Instalação no Linux
+
+Os comandos abaixo são para **Ubuntu/Debian**; em outras distribuições, troque o `apt` pelo gerenciador de pacotes dela. Os scripts `.ps1` do projeto são para Windows; no Linux, use os comandos bash desta seção (veja a [tabela de equivalências](#comandos-equivalentes-no-linux)).
+
+#### 1. Instale o Docker Engine e o Git
+
+Siga o guia oficial da sua distribuição em [docs.docker.com/engine/install](https://docs.docker.com/engine/install/), ou use o script oficial de instalação do Docker:
+
+```bash
+sudo apt update && sudo apt install -y git curl openssl
+curl -fsSL https://get.docker.com | sudo sh
+```
+
+Deixe o Docker ligar junto com o computador e use-o sem `sudo`:
+
+```bash
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+```
+
+**Saia da sessão e entre de novo** (ou reinicie) para o grupo `docker` valer, e confira:
+
+```bash
+docker compose version
+git --version
+```
+
+#### 2. Baixe o projeto
+
+```bash
+git clone https://github.com/tiagoberlanda/cell.git
+cd cell
+```
+
+#### 3. Descubra o endereço do computador na rede
+
+```bash
+hostname -I
+```
+
+O primeiro endereço (algo como `192.168.0.10`) é o da rede. Se for usar só neste computador, use `localhost`. Como no Windows, vale reservar esse IP no roteador.
+
+#### 4. Crie o arquivo `.env`
+
+Troque `192.168.0.10` pelo seu IP e rode o bloco inteiro. Ele gera senhas e chaves aleatórias:
+
+```bash
+IP=192.168.0.10
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+SECRET_KEY=$(openssl rand -hex 32)
+NINEROUTER_BASE_URL=http://host.docker.internal:20128/v1
+NINEROUTER_API_KEY=
+NINEROUTER_DEFAULT_MODEL=
+CELL_HOST=$IP, localhost
+CELL_DEFAULT_SNI=$IP
+APP_ORIGIN=https://$IP,https://localhost
+COOKIE_SECURE=true
+EOF
+chmod 600 .env
+```
+
+O `chmod 600` deixa o arquivo legível só pelo seu usuário. **Guarde uma cópia do `.env` em lugar seguro**: a `SECRET_KEY` abre os tokens e senhas salvos no Cell.
+
+#### 5. Suba os containers
+
+```bash
+export CELL_VERSION=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json)
+docker compose up -d --build --wait
+```
+
+A primeira vez leva alguns minutos. O `CELL_VERSION` só marca as imagens com a versão do Cell, que aparece no menu do usuário. Os containers voltam sozinhos quando o computador liga.
+
+#### 6. Crie a sua conta
+
+A senha é lida sem aparecer na tela nem no histórico do terminal (mínimo de 12 caracteres):
+
+```bash
+read -rsp 'Senha inicial (mínimo 12 caracteres): ' CELL_ADMIN_PASSWORD && echo && export CELL_ADMIN_PASSWORD
+echo cell | docker compose exec -T -e CELL_ADMIN_PASSWORD api npm run admin
+unset CELL_ADMIN_PASSWORD
+```
+
+Deve aparecer **"Conta configurada."** O usuário é `cell`.
+
+#### 7. Firewall e provedor no próprio computador
+
+As portas 80 e 443 são publicadas pelo Docker, que cria as próprias regras de rede: os outros aparelhos já alcançam o Cell, **mesmo com o `ufw` ativo** (o `ufw` não filtra portas publicadas pelo Docker). Por isso, não deixe o computador exposto direto na internet; para acesso de fora, use o [Cloudflare Tunnel](#acesso-pela-internet-cloudflare-tunnel).
+
+Já o caminho contrário, do container para serviços do próprio computador, passa pelo firewall. Se o **provedor de modelos** roda neste computador, deixe-o escutar em `0.0.0.0` (ou em `172.17.0.1`) e, com o `ufw`, libere a porta dele só para as redes do Docker:
+
+```bash
+sudo ufw allow from 172.16.0.0/12 to any port 20128 proto tcp
+```
+
+#### 8. Abra no navegador
+
+Acesse `https://localhost` (ou `https://SEU-IP`), passe pelo aviso de certificado (ou [instale o certificado](#certificado-https-sem-aviso-do-navegador)) e entre com o usuário **`cell`** e a senha que você criou. Depois siga o [Primeiro uso](#primeiro-uso).
+
+Opcionais no Linux: [pastas do computador](#pastas-no-linux), [comandos por SSH](#comandos-no-computador-pelo-linux-ssh) e [acesso pela internet](#acesso-pela-internet-cloudflare-tunnel).
+
+#### Comandos equivalentes no Linux
+
+O README usa os scripts do Windows nos exemplos. No Linux, rode na pasta do Cell:
+
+| No Windows | No Linux |
+|------------|----------|
+| `.\scripts\setup.ps1` | Passos 4 a 6 acima. |
+| `.\scripts\deploy.ps1` (aplicar mudanças no `.env` ou atualizar) | `export CELL_VERSION=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json) && docker compose up -d --build --wait` |
+| `.\scripts\export-cert.ps1` | `docker compose cp web:/data/caddy/pki/authorities/local/root.crt cell-root.crt` |
+| `.\scripts\drives.ps1` | `compose.override.yaml` à mão: veja [Pastas do computador no Linux](#pastas-no-linux). |
+| `.\scripts\host.ps1` (Cell Host) | Não existe no Linux: use [SSH](#comandos-no-computador-pelo-linux-ssh). |
+
+Se preferir, os scripts `deploy.ps1` e `export-cert.ps1` também rodam no Linux com o [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/install-ubuntu) (`pwsh ./scripts/deploy.ps1`).
 
 ## Primeiro uso
 
@@ -293,7 +478,11 @@ Em cada aparelho: menu do usuário → **Notificações** → *Ativar notificaç
 
 ### Pastas do computador
 
-Os agentes podem organizar arquivos do computador onde o Cell roda. Ative uma vez (e de novo se adicionar um disco):
+Os agentes podem organizar arquivos do computador onde o Cell roda. As pastas entram no container `worker` como discos (`/host/c`, `/host/k`…), e os agentes as chamam por letra, como no Windows (`K:\Downloads`).
+
+#### Pastas no Windows
+
+Ative uma vez (e de novo se adicionar um disco):
 
 ```powershell
 .\scripts\drives.ps1
@@ -302,11 +491,35 @@ Os agentes podem organizar arquivos do computador onde o Cell roda. Ative uma ve
 
 O script libera os discos locais para o `worker` (do `C:` só a sua pasta de usuário) no arquivo `compose.override.yaml`, que fica só na sua máquina. Para desligar: `.\scripts\drives.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
 
+#### Pastas no Linux
+
+Crie à mão o arquivo `compose.override.yaml` na pasta do Cell (ele não vai para o git) e escolha uma **letra** para cada pasta que quer liberar. Exemplo, com a sua pasta pessoal como `H:` e um disco de dados como `D:`:
+
+```yaml
+services:
+  worker:
+    volumes:
+      - type: bind
+        source: /home/seu-usuario
+        target: /host/h
+      - type: bind
+        source: /mnt/dados
+        target: /host/d
+```
+
+Aplique com o comando de atualização (`export CELL_VERSION=… && docker compose up -d --build --wait`, veja a [tabela](#comandos-equivalentes-no-linux)). Agora `H:\Documentos` é `/home/seu-usuario/Documentos`. Os discos aparecem em **Configurações → Computador**.
+
+O `worker` roda como o usuário de número **1000** (o primeiro usuário criado na maioria das distribuições; confira com `id -u`). Se as pastas forem de outro usuário, dê acesso a ele, por exemplo `sudo setfacl -R -m u:1000:rwX /mnt/dados`. Para desligar, apague o `compose.override.yaml` e rode o comando de atualização.
+
+#### Usando as pastas
+
 Depois peça, por exemplo: *"organize a pasta K:\Downloads por tipo de arquivo"*. O agente pede acesso, você aprova, e ele lista, propõe a reorganização e pede aprovação antes de mover, criar ou **excluir** (o que é excluído vai para a Lixeira, e tudo pode ser desfeito pelo botão **Desfazer**). Arquivos ocultos e de sistema (como `.env`) ficam bloqueados. Veja e remova acessos em **Configurações → Computador**.
 
 ### Comandos no computador
 
 O ícone de **computador no topo da conversa** mostra se há computadores conectados: **verde** se pelo menos um responde, **cinza** se nenhum. Toque nele para ver cada computador, o estado e os detalhes.
+
+#### Comandos no Windows: Cell Host
 
 Com o **Cell Host** instalado, você pode pedir (inclusive pelo celular) coisas como *"quanto espaço livre tem no disco K:?"*, *"quais programas estão usando mais memória?"* ou *"compacte a pasta K:\Projetos\site num zip"*. O agente monta o comando PowerShell e **você aprova cada um**, vendo exatamente o que será executado.
 
@@ -330,6 +543,30 @@ Como funciona no dia a dia:
 - em **Configurações → Computador** você vê o estado, bloqueia ou libera os comandos num toque e confere os últimos comandos com o resultado.
 
 Para remover: `.\scripts\host.ps1 -Remove` e depois `.\scripts\deploy.ps1`.
+
+#### Comandos no computador pelo Linux (SSH)
+
+O Cell Host é só para Windows. No Linux, o Cell usa o próprio computador **por SSH**, como qualquer outro servidor, e os agentes rodam comandos em bash.
+
+1. Instale o servidor SSH e crie um usuário só para o Cell, sem `sudo` (os comandos rodam com as permissões dele):
+   ```bash
+   sudo apt install -y openssh-server
+   sudo adduser --disabled-password --gecos '' cell-agente
+   ```
+2. Crie uma chave só para o Cell e autorize-a para esse usuário:
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C cell -f cell-agente
+   sudo install -d -m 700 -o cell-agente -g cell-agente /home/cell-agente/.ssh
+   sudo install -m 600 -o cell-agente -g cell-agente cell-agente.pub /home/cell-agente/.ssh/authorized_keys
+   ```
+3. Com o `ufw`, libere o SSH só para as redes do Docker:
+   ```bash
+   sudo ufw allow from 172.16.0.0/12 to any port 22 proto tcp
+   ```
+4. No Cell, em **Configurações → Computador → Adicionar computador por SSH**: endereço **`host.docker.internal`**, porta `22`, usuário `cell-agente`, e cole o conteúdo do arquivo `cell-agente` (a chave privada). Confira a impressão digital mostrada com `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` e confirme.
+5. Apague a chave privada do disco: `shred -u cell-agente` (ela fica cifrada no Cell).
+
+Depois disso, o computador aparece no ícone de computadores e você pede coisas como *"quanto espaço livre tem no disco?"*, aprovando cada comando. Os comandos rodam como `cell-agente`: para eles lerem ou mudarem pastas suas, dê acesso a esse usuário (por grupo ou com `setfacl`).
 
 **Alertas.** Uma checagem por minuto avisa no celular quando um disco passa do limite, um computador fica fora do ar ou a CPU fica alta por um tempo, e avisa quando volta ao normal. Ajuste os limites em **Configurações → Computador → Alertas dos computadores**. Alertas abertos deixam o ponto do ícone de computadores laranja.
 
@@ -386,17 +623,26 @@ Menu do usuário (canto inferior esquerdo) → **Configurações**:
 
 ### Pela rede de casa
 
-Abra `https://SEU-IP` em qualquer aparelho da mesma rede. O endereço precisa estar no `-HostName` usado no setup (ou em `CELL_HOST` e `APP_ORIGIN` no `.env`; depois rode `.\scripts\deploy.ps1`).
+Abra `https://SEU-IP` em qualquer aparelho da mesma rede. O endereço precisa estar no `-HostName` usado no setup (ou em `CELL_HOST` e `APP_ORIGIN` no `.env`; depois rode `.\scripts\deploy.ps1`, ou o [comando de atualização no Linux](#comandos-equivalentes-no-linux)).
 
 ### Certificado HTTPS sem aviso do navegador
+
+Exporte o certificado do Cell, na pasta do Cell:
 
 ```powershell
 .\scripts\export-cert.ps1
 ```
 
-Isso gera `cell-root.crt`. Instale-o em cada aparelho:
+No Linux:
+
+```bash
+docker compose cp web:/data/caddy/pki/authorities/local/root.crt cell-root.crt
+```
+
+Isso gera `cell-root.crt`. Instale-o em cada aparelho (só nos seus: ele faz o aparelho confiar em certificados emitidos por este Cell):
 
 - **Windows:** abra o arquivo → *Instalar certificado* → *Máquina local* → *Autoridades de Certificação Raiz Confiáveis*.
+- **Linux (Ubuntu/Debian):** `sudo cp cell-root.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`. No Fedora: `sudo cp cell-root.crt /etc/pki/ca-trust/source/anchors/ && sudo update-ca-trust`. O **Firefox** tem a lista própria: *Configurações → Privacidade e Segurança → Certificados → Ver certificados → Autoridades → Importar*. O **Chrome** no Linux também: `chrome://certificate-manager` → *Autoridades* → *Importar*.
 - **Android:** Configurações → Segurança → Criptografia e credenciais → Instalar certificado → *Certificado de CA*.
 - **iPhone:** abra o arquivo, instale o perfil e ative em Ajustes → Geral → Sobre → *Ajustes de Confiança de Certificado*.
 
@@ -408,18 +654,24 @@ Se perder o celular: Configurações → Conta → *Sair de todos os outros disp
 
 ### Acesso pela internet (Cloudflare Tunnel)
 
-Com um **Cloudflare Tunnel** você acessa o Cell de qualquer lugar **sem abrir portas no roteador**.
+Com um **Cloudflare Tunnel** você acessa o Cell de qualquer lugar **sem abrir portas no roteador**: o programa `cloudflared`, instalado no computador do Cell, abre uma conexão de dentro para fora até a Cloudflare, e ela entrega os pedidos do seu domínio por essa conexão (veja o [diagrama](#como-funciona-por-dentro)). Você precisa de um domínio gerenciado pela Cloudflare (o plano gratuito basta).
 
 1. **Não abra as portas 80/443 no roteador.**
-2. No `.env`, inclua o domínio (exemplo `cell.seudominio.com`) e rode `.\scripts\deploy.ps1`:
+2. No `.env`, inclua o domínio (exemplo `cell.seudominio.com`) **em primeiro lugar** e aplique (`.\scripts\deploy.ps1` no Windows, ou o [comando de atualização no Linux](#comandos-equivalentes-no-linux)):
    ```ini
    CELL_HOST=cell.seudominio.com, 192.168.0.10, localhost
    APP_ORIGIN=https://cell.seudominio.com,https://192.168.0.10,https://localhost
    ```
-3. Na Cloudflare (Zero Trust → Networks → Tunnels → Public Hostname), aponte `cell.seudominio.com` para `https://localhost:443`, com **Origin Server Name** `cell.seudominio.com` e **No TLS Verify** ativado.
-4. Desative **Rocket Loader**, **Email Address Obfuscation** e a injeção do **Web Analytics** para esse domínio (eles injetam scripts que a política de segurança do Cell bloqueia).
-5. Recomendado: proteja o domínio com **Cloudflare Access** (login extra por e-mail antes da página carregar).
-6. Recomendado: para o limite de tentativas de login usar o IP real do visitante, gere um segredo (`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`), coloque no `.env` como `CELL_PROXY_SECRET=...` e crie na Cloudflare uma **Transform Rule → Modify Request Header** que envie `X-Cell-Proxy-Secret` com esse valor. Rode `.\scripts\deploy.ps1`.
+   O primeiro endereço de `APP_ORIGIN` é usado no retorno dos aplicativos conectados e no aviso das notificações.
+3. Crie o túnel: no painel da Cloudflare, **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, dê o nome `cell` e escolha o sistema do computador. O painel mostra o comando de instalação com um **token** (é um segredo: não compartilhe).
+   - **Windows:** instale com `winget install -e --id Cloudflare.cloudflared` e, no PowerShell **como administrador**, rode o comando do painel, `cloudflared.exe service install <TOKEN>`. Ele vira um serviço do Windows e liga sozinho.
+   - **Linux:** rode os comandos que o painel mostra para a sua distribuição (repositório da Cloudflare, `apt install cloudflared`) e depois `sudo cloudflared service install <TOKEN>`. Ele vira um serviço do systemd (`systemctl status cloudflared`).
+
+   O painel mostra o túnel como **Healthy** quando a conexão sobe.
+4. Ainda no túnel, em **Public Hostname**, aponte `cell.seudominio.com` para `https://localhost:443`, com **Origin Server Name** `cell.seudominio.com` e **No TLS Verify** ativado (o certificado do Cell é local; a Cloudflare entrega o certificado público ao navegador).
+5. Desative **Rocket Loader**, **Email Address Obfuscation** e a injeção do **Web Analytics** para esse domínio (eles injetam scripts que a política de segurança do Cell bloqueia).
+6. Recomendado: proteja o domínio com **Cloudflare Access** (login extra por e-mail antes da página carregar).
+7. Recomendado: para o limite de tentativas de login usar o IP real do visitante, gere um segredo (`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`), coloque no `.env` como `CELL_PROXY_SECRET=...` e crie na Cloudflare uma **Transform Rule → Modify Request Header** que envie `X-Cell-Proxy-Secret` com esse valor. No Linux, gere o segredo com `openssl rand -hex 24`. Aplique com `.\scripts\deploy.ps1` (ou o comando de atualização no Linux).
 
 ---
 
@@ -476,6 +728,14 @@ git pull
 .\scripts\deploy.ps1
 ```
 
+No Linux:
+
+```bash
+git pull
+export CELL_VERSION=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json)
+docker compose up -d --build --wait
+```
+
 As migrações do banco rodam sozinhas. A versão instalada aparece no menu do usuário. O que mudou em cada versão está no [CHANGELOG.md](CHANGELOG.md). Para voltar a uma versão: `git checkout vX.Y.Z` e `.\scripts\deploy.ps1`. As migrações do banco só avançam; se precisar voltar também os dados, restaure o backup feito antes da atualização (backups de versões anteriores sempre podem ser restaurados).
 
 ### Senha
@@ -485,7 +745,13 @@ As migrações do banco rodam sozinhas. A versão instalada aparece no menu do u
   ```powershell
   Write-Host 'Senha: ' -NoNewline; $s = Read-Host -AsSecureString; $env:CELL_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)); "cell" | docker compose exec -T -e CELL_ADMIN_PASSWORD api npm run admin -- --reset; Remove-Item Env:CELL_ADMIN_PASSWORD
   ```
-  Sem `-- --reset`, o comando cria a conta (se ainda não existir). Depois de restaurar um backup, a senha da conta volta a ser a da época do backup. A senha precisa de 12 caracteres ou mais e nunca vai para o histórico do PowerShell. Trocar a senha encerra as sessões abertas.
+  No Linux:
+  ```bash
+  read -rsp 'Senha: ' CELL_ADMIN_PASSWORD && echo && export CELL_ADMIN_PASSWORD
+  echo cell | docker compose exec -T -e CELL_ADMIN_PASSWORD api npm run admin -- --reset
+  unset CELL_ADMIN_PASSWORD
+  ```
+  Sem `-- --reset`, o comando cria a conta (se ainda não existir). Depois de restaurar um backup, a senha da conta volta a ser a da época do backup. A senha precisa de 12 caracteres ou mais e nunca vai para o histórico do terminal. Trocar a senha encerra as sessões abertas.
 
 ---
 
@@ -496,14 +762,16 @@ As migrações do banco rodam sozinhas. A versão instalada aparece no menu do u
 | **"Origem não permitida"** ao entrar | O endereço que você usou não está em `APP_ORIGIN`. Adicione no `.env` (com `https://`) e rode `.\scripts\deploy.ps1`. |
 | Aviso de **"conexão não segura"** | Normal com o certificado local. [Instale o certificado](#certificado-https-sem-aviso-do-navegador). |
 | `setup.ps1` **não roda** | `Set-ExecutionPolicy -Scope Process Bypass` e tente de novo. |
-| **Docker não sobe** / porta em uso | Abra o Docker Desktop. Se outro programa usa as portas 80 ou 443 (IIS, Skype antigo, outro servidor web), feche-o. |
+| **Docker não sobe** / porta em uso | Windows: abra o Docker Desktop. Se outro programa usa as portas 80 ou 443 (IIS, Skype antigo, outro servidor web), feche-o. Linux: veja quem usa a porta com `sudo ss -ltnp 'sport = :443'` (comum: `apache2` ou `nginx`) e pare o serviço (`sudo systemctl disable --now apache2`). |
+| Linux: **"permission denied" no `docker.sock`** | Seu usuário não está no grupo `docker`. Rode `sudo usermod -aG docker "$USER"`, saia da sessão e entre de novo. |
+| Linux: provedor ou SSH **não responde** em `host.docker.internal` | O serviço precisa escutar em `0.0.0.0` (ou `172.17.0.1`), não só em `127.0.0.1`, e o firewall precisa liberar a porta para `172.16.0.0/12`. Teste de dentro do Cell: `docker compose exec worker node -e "fetch('http://host.docker.internal:20128/v1/models').then(r=>console.log(r.status))"`. |
 | Agente **não responde** / "9router: HTTP 401" | Confira endereço e token em Configurações → 9router e clique em **Testar conexão e atualizar modelos**. O Diagnóstico mostra o estado do provedor. |
 | **Pesquisa na web** indisponível | Seu provedor não é o 9router. Conecte um aplicativo de pesquisa ou use o 9router. |
 | **Microfone** não grava | Precisa de HTTPS confiável (domínio público ou certificado instalado) e permissão de microfone no navegador. |
 | **Notificações** não chegam | Ative no próprio aparelho (menu → Notificações → Enviar teste). No iPhone, só com o app instalado na tela inicial. |
 | **Rotina** não disparou | Confira se o interruptor está ligado, o horário e o fuso. O *Histórico* da rotina mostra o que aconteceu. |
-| "O computador não respondeu" | O PC precisa estar ligado e com você logado. Confira em Configurações → Computador; se preciso, rode `.\scripts\host.ps1` e `.\scripts\deploy.ps1` de novo. O registro fica em `%LOCALAPPDATA%\Cell\host.log`. |
-| Agente **não acha uma pasta** do PC | Rode `.\scripts\drives.ps1` e `.\scripts\deploy.ps1`; confira os discos em Configurações → Computador. |
+| "O computador não respondeu" | Windows: o PC precisa estar ligado e com você logado. Confira em Configurações → Computador; se preciso, rode `.\scripts\host.ps1` e `.\scripts\deploy.ps1` de novo. O registro fica em `%LOCALAPPDATA%\Cell\host.log`. Linux (SSH): confira `systemctl status ssh` e a regra do firewall. |
+| Agente **não acha uma pasta** do PC | Windows: rode `.\scripts\drives.ps1` e `.\scripts\deploy.ps1`. Linux: confira o `compose.override.yaml` e as permissões para o usuário 1000. Confira os discos em Configurações → Computador. |
 | Backup: **"Senha incorreta ou arquivo de backup danificado"** | Use a senha que estava valendo quando o backup foi feito. Se a senha estiver certa, o arquivo foi alterado ou não baixou inteiro: baixe de novo. |
 | Backup: **"versão mais nova do Cell"** | O backup veio de um Cell mais novo. Atualize este (`git pull` e `.\scripts\deploy.ps1`) e restaure de novo. |
 | Backup grande **não envia** pelo domínio público | O Cloudflare limita envios a 100 MB. Restaure pelo endereço da rede local ou pela linha de comando. |
@@ -513,7 +781,7 @@ As migrações do banco rodam sozinhas. A versão instalada aparece no menu do u
 
 ## Configuração avançada (.env)
 
-O `setup.ps1` cria o `.env` sozinho. Os campos principais:
+No Windows, o `setup.ps1` cria o `.env` sozinho; no Linux, ele é criado no [passo 4](#4-crie-o-arquivo-env). Os campos principais:
 
 | Variável | Para que serve |
 |----------|----------------|
@@ -527,7 +795,7 @@ O `setup.ps1` cria o `.env` sozinho. Os campos principais:
 | `CELL_PROXY_SECRET` | Segredo opcional enviado pelo Cloudflare Tunnel (veja acima). |
 | `TRUSTED_PROXIES` | Lista de redes (CIDR) de proxies confiáveis, se não usar o segredo. |
 
-Depois de editar o `.env`, rode `.\scripts\deploy.ps1`.
+Depois de editar o `.env`, rode `.\scripts\deploy.ps1` (no Linux, o [comando de atualização](#comandos-equivalentes-no-linux)).
 
 ## Desenvolvimento
 
