@@ -15,6 +15,8 @@ export function safeError(e:unknown){const raw=e instanceof Error?e.message:'Fal
 // APP_ORIGIN accepts a comma-separated list so the app can be reached by several hosts (LAN IP, localhost).
 export const appOrigins=()=>(process.env.APP_ORIGIN||'').split(',').map(x=>x.trim().replace(/\/$/,'')).filter(Boolean);
 export const allowedOrigin=(origin:string)=>appOrigins().includes(origin);
+// First HTTPS origin reached by domain name (not an IP or localhost): the address with a publicly trusted certificate.
+export const publicOrigin=()=>appOrigins().find(o=>{try{const u=new URL(o);return u.protocol==='https:'&&!/^(localhost|[\d.]+|\[.*\])$/i.test(u.hostname)&&!u.hostname.endsWith('.localhost');}catch{return false;}})||null;
 // Behind Caddy every request arrives from the proxy, so rate limits need the real client address.
 // Caddy replaces X-Forwarded-For with its direct peer. Cloudflare's CF-Connecting-IP is trusted only from the authorized proxy:
 // with CELL_PROXY_SECRET set, the request must carry X-Cell-Proxy-Secret (added by a Cloudflare transform rule), which a LAN

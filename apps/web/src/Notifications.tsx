@@ -26,8 +26,8 @@ export async function enablePush(publicKey?:string){
 // True when this device could receive push but was never asked (used to offer activation once).
 export async function shouldOfferPush(){try{if(!supported()||!window.isSecureContext||Notification.permission!=='default')return false;return !(await currentSubscription());}catch{return false;}}
 export function NotificationsPanel({notify}:Notice){
- const [permission,setPermission]=useState<string>(supported()?Notification.permission:'unsupported'),[subscribed,setSubscribed]=useState(false),[devices,setDevices]=useState<any[]>([]),[publicKey,setPublicKey]=useState(''),[busy,setBusy]=useState(false);
- const load=useCallback(async()=>{try{const d=await api('/push');setDevices(d.devices);setPublicKey(d.publicKey);if(supported()){const s=await currentSubscription();setSubscribed(!!s&&d.devices.length>0);}}catch(e:any){notify(e.message);}},[notify]);
+ const [permission,setPermission]=useState<string>(supported()?Notification.permission:'unsupported'),[subscribed,setSubscribed]=useState(false),[devices,setDevices]=useState<any[]>([]),[publicKey,setPublicKey]=useState(''),[publicOrigin,setPublicOrigin]=useState<string|null>(null),[busy,setBusy]=useState(false);
+ const load=useCallback(async()=>{try{const d=await api('/push');setDevices(d.devices);setPublicKey(d.publicKey);setPublicOrigin(d.publicOrigin||null);if(supported()){const s=await currentSubscription();setSubscribed(!!s&&d.devices.length>0);}}catch(e:any){notify(e.message);}},[notify]);
  useEffect(()=>{load();},[load]);
  const run=async(fn:()=>Promise<void>)=>{setBusy(true);try{await fn();await load();}catch(e:any){notify(e.message||'Não foi possível concluir.');}finally{setBusy(false);}};
  const enable=()=>run(async()=>{const p=await enablePush(publicKey);setPermission(p);notify('Notificações ativadas neste aparelho.');});
@@ -38,7 +38,7 @@ export function NotificationsPanel({notify}:Notice){
   <h3>Notificações</h3>
   <p className="hint">Receba um aviso no celular ou no computador quando um agente ou uma rotina enviar mensagem, ou quando uma ação precisar da sua aprovação. Se a conversa estiver aberta em algum aparelho, o aviso não é enviado.</p>
   {!supported()?<div className="setting-card"><BellOff size={20}/><p>Este navegador não suporta notificações push. No Android, use o Chrome; no iPhone, instale o Cell na tela inicial (Compartilhar → Adicionar à Tela de Início) e abra por lá.</p></div>
-  :!secure?<div className="setting-card"><BellOff size={20}/><p>Notificações exigem HTTPS confiável. Abra pelo domínio público configurado (Cloudflare Tunnel) ou instale o certificado local.</p></div>
+  :!secure?<div className="setting-card"><BellOff size={20}/><p>Notificações exigem HTTPS confiável. {publicOrigin?<>Abra pelo domínio público (<a href={publicOrigin}>{publicOrigin}</a>) ou instale o certificado local.</>:'Abra por um domínio com certificado confiável (veja Cloudflare Tunnel no README) ou instale o certificado local.'}</p></div>
   :<div className="setting-card"><Bell size={20}/><div className="stack" style={{gap:10}}>
     <p>{permission==='denied'?'As notificações estão bloqueadas para este site. Libere em Configurações do navegador → Configurações do site → Notificações.':subscribed?'Este aparelho recebe notificações.':'Este aparelho ainda não recebe notificações.'}</p>
     <div className="row wrap">{subscribed?<button className="secondary" disabled={busy} onClick={disable}><BellOff size={15}/>Desativar neste aparelho</button>:<button className="primary" disabled={busy||permission==='denied'||!publicKey} onClick={enable}><Bell size={15}/>Ativar notificações neste aparelho</button>}

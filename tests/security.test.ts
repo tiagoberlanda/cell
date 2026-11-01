@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {encrypt,decrypt,contained,approvalFingerprint,validateEndpoint,safeEqual,allowedOrigin,clientIp} from '../apps/server/src/security.js';
+import {encrypt,decrypt,contained,approvalFingerprint,validateEndpoint,safeEqual,allowedOrigin,publicOrigin,clientIp} from '../apps/server/src/security.js';
 import {nextOccurrence} from '../apps/server/src/schedule.js';
 import {agentInput,messageInput} from '../packages/shared/src/index.js';
 process.env.SECRET_KEY='ab'.repeat(32);
@@ -26,3 +26,4 @@ test('CF-Connecting-IP só vale vindo do proxy autorizado',()=>{const req=(h:Rec
   assert.equal(clientIp(req(gw)),'172.25.0.1','gateway fora da lista');
   assert.equal(clientIp(req({'x-forwarded-for':'10.9.3.4','cf-connecting-ip':'198.51.100.7'})),'198.51.100.7');
  }finally{delete process.env.CELL_PROXY_SECRET;delete process.env.TRUSTED_PROXIES;}});
+test('domínio público é o primeiro HTTPS por nome, sem IP nem localhost',()=>{const prev=process.env.APP_ORIGIN;try{process.env.APP_ORIGIN='https://192.168.0.200,https://localhost,https://[::1],http://cell.example.com,https://cell.example.com/';assert.equal(publicOrigin(),'https://cell.example.com');process.env.APP_ORIGIN='https://192.168.0.200,https://localhost';assert.equal(publicOrigin(),null);}finally{process.env.APP_ORIGIN=prev;}});

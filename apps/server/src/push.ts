@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { one,query } from './db.js';
 import { createHmac } from 'node:crypto';
-import { encrypt,decrypt,appOrigins,safeError } from './security.js';
+import { encrypt,decrypt,appOrigins,publicOrigin,safeError } from './security.js';
 import { stripThinking } from '../../../packages/shared/src/index.js';
 
 // One VAPID key pair per installation, created on first use. Both the API and the worker may race to create it.
@@ -73,7 +73,7 @@ async function approvalPush(runId:string){
 }
 
 export function registerPush(app:FastifyInstance){
- app.get('/api/push',async()=>({publicKey:(await vapidKeys()).publicKey,devices:(await query('SELECT id,label,failures,last_success_at,created_at,endpoint FROM push_subscriptions ORDER BY created_at')).map(({endpoint,...d})=>({...d,service:(()=>{try{return new URL(endpoint).host;}catch{return '';}})()}))}));
+ app.get('/api/push',async()=>({publicKey:(await vapidKeys()).publicKey,publicOrigin:publicOrigin(),devices:(await query('SELECT id,label,failures,last_success_at,created_at,endpoint FROM push_subscriptions ORDER BY created_at')).map(({endpoint,...d})=>({...d,service:(()=>{try{return new URL(endpoint).host;}catch{return '';}})()}))}));
  const subscription=z.object({endpoint:z.string().url().max(2000),keys:z.object({p256dh:z.string().min(20).max(200),auth:z.string().min(8).max(100)}),label:z.string().max(120).default('')});
  app.post('/api/push/subscribe',async req=>{const s=subscription.parse(req.body);
   // Real push services are always HTTPS; plain HTTP is only accepted when explicitly allowed (tests).

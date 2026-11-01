@@ -14,3 +14,5 @@ playwright-report/
 *.crt
 # Machine-specific drive mounts (scripts/drives.ps1)
 compose.override.yaml
+# Local agent skills (not part of the project)
+skills/
