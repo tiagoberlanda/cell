@@ -230,3 +230,16 @@
 .mode-item.mode-yolo b{color:var(--danger)}
 .mode-chip{font-weight:600;color:#ceaa65}
 .mode-chip.mode-yolo{color:var(--danger)}
+.tool-fields{margin:6px 0 0;display:grid;gap:6px;font-size:12px;line-height:1.5;color:var(--text)}
+.tool-field{display:grid;grid-template-columns:minmax(90px,max-content) 1fr;gap:2px 12px;min-width:0}
+.tool-field dt{color:var(--subtle);font-size:11px;padding-top:1px}
+.tool-field dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.tool-field dd .tool-fields{margin:0;padding-left:10px;border-left:2px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.tool-list{margin:0;padding-left:16px;list-style:disc;display:grid;gap:4px}
+.tool-list>li>.tool-fields{margin:0}
+.tool-empty{color:var(--subtle);font-style:italic}
+.tool-item pre.tool-code,.tool-item pre.tool-text{margin:2px 0 0;font-size:11px;word-break:normal;overflow-wrap:anywhere}
+.tool-result{margin-top:6px}
+@media(max-width:560px){.tool-field{grid-template-columns:1fr}}
+.rec-level{width:72px;height:6px;border-radius:3px;background:color-mix(in srgb,var(--line) 80%,transparent);overflow:hidden;flex-shrink:0}
+.rec-level i{display:block;height:100%;background:var(--green);border-radius:3px;transition:width .1s linear}

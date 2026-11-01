@@ -30,8 +30,15 @@ export async function transcribe(c:RouterConfig,data:Buffer,mime:string,name:str
  const model=c.sttModel||(await audioModels(c)).stt[0]?.id;if(!model)throw new Error('Nenhum modelo de transcrição disponível no 9router.');
  const form=new FormData();form.append('model',model);form.append('file',new Blob([new Uint8Array(data)],{type:mime}),name);
  const res=await fetch(validateEndpoint(c.baseUrl)+'/audio/transcriptions',{method:'POST',headers:{Authorization:`Bearer ${c.token}`},body:form,signal:AbortSignal.timeout(120000)});
- const body=await res.json().catch(()=>({})) as any;if(!res.ok)throw new Error(`Transcrição falhou (${model}): ${String(body?.error?.message||res.status).slice(0,200)}`);
- const text=String(body.text||'').trim();if(!text)throw new Error('Não foi possível entender o áudio.');return text;
+ // Some providers answer in plain text, or with the transcript in segments instead of `text`.
+ const raw=await res.text(),body=(()=>{try{return JSON.parse(raw);}catch{return null;}})() as any;
+ if(!res.ok)throw new Error(`Transcrição falhou (${model}): ${String(body?.error?.message||res.status).slice(0,200)}`);
+ const text=String(body?(body.text??body.transcript??(Array.isArray(body.segments)?body.segments.map((s:any)=>s.text).join(' '):'')):raw).trim();
+ if(!text)throw new EmptyTranscript(model);return text;
+}
+// The provider understood the request but heard no speech: in practice, a muted or blocked microphone.
+export class EmptyTranscript extends Error{
+ constructor(readonly model:string){super('Não ouvi nenhuma fala neste áudio. O microfone pode estar mudo, bloqueado no aparelho ou em uso por outro app. Confira e grave de novo, falando perto do aparelho.');}
 }
 // Text to speech. Needs a configured voice model (model or model/voice, as the 9router expects).
 export async function synthesize(c:RouterConfig,text:string){

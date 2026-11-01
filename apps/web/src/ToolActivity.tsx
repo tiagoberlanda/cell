@@ -46,6 +46,60 @@ const computerTools: Record<string, string> = {
   use_app: 'Abrir aplicativo'
 };
 const toolLabel = (tool: string) => computerTools[tool] || tool.replace(/^mcp_[0-9a-f]{32}_/, '');
+// Readable names for the argument and result fields tools use most; anything else is humanized from its key.
+const fieldLabels: Record<string, string> = {
+  reason: 'Motivo', task: 'Tarefa', agentId: 'Agente', agent_id: 'Agente', query: 'Pesquisa', q: 'Pesquisa', url: 'Endereço',
+  path: 'Caminho', paths: 'Caminhos', command: 'Comando', script: 'Script', computer: 'Computador', background: 'Segundo plano',
+  content: 'Conteúdo', title: 'Título', name: 'Nome', description: 'Descrição', instructions: 'Instruções', prompt: 'Prompt',
+  message: 'Mensagem', text: 'Texto', to: 'Para', from: 'De', subject: 'Assunto', body: 'Corpo', newName: 'Novo nome',
+  overwrite: 'Substituir', limit: 'Limite', filename: 'Arquivo', format: 'Formato', model: 'Modelo', schedule: 'Agenda',
+  timezone: 'Fuso horário', moves: 'Movimentos', role: 'Cargo', status: 'Estado', error: 'Erro', result: 'Resultado',
+  output: 'Saída', exitCode: 'Código de saída', id: 'ID', size: 'Tamanho', type: 'Tipo', date: 'Data', when: 'Quando',
+  agents: 'Agentes', results: 'Resultados', items: 'Itens', count: 'Quantidade', files: 'Arquivos', tasks: 'Tarefas'
+};
+const fieldLabel = (key: string) => fieldLabels[key] || key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+const codeFields = new Set(['command', 'script', 'code', 'cron', 'sql']);
+const LIST_LIMIT = 20;
+type NameOf = (agentId: string) => string | undefined;
+
+// Arguments and results as labeled fields instead of raw JSON; past two levels of nesting it falls back to JSON.
+function FieldValue({ name, value, depth, agentName }: { name?: string; value: any; depth: number; agentName?: NameOf }) {
+  if (typeof value === 'boolean') return <span>{value ? 'Sim' : 'Não'}</span>;
+  if (typeof value === 'number') return <span>{value.toLocaleString('pt-BR')}</span>;
+  if (typeof value === 'string') {
+    const agent = name && /^agent_?id$/i.test(name) ? agentName?.(value) : undefined;
+    if (agent) return <span title={value}>{agent}</span>;
+    if ((name && codeFields.has(name)) || value.includes('\n') || value.length > 300) return <pre className={name && codeFields.has(name) ? 'tool-code' : 'tool-text'}>{value}</pre>;
+    return <span>{value}</span>;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return <span className="tool-empty">nenhum</span>;
+    const shown = value.slice(0, LIST_LIMIT);
+    return <ul className="tool-list">
+      {shown.map((v, i) => <li key={i}><FieldValue value={v} depth={depth + 1} agentName={agentName} /></li>)}
+      {value.length > LIST_LIMIT && <li className="tool-empty">… e mais {value.length - LIST_LIMIT}</li>}
+    </ul>;
+  }
+  if (value && typeof value === 'object') {
+    if (depth >= 2) return <pre className="tool-text">{JSON.stringify(value, null, 2)}</pre>;
+    return <ToolFields value={value} depth={depth + 1} agentName={agentName} />;
+  }
+  return <span className="tool-empty">—</span>;
+}
+
+export function ToolFields({ value, depth = 0, agentName }: { value: any; depth?: number; agentName?: NameOf }) {
+  if (typeof value === 'string') return <pre className="tool-text">{value}</pre>;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return <div className="tool-fields"><FieldValue value={value} depth={depth} agentName={agentName} /></div>;
+  const entries = Object.entries(value).filter(([, v]) => v !== null && v !== undefined && v !== '');
+  if (!entries.length) return <span className="tool-empty">sem parâmetros</span>;
+  return <dl className="tool-fields">
+    {entries.map(([k, v]) => <div className="tool-field" key={k}>
+      <dt title={k}>{fieldLabel(k)}</dt>
+      <dd><FieldValue name={k} value={v} depth={depth} agentName={agentName} /></dd>
+    </div>)}
+  </dl>;
+}
+
 const approvalLabel = (status?: string) => status === 'approved' ? 'Aprovado' : status === 'denied' ? 'Negado' : status === 'cancelled' ? 'Cancelado' : status === 'pending' ? 'Aguardando aprovação' : '';
 
 // Plain-language summary of a computer-folder action awaiting approval; null for other tools (shown as raw arguments).
@@ -75,12 +129,14 @@ export function ToolActivityCard({
   calls,
   defaultOpen = false,
   title = 'Ferramentas utilizadas',
-  onUndo
+  onUndo,
+  agentName
 }: {
   calls: ToolCallItem[];
   defaultOpen?: boolean;
   title?: string;
   onUndo?: (callId: string) => Promise<void>;
+  agentName?: NameOf;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   if (!calls || calls.length === 0) return null;
@@ -105,17 +161,11 @@ export function ToolActivityCard({
               </small>
               {c.approval_status && <small className={`tool-status approval-${c.approval_status}`}>Permissão: {approvalLabel(c.approval_status)}</small>}
             </div>
-            {c.args && (
-              <pre className="tool-args">
-                {typeof c.args === 'string' ? c.args : JSON.stringify(c.args, null, 2)}
-              </pre>
-            )}
+            {c.args && <div className="tool-args"><ToolFields value={c.args} agentName={agentName} /></div>}
             {c.result && (
               <details className="tool-result-details">
                 <summary>Ver resultado</summary>
-                <pre className="tool-result">
-                  {typeof c.result === 'string' ? c.result : JSON.stringify(c.result, null, 2)}
-                </pre>
+                <div className="tool-result"><ToolFields value={c.result} agentName={agentName} /></div>
               </details>
             )}
           </div>

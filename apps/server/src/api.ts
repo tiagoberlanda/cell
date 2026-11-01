@@ -153,7 +153,8 @@ export async function buildApp(){
   if(!ext)throw new Error('Formato de áudio não suportado.');
   const mode=(f.fields as any)?.mode?.value==='plan'?'plan':'execute',call=(f.fields as any)?.call?.value==='1';
   const saved=await saveFile(`audio-${new Date().toISOString().slice(0,19).replace(/[-:T]/g,'')}${ext}`,data,cv.agent_id);
-  let transcript:string;try{transcript=await transcribe(await config(),data,mime,'audio'+ext);}catch(e){await deleteFile(saved.id);throw e;}
+  let transcript:string;try{transcript=await transcribe(await config(),data,mime,'audio'+ext);}
+  catch(e:any){req.log.warn({size:data.length,mime,model:e?.model,userAgent:req.headers['user-agent'],error:String(e?.message).slice(0,200)},'audio transcription failed');await deleteFile(saved.id);throw e;}
   const r=await createRun(cv.agent_id,cv.id,transcript,[saved.id],undefined,undefined,undefined,{mode,voice:true,call});
   if(cv.title==='Nova conversa')await query('UPDATE conversations SET title=$2 WHERE id=$1',[cv.id,transcript.slice(0,60)]);
   return {id:r.id,state:r.state,transcript};

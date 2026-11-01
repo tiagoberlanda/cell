@@ -724,6 +724,36 @@ test('texto entre ferramentas fica na conversa e toda ferramenta fica em "Ferram
   await noHorizontalScroll(page);
 });
 
+test('argumentos e resultados das ferramentas aparecem como campos, não JSON', async ({ page }) => {
+  const agents = await (await page.request.get('/api/agents')).json();
+  const revisor = (agents.agents || agents).find((a: any) => a.name === 'Revisor');
+  await page.route(/\/api\/conversations\/[0-9a-f-]{36}(\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch().catch(() => null); if (!res) return; const body = await res.json().catch(() => null); if (!body) return;
+    const at = (s: number) => new Date(Date.now() - 60000 + s * 1000).toISOString();
+    body.runs = [...body.runs, { id: 'run-f', state: 'completed', created_at: at(0), steps: 2, output: 'Relatório pronto.' }];
+    body.calls = [...body.calls,
+      { id: 'f1', call_id: 'f1', run_id: 'run-f', tool: 'list_agents', args: { reason: 'Verificar se existe um agente de infraestrutura na equipe' }, status: 'done', result: { agents: [{ name: 'Revisor', role: 'Revisão' }] }, created_at: at(1) },
+      { id: 'f2', call_id: 'f2', run_id: 'run-f', tool: 'delegate', args: { task: 'Verifique o estado atual do servidor e forneça um relatório resumido.', agentId: revisor.id }, status: 'done', result: 'Servidor estável.', created_at: at(2) }];
+    body.messages = [...body.messages, { id: 'fim-f', role: 'assistant', run_id: 'run-f', content: 'Relatório pronto.', created_at: at(3), attachments: [], files: [] }];
+    return route.fulfill({ response: res, json: body });
+  });
+  await openAgents(page);
+  await page.locator('.agent-row', { hasText: 'Revisor' }).click();
+  const card = page.locator('details.activity-card', { has: page.locator('.tool-item', { hasText: 'delegate' }) });
+  await card.locator('summary').first().click();
+  const args = card.locator('.tool-item', { hasText: 'delegate' }).locator('.tool-args');
+  await expect(args.locator('dt')).toHaveText(['Tarefa', 'Agente']);
+  await expect(args.locator('dd').nth(1)).toHaveText('Revisor');
+  await expect(card.locator('.tool-args', { hasText: '{' })).toHaveCount(0);
+  await expect(card.locator('.tool-item', { hasText: 'list_agents' }).locator('dt').first()).toHaveText('Motivo');
+  await card.locator('.tool-item', { hasText: 'list_agents' }).getByText('Ver resultado').click();
+  await expect(card.locator('.tool-result dt', { hasText: 'Cargo' })).toBeVisible();
+  await card.scrollIntoViewIfNeeded();
+  await card.screenshot({ path: `test-results/ferramentas-campos-${page.viewportSize()!.width}.png` });
+  await noHorizontalScroll(page);
+});
+
 test('cabeçalho no celular: notificações, arquivar e chamada à vista, o resto no menu ⋮', async ({ page }) => {
   test.skip(!mobile(page), 'só no celular');
   const visible = await page.locator('.chat-header .header-actions .icon-btn').evaluateAll(els => els.filter(e => e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden').map(e => e.getAttribute('aria-label')));
@@ -742,7 +772,7 @@ test('modo de aprovação no menu + e botão "Aprovar sempre"', async ({ page })
   await expect(page.getByRole('menuitemradio')).toHaveCount(3);
   await page.screenshot({ path: `test-results/modo-${page.viewportSize()!.width}.png` });
   await page.getByRole('menuitemradio', { name: /Aprovar tudo menos exclusão/ }).click();
-  await expect(page.locator('.composer-note .mode-chip')).toHaveText('Aprova tudo menos exclusão');
+  await expect(page.locator('.composer-note .mode-chip')).toHaveText('Confirma exclusões');
   await page.getByLabel('Anexar ou ensinar tarefa').click();
   await page.getByRole('menuitemradio', { name: /YOLO/ }).click();
   await page.getByRole('button', { name: 'Ativar YOLO' }).click();

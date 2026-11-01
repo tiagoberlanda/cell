@@ -11,7 +11,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - `host.docker.internal` passa a funcionar também no Linux (Docker Engine): `api` e `worker` mapeiam o nome para o computador com `host-gateway`. No Docker Desktop o endereço continua o mesmo.
 
 ### Alterado
+- Em “Ferramentas utilizadas”, parâmetros e resultados aparecem como campos com nomes em português (Motivo, Tarefa, Agente…), listas e comandos em bloco, em vez de JSON puro. O agente delegado aparece pelo nome.
 - O aviso de HTTPS das notificações mostra o domínio público lido do `APP_ORIGIN` (primeiro endereço HTTPS por nome, sem IP nem localhost), em vez de um domínio fixo.
+
+### Corrigido
+- Áudio que só mostrava “Não foi possível entender o áudio”: o provedor devolve texto vazio quando a gravação chega sem som (microfone bloqueado no aparelho, mudo ou em uso por outro app). Agora a barra de gravação mostra o volume do microfone ao vivo, uma gravação totalmente muda não é enviada e o aviso explica o que conferir. Se o provedor não ouvir fala, a mensagem diz isso e o servidor registra tamanho, formato e navegador para diagnóstico.
+- A transcrição também aceita provedores que respondem em texto puro ou em segmentos.
+- Teste de navegador do modo de aprovação atualizado para o rótulo atual (“Confirma exclusões”).
 
 ## [0.30.17] - 2026-10-30
 

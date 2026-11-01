@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import type {AddressInfo} from 'node:net';
-import {completion,type RouterConfig} from '../apps/server/src/router.js';
+import {completion,transcribe,EmptyTranscript,type RouterConfig} from '../apps/server/src/router.js';
 import {stripThinking} from '../packages/shared/src/index.js';
 const chunk=(delta:any,finish:string|null=null,extra:any={})=>`data: ${JSON.stringify({choices:[{index:0,delta,finish_reason:finish}],...extra})}\n\n`;
 async function stream(body:string,onVisible:(t:string)=>Promise<void>=async()=>{}){
@@ -27,4 +27,16 @@ test('filtro de raciocínio cobre variações de modelos',()=>{
  assert.equal(stripThinking('Use a tag <b>negrito</b>'),'Use a tag <b>negrito</b>');
  assert.equal(stripThinking('Resposta parcial <thi',true),'Resposta parcial ');
  assert.equal(stripThinking('a < b',true),'a < b');
+});
+async function transcript(contentType:string,body:string){
+ const server=createServer((req,res)=>{req.resume();req.on('end',()=>{res.writeHead(200,{'Content-Type':contentType});res.end(body);});});
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
+ const c:RouterConfig={baseUrl:`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,token:'t',defaultModel:'m',sttModel:'stt',timezone:'UTC',concurrency:1,maxSteps:1,maxDepth:0};
+ try{return await transcribe(c,Buffer.alloc(2000),'audio/webm','audio.webm');}finally{server.close();}
+}
+test('transcrição aceita JSON, texto puro e segmentos; sem fala vira erro explicativo',async()=>{
+ assert.equal(await transcript('application/json','{"text":" Olá mundo "}'),'Olá mundo');
+ assert.equal(await transcript('text/plain','Olá mundo\n'),'Olá mundo');
+ assert.equal(await transcript('application/json','{"segments":[{"text":"Olá"},{"text":"mundo"}]}'),'Olá mundo');
+ await assert.rejects(transcript('application/json','{"text":""}'),(e:any)=>e instanceof EmptyTranscript&&/microfone/.test(e.message)&&e.model==='stt');
 });

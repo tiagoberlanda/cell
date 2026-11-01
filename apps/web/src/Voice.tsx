@@ -7,12 +7,27 @@ const formats:[string,string][]=[['audio/webm;codecs=opus','webm'],['audio/webm'
 // Best supported recording format as [mimeType, file extension] (empty mimeType: the browser's default).
 export const recordingFormat=():[string,string]=>formats.find(([m])=>MediaRecorder.isTypeSupported(m))||['','webm'];
 export const canRecord=()=>typeof window!=='undefined'&&!!navigator.mediaDevices?.getUserMedia&&typeof MediaRecorder!=='undefined';
-export type Recording={blob:Blob;ext:string};
+// silent: the microphone delivered no sound at all (blocked by the system, muted or taken by another app).
+export type Recording={blob:Blob;ext:string;silent:boolean};
+export const SILENT_MIC_MESSAGE='O microfone não captou nenhum som. Confira se ele está liberado no aparelho (no Android, o atalho “Acesso ao microfone”), se não está mudo e se outro app não o está usando.';
+// Peak sample below this (about −46 dBFS) for the whole recording means silence; quiet speech still peaks well above it.
+const SILENCE_PEAK=0.005;
+// Live input level (0–1) from the microphone stream, sampled ten times a second; also remembers the loudest peak.
+function levelMeter(stream:MediaStream,onLevel:(v:number)=>void){
+ const Ctx=window.AudioContext||(window as any).webkitAudioContext;if(!Ctx)return null;
+ const ctx:AudioContext=new Ctx(),analyser=ctx.createAnalyser();analyser.fftSize=1024;ctx.createMediaStreamSource(stream).connect(analyser);ctx.resume().catch(()=>{});
+ const buf=new Float32Array(analyser.fftSize),meter={peak:0,stop:()=>{clearInterval(timer);ctx.close().catch(()=>{});}};
+ const timer=setInterval(()=>{analyser.getFloatTimeDomainData(buf);let max=0;for(const x of buf)max=Math.max(max,Math.abs(x));meter.peak=Math.max(meter.peak,max);onLevel(Math.min(1,max*3));},100);
+ return meter;
+}
 // Microphone recorder: start, then stop (returns the audio) or cancel. Stops by itself after 5 minutes.
 export function useRecorder(onAutoStop:(r:Recording)=>void){
- const [seconds,setSeconds]=useState(0),[recording,setRecording]=useState(false);
- const rec=useRef<{recorder:MediaRecorder;stream:MediaStream;chunks:Blob[];ext:string;timer:ReturnType<typeof setInterval>;done?:(r:Recording|null)=>void}|null>(null);
- const finish=(keep:boolean)=>new Promise<Recording|null>(resolve=>{const r=rec.current;if(!r)return resolve(null);r.done=resolve;clearInterval(r.timer);r.recorder.onstop=()=>{r.stream.getTracks().forEach(t=>t.stop());const out=keep&&r.chunks.length?{blob:new Blob(r.chunks,{type:r.recorder.mimeType.split(';')[0]}),ext:r.ext}:null;rec.current=null;setRecording(false);setSeconds(0);resolve(out);};if(r.recorder.state!=='inactive')r.recorder.stop();else r.recorder.onstop?.(new Event('stop'));});
+ const [seconds,setSeconds]=useState(0),[recording,setRecording]=useState(false),[level,setLevel]=useState(0);
+ const rec=useRef<{recorder:MediaRecorder;stream:MediaStream;chunks:Blob[];ext:string;timer:ReturnType<typeof setInterval>;meter:ReturnType<typeof levelMeter>;done?:(r:Recording|null)=>void}|null>(null);
+ const finish=(keep:boolean)=>new Promise<Recording|null>(resolve=>{const r=rec.current;if(!r)return resolve(null);r.done=resolve;clearInterval(r.timer);r.recorder.onstop=()=>{r.stream.getTracks().forEach(t=>t.stop());r.meter?.stop();
+  // Without a meter (very old browsers) nothing is known about the level, so the audio is sent as before.
+  const silent=!!r.meter&&r.meter.peak<SILENCE_PEAK;
+  const out=keep&&r.chunks.length?{blob:new Blob(r.chunks,{type:r.recorder.mimeType.split(';')[0]}),ext:r.ext,silent}:null;rec.current=null;setRecording(false);setSeconds(0);setLevel(0);resolve(out);};if(r.recorder.state!=='inactive')r.recorder.stop();else r.recorder.onstop?.(new Event('stop'));});
  const start=async()=>{
   if(!canRecord())throw new Error('Este navegador não permite gravar áudio.');
   if(!window.isSecureContext)throw new Error('Gravar áudio exige HTTPS confiável. Use o domínio público.');
@@ -21,10 +36,11 @@ export function useRecorder(onAutoStop:(r:Recording)=>void){
   const recorder=new MediaRecorder(stream,mimeType?{mimeType}:undefined),chunks:Blob[]=[];
   recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};recorder.start(1000);
   let s=0;const timer=setInterval(()=>{s++;setSeconds(s);if(s>=MAX_SECONDS)finish(true).then(r=>{if(r)onAutoStop(r);});},1000);
-  rec.current={recorder,stream,chunks,ext,timer};setSeconds(0);setRecording(true);
+  let meter:ReturnType<typeof levelMeter>=null;try{meter=levelMeter(stream,setLevel);}catch{}
+  rec.current={recorder,stream,chunks,ext,timer,meter};setSeconds(0);setRecording(true);
  };
- useEffect(()=>()=>{if(rec.current){clearInterval(rec.current.timer);rec.current.stream.getTracks().forEach(t=>t.stop());}},[]);
- return {recording,seconds,start,stop:()=>finish(true),cancel:()=>finish(false).then(()=>undefined)};
+ useEffect(()=>()=>{if(rec.current){clearInterval(rec.current.timer);rec.current.meter?.stop();rec.current.stream.getTracks().forEach(t=>t.stop());}},[]);
+ return {recording,seconds,level,start,stop:()=>finish(true),cancel:()=>finish(false).then(()=>undefined)};
 }
 export const clock=(s:number)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 
