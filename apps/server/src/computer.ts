@@ -33,10 +33,14 @@ export async function listComputers():Promise<Computer[]>{
 }
 
 // --- Cell Host (this computer)
-async function hostCall(path:string,body?:any,timeoutMs=15000){
+async function hostCall(path:string,body?:any,timeoutMs=15000,signal?:AbortSignal){
  const {url,token}=host();let res:Response;
- try{res=await fetch(url+path,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(timeoutMs)});}
- catch{throw new Error('O computador conectado não respondeu. Confira se ele está ligado, com você logado no Windows, e se o Cell Host está rodando (ícone na bandeja).');}
+ const callSignal=signal?AbortSignal.any([AbortSignal.timeout(timeoutMs),signal]):AbortSignal.timeout(timeoutMs);
+ try{res=await fetch(url+path,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:callSignal});}
+ catch(e:any){
+  if(signal?.aborted)throw new Error('Execução cancelada.');
+  throw new Error('O computador conectado não respondeu. Confira se ele está ligado, com você logado no Windows, e se o Cell Host está rodando (ícone na bandeja).');
+ }
  const data=await res.json().catch(()=>({})) as any;
  if(!res.ok)throw new Error(res.status===401?'O Cell Host recusou o token. Rode scripts/host.ps1 de novo e depois o deploy.':`Cell Host: ${data.error||res.status}`);
  return data;
@@ -50,10 +54,13 @@ export type SshTarget={host:string;port:number;username:string;password?:string;
 export const sshFingerprint=(key:Buffer)=>'SHA256:'+createHash('sha256').update(key).digest('base64').replace(/=+$/,'');
 const MAX_OUTPUT=20000;
 // Runs one command. With target.fingerprint set, any other host key is refused (possible impersonation).
-export function sshExec(t:SshTarget,command:string,timeoutMs=60000):Promise<{exitCode:number;stdout:string;stderr:string;timedOut:boolean;truncated:boolean;ms:number;fingerprint:string}>{
+export function sshExec(t:SshTarget,command:string,timeoutMs=60000,signal?:AbortSignal):Promise<{exitCode:number;stdout:string;stderr:string;timedOut:boolean;truncated:boolean;ms:number;fingerprint:string}>{
  return new Promise((resolve,reject)=>{
+  if(signal?.aborted)return reject(new Error('Execução cancelada.'));
   const conn=new Client(),started=Date.now();let fingerprint='',stdout='',stderr='',truncated=false,timedOut=false,settled=false;
-  const done=(fn:()=>void)=>{if(settled)return;settled=true;clearTimeout(timer);conn.end();fn();};
+  const done=(fn:()=>void)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',onAbort);conn.end();fn();};
+  const onAbort=()=>{done(()=>reject(new Error('Execução cancelada.')));};
+  signal?.addEventListener('abort',onAbort);
   const take=(cur:string,chunk:Buffer)=>{const next=cur+chunk.toString('utf8');if(next.length>MAX_OUTPUT){truncated=true;return next.slice(0,MAX_OUTPUT);}return next;};
   const timer=setTimeout(()=>{timedOut=true;done(()=>resolve({exitCode:-1,stdout:stdout.trim(),stderr:stderr.trim(),timedOut,truncated,ms:Date.now()-started,fingerprint}));},timeoutMs);
   conn.on('ready',()=>conn.exec(command,(err,stream)=>{
@@ -120,7 +127,10 @@ export async function computerTools():Promise<Tool[]>{
   {name:'pc_run',app:'computador',write:true,target:'Comando no computador',binding:computersBinding(computers),
    description:'Roda um comando num computador conectado, com o usuário configurado e sem administrador: PowerShell nos computadores Windows, bash nos Linux. Sempre pede aprovação, mostrando o computador e o comando. Prefira comandos curtos e explique o que fazem em reason. A saída volta limitada a 20 mil caracteres.',
    parameters:object({...(many?{computer:which}:{}),command:{type:'string',description:'Script (PowerShell ou bash, conforme o computador)'},cwd:{type:'string',description:'Pasta onde rodar (opcional)'},timeoutSeconds:{type:'number',description:'Limite em segundos (padrão 60, máximo 600)'},background:{type:'boolean',description:'true para tarefas longas (backup, download, compactação): roda em segundo plano, sem limite de tempo; o usuário é avisado quando terminar e você acompanha com pc_job'},reason:{type:'string',description:'O que o comando faz, em uma frase'}},[...(many?['computer']:[]),'command','reason']),
-   execute:async(a,run)=>{const x=z.object({computer:z.string().optional(),command:z.string().trim().min(1).max(20000),cwd:z.string().max(500).optional(),timeoutSeconds:z.number().min(1).max(600).optional(),background:z.boolean().optional(),reason:z.string().max(500).optional()}).parse(a);
+   execute:async(a,run)=>{
+    if(!await commandsSwitchOn())throw new Error('Os comandos no computador foram desativados em Configurações.');
+    if(run?.signal?.aborted)throw new Error('Execução cancelada.');
+    const x=z.object({computer:z.string().optional(),command:z.string().trim().min(1).max(20000),cwd:z.string().max(500).optional(),timeoutSeconds:z.number().min(1).max(600).optional(),background:z.boolean().optional(),reason:z.string().max(500).optional()}).parse(a);
     // Current list, not the one from when the tools were built: a computer removed or re-keyed meanwhile must not run.
     const expected=await pick(computers,x.computer),c=await pick(await listComputers(),x.computer),limit=x.timeoutSeconds||60;let r:any;
     assertComputer(expected,c);
@@ -130,8 +140,8 @@ export async function computerTools():Promise<Tool[]>{
      const jobId=existing?.id||(await one('INSERT INTO computer_jobs(computer_key,computer_name,computer_id,remote_id,call_id,agent_id,conversation_id,command,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[c.key,c.name,c.id,await startJob(c,x.command,x.cwd),run?.callId||null,run?.agent_id||null,run?.conversation_id||null,x.command,x.reason||null])).id;
      return JSON.stringify({computer:c.name,background:true,jobId,note:'Tarefa iniciada em segundo plano. O usuário será avisado quando terminar; acompanhe com pc_job.'});
     }
-    if(c.kind==='local')r=await hostCall('/run',{command:x.command,cwd:x.cwd,timeoutSeconds:limit},(limit+15)*1000);
-    else{const cmd=x.cwd?(c.shell==='bash'?`cd '${x.cwd.replace(/'/g,`'\\''`)}' && ${x.command}`:`Set-Location -LiteralPath '${x.cwd.replace(/'/g,"''")}'; ${x.command}`):x.command;r=await sshExec(sshTarget(c.row),wrap(c.shell,cmd),limit*1000);}
+    if(c.kind==='local')r=await hostCall('/run',{command:x.command,cwd:x.cwd,timeoutSeconds:limit},(limit+15)*1000,run?.signal);
+    else{const cmd=x.cwd?(c.shell==='bash'?`cd '${x.cwd.replace(/'/g,`'\\''`)}' && ${x.command}`:`Set-Location -LiteralPath '${x.cwd.replace(/'/g,"''")}'; ${x.command}`):x.command;r=await sshExec(sshTarget(c.row),wrap(c.shell,cmd),limit*1000,run?.signal);}
     return JSON.stringify({computer:c.name,exitCode:r.exitCode,ok:r.exitCode===0&&!r.timedOut,...(r.timedOut?{note:'Tempo esgotado: o comando foi encerrado.'}:{}),stdout:r.stdout,...(r.stderr?{stderr:r.stderr}:{}),...(r.truncated?{truncated:true}:{}),seconds:Math.round(r.ms/100)/10});}},
  ];
 }
@@ -241,7 +251,9 @@ export async function wake(mac:string,broadcast='255.255.255.255'){
 
 // --- Recipes: saved commands. The owner runs them with one tap; agents use pc_recipe (approval) or, for recipes marked
 // trusted, pc_recipe_trusted (no approval).
-export async function runRecipe(recipe:any,ctx:{agentId?:string|null;callId?:string|null;conversationId?:string|null}={},expectedComputer?:Computer){
+export async function runRecipe(recipe:any,ctx:{agentId?:string|null;callId?:string|null;conversationId?:string|null;signal?:AbortSignal}={},expectedComputer?:Computer){
+ if(!await commandsSwitchOn())throw new Error('Os comandos no computador foram desativados em Configurações.');
+ if(ctx.signal?.aborted)throw new Error('Execução cancelada.');
  const c=await pick(await listComputers(),recipe.computer_key);
  if(expectedComputer)assertComputer(expectedComputer,c);
  await query('UPDATE command_recipes SET last_run_at=now() WHERE id=$1',[recipe.id]);
@@ -250,8 +262,8 @@ export async function runRecipe(recipe:any,ctx:{agentId?:string|null;callId?:str
   return {recipe:recipe.name,computer:c.name,background:true,jobId:job.id};
  }
  let r:any;
- if(c.kind==='local')r=await hostCall('/run',{command:recipe.command,cwd:recipe.cwd||undefined,timeoutSeconds:600},615000);
- else{const cmd=recipe.cwd?(c.shell==='bash'?`cd ${sq(recipe.cwd)} && ${recipe.command}`:`Set-Location -LiteralPath '${String(recipe.cwd).replace(/'/g,"''")}'; ${recipe.command}`):recipe.command;r=await sshExec(sshTarget(c.row),wrap(c.shell,cmd),600000);}
+ if(c.kind==='local')r=await hostCall('/run',{command:recipe.command,cwd:recipe.cwd||undefined,timeoutSeconds:600},615000,ctx.signal);
+ else{const cmd=recipe.cwd?(c.shell==='bash'?`cd ${sq(recipe.cwd)} && ${recipe.command}`:`Set-Location -LiteralPath '${String(recipe.cwd).replace(/'/g,"''")}'; ${recipe.command}`):recipe.command;r=await sshExec(sshTarget(c.row),wrap(c.shell,cmd),600000,ctx.signal);}
  return {recipe:recipe.name,computer:c.name,exitCode:r.exitCode,ok:r.exitCode===0&&!r.timedOut,stdout:r.stdout,...(r.stderr?{stderr:r.stderr}:{}),...(r.truncated?{truncated:true}:{})};
 }
 export async function recipeTools(computers?:Computer[]):Promise<Tool[]>{
@@ -266,6 +278,6 @@ export async function recipeTools(computers?:Computer[]):Promise<Tool[]>{
    execute:async(a,run)=>{const x=z.object({name:z.string()}).parse(a);const rec=list.find(r=>r.name===x.name);if(!rec)throw new Error('Receita não encontrada.');
     // Current row: a recipe edited or un-trusted after the tools were built must not run on the old terms.
     const current=await one('SELECT * FROM command_recipes WHERE id=$1',[rec.id]);if(!current||recipeVersion(current)!==recipeVersion(rec))throw new Error('A receita mudou. Peça de novo.');
-    return JSON.stringify(await runRecipe(current,{agentId:run?.agent_id,callId:run?.callId,conversationId:run?.conversation_id},await pick(destinations,rec.computer_key)));}};};
+    return JSON.stringify(await runRecipe(current,{agentId:run?.agent_id,callId:run?.callId,conversationId:run?.conversation_id,signal:run?.signal},await pick(destinations,rec.computer_key)));}};};
  return [make(false),make(true)].filter(Boolean) as Tool[];
 }

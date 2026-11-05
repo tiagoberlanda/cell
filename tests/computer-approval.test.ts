@@ -14,26 +14,22 @@ test('computer approval policy and immutable destinations',async t=>{
  const db=mock.method(pool,'query',async(sql:any)=>({rows:String(sql).includes('FROM agents')?[structuredClone(agent)]:String(sql).includes('FROM computers')?structuredClone(computers):String(sql).includes('FROM command_recipes')?structuredClone(recipes):[]}));
  const tool=async(name:string)=>(await computerTools()).find(x=>x.name===name)!;
  try{
-  await t.test('safe mode auto-approves non-deletion commands, including screenshots and voice queries',async()=>{
+  await t.test('safe mode always requires approval for shell commands, recipes and access grants',async()=>{
    const screenshot='Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height; $graphics = [System.Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size); $bitmap.Save("C:\\Temp\\screenshot.png"); $graphics.Dispose(); $bitmap.Dispose()';
-   for(const command of ['Get-Date','Get-Command ffmpeg','Get-ChildItem C:\\Temp',screenshot,'Add-Type -AssemblyName System.Speech; $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer; $voice.GetInstalledVoices() | Select-Object VoiceInfo'])assert.equal(await autoApproval('a',{tool:'pc_run',args:{command}}),'mode',command);
-   assert.equal(await autoApproval('a',{tool:'calendar_create',args:{}}),'mode');
+   for(const command of ['Get-Date','Get-Command ffmpeg','Get-ChildItem C:\\Temp',screenshot,'echo hello','Remove-Item data','rm -rf data'])assert.equal(await autoApproval('a',{tool:'pc_run',args:{command}}),null,command);
+   assert.equal(await autoApproval('a',{tool:'pc_recipe',args:{name:'Backup'}}),null);
+   assert.equal(await autoApproval('a',{tool:'pc_request_access',args:{path:'C:\\Data'}}),null);
+   assert.equal(await autoApproval('a',{tool:'pc_write',args:{},target:'Pastas do computador'}),null);
+   assert.equal(await autoApproval('a',{tool:'pc_delete',args:{},target:'Pastas do computador'}),null);
   });
-  await t.test('safe mode asks for common shell, PowerShell, .NET and SQL deletions',async()=>{
-   for(const command of ['Remove-Item -Recurse C:\\data','powershell -Command "Remove-Item data"','ri -Recurse C:\\data','clc data.txt','Clear-Content data.txt','rm -rf data','[System.IO.File]::Delete("data")','[IO.Directory] :: Delete ("data", $true)','python -c "import os; os.unlink(\'data\')"','DELETE FROM records','DELETE r FROM records r','DROP TABLE records','TRUNCATE TABLE records'])assert.equal(await autoApproval('a',{tool:'pc_run',args:{command}}),null,command);
-   for(const tool of ['pc_delete','calendar_delete','files_trash'])assert.equal(await autoApproval('a',{tool,args:{}}),null,tool);
-  });
-  await t.test('recipes use their current command and missing recipes require approval',async()=>{
-   assert.equal(await autoApproval('a',{tool:'pc_recipe',args:{name:'Backup'}}),'mode');
-   const original=structuredClone(recipes);
-   for(const command of ['ri data','[System.IO.Directory]::Delete("data")','DELETE FROM records']){
-    recipes[0].command=command;
-    assert.equal(await autoApproval('a',{tool:'pc_recipe',args:{name:'Backup'}}),null,command);
-   }
-   recipes=[];assert.equal(await autoApproval('a',{tool:'pc_recipe',args:{name:'Missing'}}),null);recipes=original;
+  await t.test('safe mode auto-approves only explicit allowlist capabilities',async()=>{
+   assert.equal(await autoApproval('a',{tool:'write_shared_memory',args:{}}),'mode');
+   assert.equal(await autoApproval('a',{tool:'gtasks_create_task',args:{}}),'mode');
+   assert.equal(await autoApproval('a',{tool:'gtasks_complete_task',args:{}}),'mode');
+   assert.equal(await autoApproval('a',{tool:'gtasks_delete_task',args:{}}),null);
   });
   await t.test('policy re-reads the current mode and explicit overrides retain precedence',async()=>{
-   const call={tool:'pc_run',args:{command:'Get-Date'}};
+   const call={tool:'write_shared_memory',args:{}};
    agent.approval_mode='ask';assert.equal(await autoApproval('a',call),null);
    agent.approval_mode='safe';assert.equal(await autoApproval('a',call),'mode');
    agent.approval_mode='ask';assert.equal(await autoApproval('a',call),null);

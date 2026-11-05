@@ -16,7 +16,7 @@ import { agentInput,messageInput,settingsInput,routineInput } from '../../../pac
 import { pool,one,query,event,transaction,ensureSection } from './db.js';
 import { key,hash,safeEqual,encrypt,decrypt,validateEndpoint,safeError } from './security.js';
 import { estimateTokens } from './context.js';
-import { approvalToken } from './push.js';
+import { approvalToken,vapidKeys } from './push.js';
 import { hostConfigured,commandsSwitchOn,hostStatus,computersStatus,sshInput,sshAuth,sshStatus,jobState,cancelJob,openAlerts,alertSettings,alertSettingsInput,macInput,wake,runRecipe,listComputers } from './computer.js';
 import { publicConfig,saveConfig,models,imageModels,audioModels,transcribe,synthesize,probeModel,config,routerRequest } from './router.js';
 import { migrate } from './migrate.js';
@@ -38,17 +38,54 @@ export async function buildApp(){
  const secureCookie=process.env.COOKIE_SECURE!=='false',sessionCookie=secureCookie?'__Host-cell_session':'cell_session';
  // Unknown users still pay for an argon2 verify, so response time does not reveal which usernames exist.
  const dummyHash=await argon2.hash(randomBytes(16).toString('hex'));
- const app=Fastify({logger:{level:'info',redact:['req.headers.authorization','req.headers.cookie','res.headers.set-cookie']},bodyLimit:1024*1024});
+ const app=Fastify({
+  logger:{
+   level:'info',
+   redact:['req.headers.authorization','req.headers.cookie','res.headers.set-cookie'],
+   serializers:{
+    req(req:any){
+     return {
+      method:req.method,
+      url:typeof req.url==='string'?req.url.replace(/([?&](?:code|state)=)[^&]+/gi,'$1[redacted]'):req.url,
+      path:req.routerPath,
+      parameters:req.params,
+      headers:req.headers
+     };
+    }
+   }
+  },
+  bodyLimit:1024*1024
+ });
  await app.register(cookie);await app.register(multipart,{limits:{fileSize:25*1024*1024,files:1}});// Signed-in use (live updates, activity center) needs headroom; anonymous traffic gets a tight cap. Login has its own limit.
- await app.register(rateLimit,{max:(req:any)=>req.cookies?.[sessionCookie]?1200:120,timeWindow:'1 minute',keyGenerator:clientIp});
+ const resolveSession=async(req:any)=>{
+  if(req._sessionResolved!==undefined)return req.session;
+  req._sessionResolved=true;
+  const token=req.cookies?.[sessionCookie];
+  if(!token){req.session=null;return null;}
+  const s=await one('SELECT s.*,u.username FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND expires_at>now()',[hash(token)]);
+  req.session=s||null;
+  return req.session;
+ };
+ await app.register(rateLimit,{
+  max:async(req:any)=>(await resolveSession(req))?1200:120,
+  timeWindow:'1 minute',
+  keyGenerator:async(req:any)=>{
+   const ip=clientIp(req);
+   const s=await resolveSession(req);
+   return s?.user_id?`${ip}:user:${s.user_id}`:ip;
+  }
+ });
  const id=(req:any)=>z.string().uuid().parse(req.params.id);
  app.setErrorHandler((err:any,req,reply)=>{const status=err instanceof ZodError?400:err.statusCode||400,sql=typeof err.code==='string'&&/^[0-9A-Z]{5}$/.test(err.code);if(sql||status>=500)req.log.error({err},'falha na requisição');reply.code(status>=500?500:status).send({error:err instanceof ZodError?'Dados inválidos: '+err.issues.map((x:any)=>x.path.join('.')+': '+x.message).join('; '):sql?(err.code.startsWith('23')?'Operação incompatível com os dados existentes.':'Operação inválida.'):status>=500?'Falha interna. Tente novamente.':safeError(err)});});
  app.addHook('onRequest',async(req,reply)=>{
   reply.header('X-Content-Type-Options','nosniff').header('Referrer-Policy','same-origin').header('Cache-Control','no-store');
   // OAuth callbacks are protected by their random state; the provider may return to a host where this browser has no session.
-  if(req.url==='/api/health'||req.url==='/api/login'||req.url.startsWith('/api/connections/oauth/callback')||/^\/api\/approvals\/[0-9a-f-]{36}\/quick$/.test(req.url))return;
-  const token=req.cookies[sessionCookie];if(!token)return reply.code(401).send({error:'Faça login.'});
-  const session=await one('SELECT s.*,u.username FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND expires_at>now()',[hash(token)]);if(!session)return reply.code(401).send({error:'Sessão expirada.'});(req as any).session=session;
+  if(req.url==='/api/health'||req.url==='/api/login'||req.url.startsWith('/api/connections/oauth/callback')||/^\/api\/connections\/[0-9a-f-]{36}\/oauth\/callback(\?.*)?$/.test(req.url)||/^\/api\/approvals\/[0-9a-f-]{36}\/quick$/.test(req.url))return;
+  const session=await resolveSession(req);
+  if(!session){
+   const token=req.cookies?.[sessionCookie];
+   return reply.code(401).send({error:token?'Sessão expirada.':'Faça login.'});
+  }
   if(!['GET','HEAD','OPTIONS'].includes(req.method)){
    if(!safeEqual(String(req.headers['x-csrf-token']||''),session.csrf))return reply.code(403).send({error:'Validação CSRF inválida.'});
    if(req.headers.origin&&!allowedOrigin(req.headers.origin))return reply.code(403).send({error:'Origem não permitida.'});
@@ -123,7 +160,7 @@ export async function buildApp(){
  app.delete('/api/agents/:id',async req=>{await deleteAgent(id(req));return {ok:true};});
  // Sections group agents in the sidebar; order and membership are saved together by PUT /api/layout.
  const sectionName=z.string().trim().min(1).max(60);
- app.get('/api/sections',async()=>{await query('INSERT INTO sections(name,position) SELECT DISTINCT section,(SELECT COALESCE(max(position),0)+1 FROM sections) FROM agents ON CONFLICT(name) DO NOTHING');return query('SELECT name FROM sections ORDER BY position,name');});
+ app.get('/api/sections',async()=>query('SELECT name FROM sections ORDER BY position,name'));
  app.post('/api/sections',async req=>{const name=sectionName.parse((req.body as any)?.name);if(await one('SELECT 1 FROM sections WHERE lower(name)=lower($1)',[name]))throw new Error('Já existe uma seção com esse nome.');await ensureSection(name);await event('agent',{section:name});return {name};});
  app.put('/api/sections/:name',async req=>{const from=sectionName.parse((req.params as any).name),to=sectionName.parse((req.body as any)?.name);if(from!==to&&await one('SELECT 1 FROM sections WHERE lower(name)=lower($1) AND name<>$2',[to,from]))throw new Error('Já existe uma seção com esse nome.');await transaction(async c=>{await c.query('UPDATE sections SET name=$2 WHERE name=$1',[from,to]);await c.query('UPDATE agents SET section=$2 WHERE section=$1',[from,to]);});await event('agent',{section:to});return {name:to};});
  app.delete('/api/sections/:name',async req=>{const name=sectionName.parse((req.params as any).name);if(await one('SELECT 1 FROM agents WHERE section=$1',[name]))throw new Error('Mova ou exclua os agentes desta seção antes de removê-la.');await query('DELETE FROM sections WHERE name=$1',[name]);await event('agent',{section:name});return {ok:true};});
@@ -143,7 +180,8 @@ export async function buildApp(){
  app.get('/api/conversations/:id/context',async req=>{const max=(await config()).contextTokens||16000;const run=await one('SELECT context,updated_at FROM runs WHERE conversation_id=$1 AND context_ready ORDER BY created_at DESC LIMIT 1',[id(req)]);return {max,used:run?estimateTokens(run.context):null,at:run?.updated_at||null};});
  app.get('/api/conversations/:id/delegations',async req=>{const conversationId=id(req);if(!await one('SELECT id FROM conversations WHERE id=$1',[conversationId]))throw new Error('Conversa não encontrada.');return query(`SELECT c.id AS conversation_id,c.title,c.delegation_task,c.created_at,a.id AS agent_id,a.name AS agent_name,a.color,a.shape,r.id AS run_id,r.state,r.error,r.output FROM conversations c JOIN agents a ON a.id=c.agent_id LEFT JOIN LATERAL(SELECT id,state,error,output FROM runs WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1)r ON true WHERE c.parent_conversation_id=$1 ORDER BY c.created_at DESC`,[conversationId]);});
 
- app.get('/api/conversations/:id',async req=>{if((req.query as any).seen!=='0')await query('UPDATE conversations SET seen_at=now() WHERE id=$1',[id(req)]);return {conversation:await one('SELECT * FROM conversations WHERE id=$1',[id(req)]),messages:await query("SELECT m.*,(SELECT COALESCE(json_agg(json_build_object('id',f.id,'name',f.name,'mime',f.mime)),'[]') FROM files f WHERE f.id::text IN(SELECT jsonb_array_elements_text(m.files))) AS attachments FROM messages m WHERE conversation_id=$1 ORDER BY created_at,id",[id(req)]),routines:await query('SELECT id,name,kind,schedule,timezone,enabled,next_at,last_at,created_at FROM routines WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),runs:await query('SELECT id,agent_id,conversation_id,parent_id,state,mode,model,steps,error,output,partial_output,usage,documents,created_at,updated_at FROM runs WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),calls:await query("SELECT t.*,r.id AS run_id,r.parent_id,child.conversation_id AS child_conversation_id,child.agent_id AS child_agent_id,child.title AS child_title,child.agent_name AS child_agent_name,a.id AS approval_id,a.status AS approval_status,a.auto AS approval_auto,f.id IS NOT NULL AS undoable,f.undone_at FROM tool_calls t LEFT JOIN file_ops f ON f.call_id=t.id JOIN runs r ON r.id=t.run_id LEFT JOIN LATERAL(SELECT cr.conversation_id,cr.agent_id,cv.title,ag.name AS agent_name FROM runs cr JOIN conversations cv ON cv.id=cr.conversation_id JOIN agents ag ON ag.id=cr.agent_id WHERE cr.source_call_id=t.id ORDER BY cr.created_at LIMIT 1)child ON true LEFT JOIN approvals a ON a.call_id=t.id WHERE r.conversation_id=$1 ORDER BY t.created_at",[id(req)])};});
+ app.get('/api/conversations/:id',async req=>({conversation:await one('SELECT * FROM conversations WHERE id=$1',[id(req)]),messages:await query("SELECT m.*,(SELECT COALESCE(json_agg(json_build_object('id',f.id,'name',f.name,'mime',f.mime)),'[]') FROM files f WHERE f.id::text IN(SELECT jsonb_array_elements_text(m.files))) AS attachments FROM messages m WHERE conversation_id=$1 ORDER BY created_at,id",[id(req)]),routines:await query('SELECT id,name,kind,schedule,timezone,enabled,next_at,last_at,created_at FROM routines WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),runs:await query('SELECT id,agent_id,conversation_id,parent_id,state,mode,model,steps,error,output,partial_output,usage,documents,created_at,updated_at FROM runs WHERE conversation_id=$1 ORDER BY created_at',[id(req)]),calls:await query("SELECT t.*,r.id AS run_id,r.parent_id,child.conversation_id AS child_conversation_id,child.agent_id AS child_agent_id,child.title AS child_title,child.agent_name AS child_agent_name,a.id AS approval_id,a.status AS approval_status,a.auto AS approval_auto,f.id IS NOT NULL AS undoable,f.undone_at FROM tool_calls t LEFT JOIN file_ops f ON f.call_id=t.id JOIN runs r ON r.id=t.run_id LEFT JOIN LATERAL(SELECT cr.conversation_id,cr.agent_id,cv.title,ag.name AS agent_name FROM runs cr JOIN conversations cv ON cv.id=cr.conversation_id JOIN agents ag ON ag.id=cr.agent_id WHERE cr.source_call_id=t.id ORDER BY cr.created_at LIMIT 1)child ON true LEFT JOIN approvals a ON a.call_id=t.id WHERE r.conversation_id=$1 ORDER BY t.created_at",[id(req)])}));
+ app.post('/api/conversations/:id/seen',async req=>{await query('UPDATE conversations SET seen_at=now() WHERE id=$1',[id(req)]);return {ok:true};});
  app.post('/api/conversations/:id/messages',async req=>{const input=messageInput.parse(req.body);const cv=await one('SELECT * FROM conversations WHERE id=$1',[id(req)]);if(!cv)throw new Error('Conversa não encontrada.');if(cv.archived_at)throw new Error('Conversa arquivada. Restaure-a para continuar.');const r=await createRun(cv.agent_id,cv.id,input.content,input.files,undefined,undefined,undefined,{mode:input.mode});if(cv.title==='Nova conversa')await query('UPDATE conversations SET title=$2 WHERE id=$1',[cv.id,input.content.slice(0,60)]);return {id:r.id,state:r.state};});
  // Voice message: store the recording, transcribe it and send the transcript as the message (the audio stays attached).
  app.post('/api/conversations/:id/audio',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async req=>{
@@ -260,7 +298,18 @@ export async function buildApp(){
    status=CASE WHEN url IS DISTINCT FROM $3 THEN 'disconnected' ELSE status END
    WHERE id=$1 RETURNING id`,[id(req),d.name,validateEndpoint(d.url),d.headers?encrypt(d.headers):null,JSON.stringify(d.readTools)]);if(!updated)throw Object.assign(new Error('Conexão não encontrada.'),{statusCode:404});return {ok:true};});
  app.post('/api/connections/:id/test',async req=>{const c=await one('SELECT * FROM connections WHERE id=$1',[id(req)]);if(!c)throw new Error('Conexão não encontrada.');try{return {tools:await discover(c)};}catch{await query("UPDATE connections SET status='error' WHERE id=$1 AND url=$2",[c.id,c.url]);const updated=await one('SELECT oauth FROM connections WHERE id=$1',[c.id]);return {error:'Conexão indisponível ou autenticação necessária.',authorizationUrl:updated?.oauth?decrypt<any>(updated.oauth).authorizationUrl:null};}});
- app.get('/api/connections/:id/oauth/callback',async(req,reply)=>{const input=z.object({code:z.string(),state:z.string()}).parse(req.query);const c=await one('SELECT * FROM connections WHERE id=$1',[id(req)]);const o=c?.oauth?decrypt<any>(c.oauth):null;if(!o?.state||!safeEqual(o.state,input.state))throw new Error('Estado OAuth inválido.');await finishOAuth(c,input.code);await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));reply.redirect('/');});
+ app.get('/api/connections/:id/oauth/callback',async(req,reply)=>{
+  const input=z.object({code:z.string(),state:z.string()}).parse(req.query);
+  const c=await one('SELECT * FROM connections WHERE id=$1',[id(req)]);
+  const o=c?.oauth?decrypt<any>(c.oauth):null;
+  if(!o?.state||!safeEqual(o.state,input.state))throw new Error('Estado OAuth inválido.');
+  if(o.state_expires_at&&Date.now()>o.state_expires_at)throw new Error('Estado OAuth expirado.');
+  delete o.state;delete o.state_expires_at;
+  await query('UPDATE connections SET oauth=$1 WHERE id=$2 AND url=$3',[encrypt(o),c.id,c.url]);
+  await finishOAuth(c,input.code);
+  await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));
+  reply.redirect('/');
+ });
  app.delete('/api/connections/:id',async req=>{await query('DELETE FROM connections WHERE id=$1',[id(req)]);return {ok:true};});
  app.get('/api/tools',async()=>{const tools:any[]=nativeToolNames.map(name=>({name,label:name,read:true}));for(const c of await query('SELECT * FROM connections'))for(const t of c.tools)tools.push({name:c.kind==='native'?t.name:mcpToolName(c.id,t.name),label:`${c.name}: ${t.name}`,read:c.read_tools.includes(t.name),allAgents:c.all_agents});return tools;});
  app.get('/api/usage',async()=>({runs:await query('SELECT state,count(*)::int AS count FROM runs GROUP BY state'),models:await query("SELECT model,sum(COALESCE((usage->>'prompt_tokens')::bigint,0)) AS input_tokens,sum(COALESCE((usage->>'completion_tokens')::bigint,0)) AS output_tokens FROM runs GROUP BY model")}));
@@ -272,5 +321,5 @@ export async function buildApp(){
  registerInsights(app);registerPush(app);registerConnectors(app);
  return app;
 }
-export async function seed(){if(await one('SELECT id FROM agents LIMIT 1'))return;const templates=[['Coordenador','Organiza o trabalho da equipe','#f1f0e9','animal',true],['Pesquisador','Investiga e verifica fontes','#18b99c','euglena',false],['Redator','Transforma ideias em textos','#fcad24','paramecio',false],['Revisor','Revisa qualidade e precisão','#9b6bff','vegetal',false]];await ensureSection('Equipe');for(const [name,role,color,shape,pinned] of templates)await query('INSERT INTO agents(name,role,color,shape,pinned,tools,instructions,is_master) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[name,role,color,shape,pinned,JSON.stringify(nativeToolNames),`Você é ${name}. ${role}. Trabalhe com clareza, confirme fatos e entregue resultados verificáveis.`,name==='Coordenador']);}
+export async function seed(){await vapidKeys().catch(()=>{});if(await one('SELECT id FROM agents LIMIT 1'))return;const templates=[['Coordenador','Organiza o trabalho da equipe','#f1f0e9','animal',true],['Pesquisador','Investiga e verifica fontes','#18b99c','euglena',false],['Redator','Transforma ideias em textos','#fcad24','paramecio',false],['Revisor','Revisa qualidade e precisão','#9b6bff','vegetal',false]];await ensureSection('Equipe');for(const [name,role,color,shape,pinned] of templates)await query('INSERT INTO agents(name,role,color,shape,pinned,tools,instructions,is_master) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[name,role,color,shape,pinned,JSON.stringify(nativeToolNames),`Você é ${name}. ${role}. Trabalhe com clareza, confirme fatos e entregue resultados verificáveis.`,name==='Coordenador']);}
 if(process.argv[1]?.endsWith('api.ts')){await migrate();await startQueue();await seed();const app=await buildApp();await app.listen({host:'0.0.0.0',port:Number(process.env.PORT||3001)});for(const s of ['SIGTERM','SIGINT'])process.on(s,async()=>{await app.close();await boss.stop();await pool.end();process.exit(0);});}

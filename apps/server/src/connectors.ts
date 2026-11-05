@@ -85,7 +85,7 @@ export function googleTasksTools(c:any):Tool[]{
 const pkce=()=>{const verifier=randomBytes(48).toString('base64url');return {verifier,challenge:createHash('sha256').update(verifier).digest('base64url')};};
 async function startNativeGoogle(c:any,entry:CatalogEntry){
  const client=await googleClient();if(!client)throw new Error('Configure o Google antes de conectar.');
- const {verifier,challenge}=pkce(),oauth={fixedRedirect:true,state:newState(c.id),verifier};await saveOAuth(c.id,oauth);
+ const {verifier,challenge}=pkce(),oauth={fixedRedirect:true,state:newState(c.id),state_expires_at:Date.now()+15*60*1000,verifier};await saveOAuth(c.id,oauth);
  const url=new URL(google().authorize);for(const [k,v] of Object.entries({client_id:client.client_id,redirect_uri:fixedCallback(),response_type:'code',scope:entry.scopes!.join(' '),access_type:'offline',prompt:'consent',include_granted_scopes:'true',state:oauth.state,code_challenge:challenge,code_challenge_method:'S256'}))url.searchParams.set(k,v);
  return url.toString();
 }
@@ -119,7 +119,7 @@ export function registerConnectors(app:FastifyInstance){
   if(!c)c=await one("INSERT INTO connections(name,url,catalog_key,all_agents,kind,read_tools) VALUES($1,$2,$3,true,$4,'[]') RETURNING *",[entry.name,native?google().tasks:urlOf(entry),entry.key,native?'native':'mcp']);
   await query("UPDATE connections SET status='connecting' WHERE id=$1",[c.id]);
   if(native)return {authorizationUrl:await startNativeGoogle(c,entry)};
-  const oauth:any={fixedRedirect:true,state:newState(c.id),...(entry.loopback?{loopback:true}:{})};
+  const oauth:any={fixedRedirect:true,state:newState(c.id),state_expires_at:Date.now()+15*60*1000,...(entry.loopback?{loopback:true}:{})};
   if(entry.auth==='google'){const g=(await googleClient())!;oauth.client={client_id:g.client_id,client_secret:g.client_secret,redirect_uris:[fixedCallback()],token_endpoint_auth_method:'client_secret_post'};oauth.staticClient=true;oauth.scope=entry.scopes!.join(' ');}
   await saveOAuth(c.id,oauth);
   // Catalog apps always authorize first (fresh state each click); tools are listed only with a token.
@@ -135,6 +135,8 @@ export function registerConnectors(app:FastifyInstance){
  const completeCallback=async(state:string,code:string):Promise<{key?:string;error?:string}>=>{
  const c=await one('SELECT * FROM connections WHERE id=$1',[state.split('.')[0]]);const oauth=c?.oauth?decrypt<any>(c.oauth):null;
  if(!oauth?.state||!safeEqual(oauth.state,state))return {error:'Autorização expirada. Tente conectar de novo.'};
+ if(oauth.state_expires_at&&Date.now()>oauth.state_expires_at)return {error:'Autorização expirada. Tente conectar de novo.'};
+ delete oauth.state;delete oauth.state_expires_at;await saveOAuth(c.id,oauth);
  try{
   if(c.kind==='native')await finishNativeGoogle(c,oauth,code);
   else{await finishOAuth(c,code);await discover(await one('SELECT * FROM connections WHERE id=$1',[c.id]));}

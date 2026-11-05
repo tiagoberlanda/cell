@@ -17,6 +17,11 @@ test('IP real do cliente atrás do Caddy e do Cloudflare',()=>{const req=(h:Reco
  assert.equal(clientIp(req({'x-forwarded-for':'172.18.0.1','cf-connecting-ip':'198.51.100.7'})),'198.51.100.7','túnel local: usa CF-Connecting-IP');
  assert.equal(clientIp(req({'x-forwarded-for':'203.0.113.9','cf-connecting-ip':'1.1.1.1'})),'203.0.113.9','cliente público não falsifica CF-Connecting-IP');
  assert.equal(clientIp(req({})),'172.20.0.5');});
+test('peer direto não confiável ignora X-Forwarded-For e CF-Connecting-IP',()=>{
+ const untrusted=(h:Record<string,string>)=>({headers:h,ip:'203.0.113.100'});
+ assert.equal(clientIp(untrusted({'x-forwarded-for':'1.2.3.4'})),'203.0.113.100','peer público ignora X-Forwarded-For');
+ assert.equal(clientIp(untrusted({'x-forwarded-for':'1.2.3.4','cf-connecting-ip':'5.6.7.8'})),'203.0.113.100','peer público ignora CF-Connecting-IP');
+});
 test('CF-Connecting-IP só vale vindo do proxy autorizado',()=>{const req=(h:Record<string,string>)=>({headers:h,ip:'172.20.0.5'});const gw={'x-forwarded-for':'172.25.0.1','cf-connecting-ip':'198.51.100.7'};
  try{process.env.CELL_PROXY_SECRET='segredo-do-tunel';
   assert.equal(clientIp(req(gw)),'172.25.0.1','sem o segredo, o cabeçalho é ignorado');

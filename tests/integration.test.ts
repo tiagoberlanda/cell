@@ -387,7 +387,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   await request('POST',`/routines/${out.id}/enabled`,{enabled:true});
   await query("UPDATE routines SET next_at=now()-interval '1 second' WHERE id=$1",[out.id]);
   await poll(await routineRun(out.id),'completed');
-  const msgs=(await request('GET','/conversations/'+cv.id)).messages;
+  const msgs=(await request('GET','/conversations/'+cv.id)).messages;await request('POST','/conversations/'+cv.id+'/seen');
   assert.match(msgs.find((m:any)=>m.role==='user').content,/^\[Rotina agendada: Bom dia\] Pergunte/);assert.ok(msgs.some((m:any)=>m.role==='assistant'),'resposta na mesma conversa');
   assert.equal((await one('SELECT enabled FROM routines WHERE id=$1',[out.id])).enabled,false,'rotina única se desativa depois de rodar');
   const past=JSON.parse(await propose.execute({name:'Vencida',prompt:'x',kind:'once',schedule:new Date(Date.now()-3600e3).toISOString()},{agent_id:agent.id,conversation_id:cv.id},await config()));
@@ -408,7 +408,7 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   assert.equal(shown.title,agent.name);assert.match(shown.body,/Resultado concluído/);assert.equal(shown.url,`/?agent=${agent.id}&conversation=${cv.id}`);assert.equal(shown.tag,`conv-${cv.id}`);
   for(let i=0;i<20&&(await query("SELECT id FROM push_subscriptions WHERE endpoint LIKE '%/push/gone'")).length;i++)await sleep(200);
   assert.equal((await query("SELECT id FROM push_subscriptions WHERE endpoint LIKE '%/push/gone'")).length,0,'assinatura expirada removida');
-  pushes.length=0;const r2=await request('POST',`/conversations/${cv.id}/messages`,{content:'Segunda mensagem'});await poll(r2.id,'completed');await request('GET','/conversations/'+cv.id);
+  pushes.length=0;const r2=await request('POST',`/conversations/${cv.id}/messages`,{content:'Segunda mensagem'});await poll(r2.id,'completed');await request('POST','/conversations/'+cv.id+'/seen');
   await sleep(2000);assert.equal(pushes.length,0,'conversa aberta não notifica');
   assert.equal((await request('POST','/push/test')).sent,1);
   await request('POST','/push/unsubscribe',{endpoint:base+'/push/phone'});assert.equal((await request('GET','/push')).devices.length,0);
@@ -645,10 +645,11 @@ test('API, worker, 9router e MCP integrados', {skip:!process.env.TEST_DATABASE_U
   // Denied commands never reach the computer.
   const r2=await task('RUN_CMD');await poll(r2.id,'waiting_approval');const ap2=await one("SELECT a.id FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[r2.id]);
   const runsBefore=hostRuns.length;await request('POST','/approvals/'+ap2.id,{decision:'denied'});await poll(r2.id,'completed');assert.equal(hostRuns.length,runsBefore);
-  // Safe mode auto-approves non-deletion commands; detected deletions still wait. Explicit yolo/always win.
+  // Safe mode requires approval for shell commands and computer operations; explicit yolo/always win.
   const approvalOf=async(runId:string)=>one("SELECT a.id,a.status,a.auto FROM approvals a JOIN tool_calls t ON t.id=a.call_id WHERE t.run_id=$1",[runId]);
   await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'safe'});
-  const s1=await task('RUN_CMD');await poll(s1.id,'completed');assert.equal((await approvalOf(s1.id)).status,'approved');assert.equal((await approvalOf(s1.id)).auto,'mode');assert.equal(hostRuns.at(-1).command,'Get-Date');
+  const s1=await task('RUN_CMD');await poll(s1.id,'waiting_approval');assert.equal((await approvalOf(s1.id)).status,'pending','safe mode pede aprovacao para pc_run');
+  await request('POST','/approvals/'+(await approvalOf(s1.id)).id,{decision:'approved'});await poll(s1.id,'completed');assert.equal(hostRuns.at(-1).command,'Get-Date');
   const s2=await task('RUN_RM');await poll(s2.id,'waiting_approval');assert.equal((await approvalOf(s2.id)).status,'pending','exclusão continua pedindo aprovação');
   await request('POST','/approvals/'+(await approvalOf(s2.id)).id,{decision:'denied'});await poll(s2.id,'completed');
   await request('PUT',`/agents/${agent.id}/approval-mode`,{mode:'yolo'});

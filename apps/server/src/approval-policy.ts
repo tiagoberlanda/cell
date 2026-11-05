@@ -13,13 +13,21 @@ export async function isDeletion(call:{tool:string;args:any;target?:string|null}
  return deletingTool.test(call.tool);
 }
 
+export const SAFE_AUTO_APPROVE_TOOLS=new Set<string>([
+ 'write_shared_memory',
+ 'gtasks_create_task',
+ 'gtasks_complete_task',
+]);
+
 // Whether a pending approval can be granted without the owner: a tool marked "Aprovar sempre", or the agent's mode.
 export async function autoApproval(agentId:string,call:{tool:string;args:any;target?:string|null}):Promise<'always'|'mode'|null>{
  const a=await one('SELECT approval_mode,auto_approve FROM agents WHERE id=$1',[agentId]);if(!a)return null;
  if((a.auto_approve||[]).some((r:any)=>r.tool===call.tool))return 'always';
  if(a.approval_mode==='yolo')return 'mode';
- // Safe mode auto-approves non-deletions, including shell commands and saved recipes.
- // Explicit always/full rules above still win; shell detection has the limitations noted above.
- if(a.approval_mode==='safe'&&!await isDeletion(call))return 'mode';
+ if(a.approval_mode==='safe'){
+  if(call.tool==='pc_run'||call.tool==='pc_recipe'||call.tool==='pc_request_access')return null;
+  if(call.target?.toLowerCase().includes('computador'))return null;
+  if(SAFE_AUTO_APPROVE_TOOLS.has(call.tool)&&!await isDeletion(call))return 'mode';
+ }
  return null;
 }

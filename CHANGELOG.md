@@ -5,6 +5,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.30.18] - 2026-11-05
+
+### Segurança
+- Rate limit da API classifica o teto (120/1200) por sessão efetivamente validada, não pela mera presença do cookie; requisições com cookie ausente, inválido ou expirado recebem teto anônimo (CELL-01).
+- Grants de pastas do computador validam caminhos canônicos com `fs.realpath` e barram acessos através de symlinks/junctions apontando para fora da pasta autorizada em todas as ferramentas (`pc_read`, `pc_list`, `pc_write`, `pc_edit`, `pc_import`, `pc_move`, `pc_rename`, `pc_delete`), além de validação canônica em `contained` no workspace (CELL-03).
+- Modo de aprovação reduzida (`safe`) restringe autoaprovação a uma allowlist estrita de capacidades comprovadamente seguras; comandos no computador (`pc_run`), receitas (`pc_recipe`), concessão de pastas (`pc_request_access`) e operações em pastas do host sempre exigem aprovação explícita (CELL-04).
+- Isolamento de credenciais e limites de recursos em contêineres: worker isolado das variáveis exclusivas da API; limites de memória, CPU e PIDs configurados no compose; teto de parsing e buffers em extração de documentos DOCX/XLSX (CELL-02, CELL-07).
+- Dependências vulneráveis atualizadas via overrides (`image-size` 2.0.4 contra DoS e `uuid` 11.1.1), eliminando todas as vulnerabilidades relatadas no `npm audit` (CELL-05).
+- Cancelamento e revogação em tempo real: propagação de `AbortSignal` às ferramentas de execução e checagem em tempo real do switch de comandos antes de `pc_run` e receitas (CELL-06).
+- Resolução de `clientIp` endurecida: cabeçalhos `X-Forwarded-For` e `CF-Connecting-IP` só são aceitos quando a conexão direta provém de proxies autorizados ou com segredo de túnel válido (CELL-08).
+- Eliminação de efeitos colaterais em métodos GET (`/api/sections` e `/api/conversations/:id`); criação do endpoint dedicado `POST /api/conversations/:id/seen`; expiração e consumo atômico (uso único) de estados OAuth; e redação de parâmetros sensíveis (`code` e `state`) dos logs de requisição (CELL-09).
+
 ### Adicionado
 - Licença MIT (`LICENSE`), citada no README.
 - README: diagrama da comunicação (app → Cloudflare → Docker → Host Windows/Linux) em `docs/arquitetura.svg` e instalação detalhada para Windows e Linux, com comandos equivalentes no Linux para pastas, comandos por SSH, certificado, Cloudflare Tunnel, atualização e senha.

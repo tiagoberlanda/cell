@@ -51,7 +51,7 @@ async function processRun(id:string){
      }
      if(abort.signal.aborted)return;
      await query("UPDATE tool_calls SET status='executing' WHERE id=$1",[call.id]);await event('tool',{runId:id,tool:call.tool,status:'running'});
-     try{const result=await tool.execute(call.args,{...run,callId:call.id},cfg);if(tool.name==='delegate'){await query("UPDATE tool_calls SET status='waiting_child',result=$2 WHERE id=$1",[call.id,result]);await setState(id,'waiting_agent');return;}await finishCall(call,result,context);}
+     try{const result=await tool.execute(call.args,{...run,callId:call.id,signal:abort.signal},cfg);if(tool.name==='delegate'){await query("UPDATE tool_calls SET status='waiting_child',result=$2 WHERE id=$1",[call.id,result]);await setState(id,'waiting_agent');return;}await finishCall(call,result,context);}
      catch(e){if(call.external_write&&call.tool!=='pc_request_access'&&!(e instanceof McpToolError)){await query("UPDATE tool_calls SET status='uncertain',result=$2 WHERE id=$1",[call.id,safeError(e)]);await query("UPDATE approvals SET status='pending' WHERE call_id=$1",[call.id]);await setState(id,'waiting_approval','Falha externa: confirme o resultado no serviço antes de repetir.');return;}await finishCall(call,`Erro: ${safeError(e)}`,context,'error');}
     }
     if(abort.signal.aborted)return;

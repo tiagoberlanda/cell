@@ -20,12 +20,14 @@ const types:Record<string,string>={'.txt':'text/plain','.md':'text/markdown','.c
 // Text of a document by extension (txt, md, csv, json, pdf, docx); null for formats without text.
 export async function extractText(name:string,data:Buffer):Promise<{text:string;warning:string}|null>{
  const ext=path.extname(name).toLowerCase();let text='',warning='';
+ if(data.length>15*1024*1024)return {text:'',warning:'Arquivo grande demais para extrair texto (limite de 15 MB).'};
  if(['.txt','.md','.csv','.json'].includes(ext))text=data.toString('utf8');
  else if(ext==='.pdf'){try{text=await pdfText(data,100);if(!text.trim())warning='PDF sem texto extraível. OCR não está incluído.';}catch{warning='Não foi possível extrair o texto deste PDF.';}}
  else if(ext==='.docx'){try{text=(await mammoth.extractRawText({buffer:data})).value;}catch{warning='Não foi possível extrair o texto deste DOCX.';}}
  // Spreadsheets as text: one section per sheet, cells separated by ";" (formulas show their computed value when saved).
- else if(ext==='.xlsx'){try{const wb=new ExcelJS.Workbook();await wb.xlsx.load(data as any);text=wb.worksheets.map(ws=>{const rows:string[]=[];ws.eachRow(r=>{rows.push((r.values as any[]).slice(1).map(v=>v&&typeof v==='object'?('result' in v&&v.result!==undefined?v.result:'formula' in v?'='+v.formula:'text' in v?v.text:v instanceof Date?v.toISOString().slice(0,10):''):v??'').join(';'));});return `## ${ws.name}\n${rows.join('\n')}`;}).join('\n\n');}catch{warning='Não foi possível ler esta planilha.';}}
+ else if(ext==='.xlsx'){try{const wb=new ExcelJS.Workbook();await wb.xlsx.load(data as any);text=wb.worksheets.slice(0,20).map(ws=>{const rows:string[]=[];let count=0;ws.eachRow(r=>{if(count++<5000)rows.push((r.values as any[]).slice(1,100).map(v=>v&&typeof v==='object'?('result' in v&&v.result!==undefined?v.result:'formula' in v?'='+v.formula:'text' in v?v.text:v instanceof Date?v.toISOString().slice(0,10):''):v??'').join(';'));});return `## ${ws.name}\n${rows.join('\n')}`;}).join('\n\n');}catch{warning='Não foi possível ler esta planilha.';}}
  else return null;
+ if(text.length>100000){text=text.slice(0,100000);warning='Texto limitado aos primeiros 100 mil caracteres.';}
  return {text,warning};
 }
 // Canonical links for tool results: host paths are not browser download URLs.

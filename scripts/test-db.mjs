@@ -2,7 +2,8 @@
 // Usage: npm run test:db
 import { spawnSync } from 'node:child_process';
 const name = `cell-test-${process.pid}`, port = 55400 + (process.pid % 90);
-const docker = (...args) => spawnSync('docker', args, { encoding: 'utf8' });
+const useWsl = process.platform === 'win32' && spawnSync('docker', ['info']).status !== 0;
+const docker = (...args) => useWsl ? spawnSync('wsl', ['docker', ...args], { encoding: 'utf8' }) : spawnSync('docker', args, { encoding: 'utf8' });
 const started = docker('run', '-d', '--rm', '--name', name, '-e', 'POSTGRES_USER=cell', '-e', 'POSTGRES_PASSWORD=cell-test-only', '-e', 'POSTGRES_DB=cell_test', '-p', `127.0.0.1:${port}:5432`, 'postgres:17-alpine');
 if (started.status !== 0) { console.error(started.stderr); process.exit(1); }
 let status = 1;

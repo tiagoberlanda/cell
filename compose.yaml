@@ -3,6 +3,12 @@ services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+          pids: 100
     environment:
       POSTGRES_USER: cell
       POSTGRES_DB: cell
@@ -18,6 +24,12 @@ services:
     image: cell-server:${CELL_VERSION:-dev}
     build: {context: ., target: server, args: {CELL_VERSION: "${CELL_VERSION:-dev}"}}
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+          pids: 200
     # Docker Desktop defines host.docker.internal; on Linux (Docker Engine) it has to be mapped to the host.
     extra_hosts: &host-gateway ["host.docker.internal:host-gateway"]
     environment: &server-env
@@ -49,9 +61,23 @@ services:
     image: cell-server:${CELL_VERSION:-dev}
     build: {context: ., target: server, args: {CELL_VERSION: "${CELL_VERSION:-dev}"}}
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+          pids: 300
     command: ["node", "--import", "tsx", "apps/server/src/worker.ts"]
     extra_hosts: *host-gateway
-    environment: *server-env
+    environment:
+      DATABASE_URL: postgres://cell:${POSTGRES_PASSWORD}@db:5432/cell
+      SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY}
+      NINEROUTER_BASE_URL: ${NINEROUTER_BASE_URL:-http://host.docker.internal:20128/v1}
+      NINEROUTER_API_KEY: ${NINEROUTER_API_KEY:-}
+      NINEROUTER_DEFAULT_MODEL: ${NINEROUTER_DEFAULT_MODEL:-}
+      WORKSPACE_PATH: /data
+      CELL_HOST_URL: ${CELL_HOST_URL:-}
+      CELL_HOST_TOKEN: ${CELL_HOST_TOKEN:-}
     volumes: ["workspace:/data"]
     depends_on:
       api: {condition: service_healthy}
@@ -59,6 +85,12 @@ services:
     image: cell-web:${CELL_VERSION:-dev}
     build: {context: ., target: web, args: {CELL_VERSION: "${CELL_VERSION:-dev}"}}
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+          pids: 100
     environment:
       CELL_HOST: ${CELL_HOST:-localhost}
       CELL_DEFAULT_SNI: ${CELL_DEFAULT_SNI:-localhost}

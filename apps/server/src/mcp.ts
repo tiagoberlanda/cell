@@ -29,7 +29,7 @@ export async function mcpClient(connection:any){
  const headers=connection.auth?decrypt<Record<string,string>>(connection.auth):{};
  const oauth=connection.oauth?decrypt<any>(connection.oauth):{};
  const save=()=>query('UPDATE connections SET oauth=$1 WHERE id=$2 AND url=$3',[encrypt(oauth),connection.id,connection.url]).then(()=>{});
- if(!oauth.state){oauth.state=oauth.fixedRedirect?newState(connection.id):randomBytes(32).toString('hex');await save();}
+ if(!oauth.state){oauth.state=oauth.fixedRedirect?newState(connection.id):randomBytes(32).toString('hex');oauth.state_expires_at=Date.now()+15*60*1000;await save();}
  const transport=new StreamableHTTPClientTransport(new URL(validateEndpoint(connection.url)),{requestInit:{headers},authProvider:oauthProvider(connection,oauth,save)});
  const client=new Client({name:'cell',version:'0.1.0'},{capabilities:{}});
  try{await client.connect(transport);return {client,transport};}catch(e){await client.close().catch(()=>{});throw e;}

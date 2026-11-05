@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readdir,stat,rename,mkdir,readFile,cp,rm,writeFile } from 'node:fs/promises';
+import { readdir,stat,rename,mkdir,readFile,cp,rm,writeFile,realpath,lstat } from 'node:fs/promises';
 import { z } from 'zod';
 import { one,query } from './db.js';
 import { extractText,saveFile,fileData } from './files.js';
@@ -26,10 +26,42 @@ const toHost=(p:{drive:string;parts:string[]})=>path.posix.join(root(),p.drive.t
 const inside=(grant:{drive:string;parts:string[]},p:{drive:string;parts:string[]})=>grant.drive===p.drive&&grant.parts.length<=p.parts.length&&grant.parts.every((s,i)=>s.toLowerCase()===p.parts[i].toLowerCase());
 
 export async function mountedDrives(){try{return (await readdir(root())).filter(d=>/^[a-z]$/.test(d)).map(d=>d.toUpperCase()).sort();}catch{return [];}}
+export async function assertCanonicalGrant(grant:{drive:string;parts:string[]},target:{drive:string;parts:string[]}){
+ const grantHost=toHost(grant);
+ const canonicalGrant=await realpath(grantHost).catch(()=>path.resolve(grantHost));
+ const targetHost=toHost(target);
+ const st=await lstat(targetHost).catch(()=>null);
+ if(st){
+  const canonicalTarget=await realpath(targetHost).catch(()=>null);
+  if(!canonicalTarget)throw new Error(`Acesso negado: link simbólico inválido para ${formatWindowsPath(target)}.`);
+  const rel=path.relative(canonicalGrant,canonicalTarget);
+  if(rel.startsWith('..')||path.isAbsolute(rel))throw new Error(`Acesso negado: o caminho aponta para fora da pasta autorizada: ${formatWindowsPath(target)}.`);
+ }else{
+  let cur=path.dirname(targetHost);
+  const rootHost=path.resolve(root());
+  while(cur&&cur!=='.'&&cur!=='/'&&cur!==rootHost){
+   const parentSt=await lstat(cur).catch(()=>null);
+   if(parentSt){
+    const canonicalParent=await realpath(cur).catch(()=>null);
+    if(!canonicalParent)throw new Error('Acesso negado: pasta não encontrada.');
+    const rel=path.relative(canonicalGrant,canonicalParent);
+    if(rel.startsWith('..')||path.isAbsolute(rel))throw new Error(`Acesso negado: o caminho aponta para fora da pasta autorizada: ${formatWindowsPath(target)}.`);
+    break;
+   }
+   cur=path.dirname(cur);
+  }
+ }
+}
 async function grantFor(agentId:string,input:string){
  const p=parseWindowsPath(input);
- for(const g of await query('SELECT path FROM host_grants WHERE agent_id=$1',[agentId]))if(inside(parseWindowsPath(g.path),p))return p;
- throw new Error(`Sem acesso a ${formatWindowsPath(p)}. Peça acesso à pasta com pc_request_access e aguarde a aprovação.`);
+ let matched:any=null;
+ for(const g of await query('SELECT path FROM host_grants WHERE agent_id=$1',[agentId])){
+  const gp=parseWindowsPath(g.path);
+  if(inside(gp,p)){matched=gp;break;}
+ }
+ if(!matched)throw new Error(`Sem acesso a ${formatWindowsPath(p)}. Peça acesso à pasta com pc_request_access e aguarde a aprovação.`);
+ await assertCanonicalGrant(matched,p);
+ return p;
 }
 const exists=(file:string)=>stat(file).then(()=>true,()=>false);
 async function moveItem(from:string,to:string){
@@ -47,7 +79,13 @@ async function recordOp(r:any,kind:string,items:any[]){
  await query('INSERT INTO file_ops(call_id,agent_id,kind,items) VALUES($1,$2,$3,$4) ON CONFLICT(call_id) DO UPDATE SET items=file_ops.items||$4',[r.callId,r.agent_id||null,kind,JSON.stringify(items)]);
 }
 async function grantRoot(agentId:string,p:{drive:string;parts:string[]}){
- for(const g of await query('SELECT path FROM host_grants WHERE agent_id=$1',[agentId])){const gp=parseWindowsPath(g.path);if(inside(gp,p))return gp;}
+ for(const g of await query('SELECT path FROM host_grants WHERE agent_id=$1',[agentId])){
+  const gp=parseWindowsPath(g.path);
+  if(inside(gp,p)){
+   await assertCanonicalGrant(gp,p);
+   return gp;
+  }
+ }
  throw new Error(`Sem acesso a ${formatWindowsPath(p)}.`);
 }
 async function toTrash(agentId:string,p:{drive:string;parts:string[]}){
@@ -137,8 +175,14 @@ export function hostFileTools():Tool[]{
     const entries:any[]=[];let truncated=false;
     const walk=async(dir:string,rel:string[],depth:number)=>{
      let items;try{items=await readdir(dir,{withFileTypes:true});}catch{throw new Error(`Pasta não encontrada: ${formatWindowsPath({drive:p.drive,parts:[...p.parts,...rel]})}.`);}
+     const canonicalGrant=await realpath(toHost(p)).catch(()=>path.resolve(toHost(p)));
      for(const it of items){if(blocked(it.name))continue;if(entries.length>=(x.recursive?2000:300)){truncated=true;return;}
-      const full=path.posix.join(dir,it.name),info=await stat(full).catch(()=>null);if(!info)continue;
+      const full=path.posix.join(dir,it.name);
+      const realItem=await realpath(full).catch(()=>null);
+      if(!realItem)continue;
+      const relCan=path.relative(canonicalGrant,realItem);
+      if(relCan.startsWith('..')||path.isAbsolute(relCan))continue;
+      const info=await stat(full).catch(()=>null);if(!info)continue;
       entries.push({path:[...rel,it.name].join('\\'),type:it.isDirectory()?'pasta':'arquivo',...(it.isDirectory()?{}:{size:info.size}),modified:info.mtime.toISOString().slice(0,16)});
       if(x.recursive&&it.isDirectory()&&depth<5)await walk(full,[...rel,it.name],depth+1);}
     };
@@ -157,7 +201,11 @@ export function hostFileTools():Tool[]{
     for(const m of x.moves){try{
      const from=await grantFor(r.agent_id,m.from),to=await grantFor(r.agent_id,m.to);const src=toHost(from);if(!await exists(src))throw new Error('origem não encontrada');
      let dest=toHost(to),final=to;const target=await stat(dest).catch(()=>null);
-     if(target?.isDirectory()){final={drive:to.drive,parts:[...to.parts,from.parts.at(-1)!]};dest=toHost(final);}
+     if(target?.isDirectory()){
+      final={drive:to.drive,parts:[...to.parts,from.parts.at(-1)!]};dest=toHost(final);
+      const toRow=(await query('SELECT path FROM host_grants WHERE agent_id=$1',[r.agent_id])).find(g=>inside(parseWindowsPath(g.path),final));
+      if(toRow)await assertCanonicalGrant(parseWindowsPath(toRow.path),final);
+     }
      if(inside(from,final)&&from.parts.length<final.parts.length)throw new Error('não dá para mover uma pasta para dentro dela mesma');
      if(await exists(dest))throw new Error('já existe um item com esse nome no destino');
      await mkdir(path.posix.dirname(dest),{recursive:true});await moveItem(src,dest);results.push({from:formatWindowsPath(from),to:formatWindowsPath(final),ok:true});
@@ -168,6 +216,8 @@ export function hostFileTools():Tool[]{
    execute:async(a,r)=>{const x=z.object({path:z.string().min(2).max(500),newName:z.string().trim().min(1).max(200).refine(n=>!/[\\/:*?"<>|]/.test(n)&&!blocked(n),'Nome inválido.')}).parse(a);
     const p=await grantFor(r.agent_id,x.path);if(!p.parts.length)throw new Error('Não é possível renomear um disco.');const src=toHost(p);if(!await exists(src))throw new Error(`Item não encontrado: ${formatWindowsPath(p)}.`);
     const next={drive:p.drive,parts:[...p.parts.slice(0,-1),x.newName]},dest=toHost(next);
+    const gRow=(await query('SELECT path FROM host_grants WHERE agent_id=$1',[r.agent_id])).find(g=>inside(parseWindowsPath(g.path),next));
+    if(gRow)await assertCanonicalGrant(parseWindowsPath(gRow.path),next);
     if(await exists(dest)&&x.newName.toLowerCase()!==p.parts.at(-1)!.toLowerCase())throw new Error('Já existe um item com esse nome.');
     await rename(src,dest);await recordOp(r,'rename',[{from:formatWindowsPath(p),to:formatWindowsPath(next)}]);return JSON.stringify({renamed:formatWindowsPath(p),to:formatWindowsPath(next)});}},
   {name:'pc_mkdir',description:'Cria uma pasta (e as pastas intermediárias) dentro de uma pasta liberada.',parameters:object({path:pathArg},['path']),write:true,target:'Pastas do computador',
